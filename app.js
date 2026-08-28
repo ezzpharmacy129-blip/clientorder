@@ -210,3 +210,17 @@ document.addEventListener("DOMContentLoaded",()=>{initNav();initModals();initOrd
  document.getElementById("import-data-file")?.addEventListener("change",e=>importLegacyData(e.target.files?.[0]));
  
  document.getElementById("dashboard-results-search")?.addEventListener("input",()=>renderDashboardResults());document.getElementById("dashboard-contact-filter")?.addEventListener("change",()=>renderDashboardResults());document.getElementById("dashboard-results-close")?.addEventListener("click",()=>{dashboardFilterKey=null;closeDashboardResults();renderDashboardCards(window.dashboardStats||{})});document.getElementById("dashboard-search").oninput=e=>{clearTimeout(window._s);window._s=setTimeout(()=>loadFollowups(e.target.value.trim()),250)};document.getElementById("refresh-shortages-btn")?.addEventListener("click",loadShortages);document.getElementById("shortages-select-all")?.addEventListener("click",()=>selectAllShortages(true));document.getElementById("shortages-clear-all")?.addEventListener("click",()=>selectAllShortages(false));document.getElementById("shortages-mode")?.addEventListener("change",updateShortageMessage);document.getElementById("copy-shortages-btn")?.addEventListener("click",copyShortages);document.getElementById("open-wa-group-btn")?.addEventListener("click",openShortagesWhatsApp);document.getElementById("refresh-wa-customers-btn")?.addEventListener("click",loadWaCustomers);document.getElementById("message-templates-save")?.addEventListener("click",saveMessageTemplates);document.getElementById("message-templates-reset")?.addEventListener("click",resetMessageTemplates);loadDashboard()});
+
+
+// postrollback_export_button_v1
+document.addEventListener("DOMContentLoaded", function(){
+  const b = document.getElementById("export-postrollback-btn");
+  if (!b) return;
+  b.addEventListener("click", function(){
+    b.disabled = true;
+    const old = b.textContent;
+    b.textContent = "جاري الاستخراج...";
+    window.location.href = "/api/data/export-postrollback";
+    setTimeout(function(){ b.disabled = false; b.textContent = old; }, 2500);
+  });
+});
