@@ -14,21 +14,19 @@ ATTEMPTS = defaultdict(deque)
 WINDOW = 600
 MAX_ATTEMPTS = 5
 
-# Arabic keyboard-layout equivalents for the Latin keys used by the login credentials.
-# This allows users to type with the Arabic keyboard active without changing the OS language.
+# Arabic keyboard-layout equivalents for Latin keys used in login credentials.
 _ARABIC_KEYBOARD_TO_LATIN = str.maketrans({
     "ذ":"`", "ض":"q", "ص":"w", "ث":"e", "ق":"r", "ف":"t", "غ":"y", "ع":"u", "ه":"i", "خ":"o", "ح":"p",
     "ج":"[", "د":"]", "ش":"a", "س":"s", "ي":"d", "ب":"f", "ل":"g", "ا":"h", "ت":"j", "ن":"k", "م":"l", "ك":";",
-    "ط":"'", "ئ":"z", "ء":"x", "ؤ":"c", "ر":"v", "لا":"b", "ى":"n", "ة":"m", "و":",", "ز":".", "ظ":"/",
+    "ط":"'", "ئ":"z", "ء":"x", "ؤ":"c", "ر":"v", "ى":"n", "ة":"m", "و":",", "ز":".", "ظ":"/",
     "٠":"0", "١":"1", "٢":"2", "٣":"3", "٤":"4", "٥":"5", "٦":"6", "٧":"7", "٨":"8", "٩":"9",
     "۰":"0", "۱":"1", "۲":"2", "۳":"3", "۴":"4", "۵":"5", "۶":"6", "۷":"7", "۸":"8", "۹":"9",
 })
 
 
 def _normalize_login_input(value):
-    """Accept Arabic/English keyboard input for the same login credential."""
     value = str(value or "")
-    # The multi-character Arabic ligature needs explicit replacement first.
+    # The Arabic presentation of "لا" is two characters; replace before the one-character translate table.
     value = value.replace("لا", "b")
     return value.translate(_ARABIC_KEYBOARD_TO_LATIN)
 
