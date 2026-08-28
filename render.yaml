@@ -9,7 +9,7 @@ services:
       - key: DATABASE_URL
         sync: false
       - key: AUTH_USERNAME
-        sync: false
+        value: admin
       - key: AUTH_PASSWORD_HASH
         sync: false
       - key: SECRET_KEY
