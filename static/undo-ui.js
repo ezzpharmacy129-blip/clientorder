@@ -8,6 +8,43 @@
     if(el && el.dataset.id) lastOrderId = el.dataset.id;
   }
 
+  async function addGeneralAvailabilityControls(orderId){
+    const body = document.getElementById('modal-body');
+    const modal = document.getElementById('order-modal');
+    if(!body || !modal || modal.classList.contains('hidden') || !orderId) return;
+
+    const old = body.querySelector('[data-availability-ui]');
+    if(old) old.remove();
+
+    const box = document.createElement('div');
+    box.setAttribute('data-availability-ui','1');
+    box.style.cssText='margin:12px 0;padding:12px;border:1px solid #cfd8e3;background:#f7fafc;border-radius:12px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;';
+
+    const copy = document.createElement('div');
+    copy.style.cssText='display:flex;flex-direction:column;gap:3px;';
+    const title = document.createElement('strong');
+    title.textContent='حالة توفر الطلب';
+    const hint = document.createElement('span');
+    hint.textContent='يمكن تغيير الحالة في أي اتجاه، للطلبات القديمة والجديدة.';
+    hint.style.cssText='font-size:12px;color:#667085;';
+    copy.appendChild(title); copy.appendChild(hint);
+
+    const actions = document.createElement('div');
+    actions.style.cssText='display:flex;gap:8px;flex-wrap:wrap;';
+    const manage = document.createElement('button');
+    manage.type='button';
+    manage.className='btn btn-primary btn-sm';
+    manage.textContent='🔄 إدارة حالة التوفر';
+    manage.addEventListener('click', function(){
+      if(typeof window.openAvailability === 'function') window.openAvailability(orderId);
+      else if(typeof window.available === 'function') window.available(orderId);
+    });
+    actions.appendChild(manage);
+
+    box.appendChild(copy); box.appendChild(actions);
+    body.insertBefore(box, body.firstChild);
+  }
+
   async function refreshUndoButton(orderId){
     const body = document.getElementById('modal-body');
     const modal = document.getElementById('order-modal');
@@ -42,7 +79,7 @@
           if(!rr.ok) throw new Error(dd.error || 'تعذر التراجع');
           if(typeof window.toast==='function') window.toast('تم التراجع عن آخر إجراء بنجاح');
           if(typeof window.details==='function') await window.details(orderId);
-          setTimeout(function(){refreshUndoButton(orderId)},50);
+          setTimeout(function(){addGeneralAvailabilityControls(orderId);refreshUndoButton(orderId)},80);
           if(typeof window.refresh==='function') window.refresh();
         }catch(e){
           btn.disabled=false;
@@ -51,25 +88,32 @@
         }
       });
       box.appendChild(text); box.appendChild(btn);
-      body.insertBefore(box, body.firstChild);
-    }catch(e){ /* Keep the existing details view usable even if the optional undo UI fails. */ }
+      body.appendChild(box);
+    }catch(e){ }
   }
 
   function install(){
     if(installed) return; installed=true;
+
     document.addEventListener('click', function(e){
       rememberFromTarget(e.target);
       const detailsBtn = e.target.closest && e.target.closest('[data-id]');
-      if(detailsBtn && /details|detail|تفاصيل/i.test((detailsBtn.textContent||'').trim())){
+      if(detailsBtn && /details|detail|التفاصيل/i.test((detailsBtn.textContent||'').trim())){
         const id=detailsBtn.dataset.id;
-        if(id){ lastOrderId=id; setTimeout(function(){refreshUndoButton(id)},120); }
+        if(id){
+          lastOrderId=id;
+          setTimeout(function(){addGeneralAvailabilityControls(id);refreshUndoButton(id)},120);
+        }
       }
     }, true);
 
     const modal=document.getElementById('order-modal');
     if(modal){
       new MutationObserver(function(){
-        if(lastOrderId) refreshUndoButton(lastOrderId);
+        if(lastOrderId){
+          addGeneralAvailabilityControls(lastOrderId);
+          refreshUndoButton(lastOrderId);
+        }
       }).observe(modal,{subtree:true,childList:true,attributes:true,attributeFilter:['class']});
     }
 
@@ -78,7 +122,7 @@
       const wrapped = async function(id){
         lastOrderId=id;
         const result = await originalDetails.apply(this, arguments);
-        setTimeout(function(){refreshUndoButton(id)},80);
+        setTimeout(function(){addGeneralAvailabilityControls(id);refreshUndoButton(id)},100);
         return result;
       };
       wrapped.__undoWrapped=true;
