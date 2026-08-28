@@ -53,6 +53,8 @@ def _login_page(error=""):
 def post_worker_init(worker):
     app = worker.wsgi
     if getattr(app, "_ezz_auth_installed", False):
+        # Still ensure the export route is present when auth was installed by sitecustomize.
+        _install_export_route(app)
         return
     app._ezz_auth_installed = True
     app.config.update(
@@ -114,3 +116,64 @@ def post_worker_init(worker):
         return response
 
     app.after_request_funcs.setdefault(None, []).insert(0, _headers)
+    _install_export_route(app)
+
+
+def _install_export_route(app):
+    """Register a protected, read-only Excel export endpoint on the actual Flask app."""
+    if "export_current_xlsx_direct" in app.view_functions:
+        return
+    from io import BytesIO
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    from openpyxl import Workbook
+    from db import db, ORDERS_HEADERS, ITEM_HEADERS, LOG_HEADERS, UNDO_HEADERS
+
+    @app.get("/api/data/export-xlsx", endpoint="export_current_xlsx_direct")
+    def export_current_xlsx_direct():
+        if not session.get("authenticated") and not session.get("user_id"):
+            return jsonify({"error": "تسجيل الدخول مطلوب", "authenticated": False}), 401
+        try:
+            orders = db.get_all_orders()
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Orders"
+            ws.append(ORDERS_HEADERS)
+            for order in orders:
+                ws.append([order.get(k, "") for k in ORDERS_HEADERS])
+
+            wi = wb.create_sheet("Order_Items")
+            wi.append(ITEM_HEADERS)
+            for order in orders:
+                for item in order.get("Items", []) or []:
+                    wi.append([item.get(k, "") for k in ITEM_HEADERS])
+
+            wl = wb.create_sheet("Activity_Log")
+            wl.append(LOG_HEADERS)
+            try:
+                for row in db.get_activity_log():
+                    wl.append([row.get(k, "") for k in LOG_HEADERS])
+            except Exception:
+                pass
+
+            wu = wb.create_sheet("Undo_History")
+            wu.append(UNDO_HEADERS)
+            try:
+                for row in getattr(db, "get_all_undo_history", lambda: [])():
+                    wu.append([row.get(k, "") for k in UNDO_HEADERS])
+            except Exception:
+                pass
+
+            for sheet in wb.worksheets:
+                sheet.freeze_panes = "A2"
+                for cell in sheet[1]:
+                    cell.font = cell.font.copy(bold=True)
+
+            buf = BytesIO()
+            wb.save(buf)
+            wb.close()
+            buf.seek(0)
+            stamp = datetime.now(ZoneInfo("Asia/Riyadh")).strftime("%Y-%m-%d_%H%M%S")
+            return send_file(buf, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", as_attachment=True, download_name=f"Ezz_Pharmacy_Backup_{stamp}.xlsx")
+        except Exception as exc:
+            return jsonify({"error": f"تعذر تصدير البيانات: {exc}"}), 500
