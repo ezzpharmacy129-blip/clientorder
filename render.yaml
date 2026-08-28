@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: ezz-pharmacy-cloud
+    name: ezz-pharmacy-secure
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
