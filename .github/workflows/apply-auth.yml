@@ -1,0 +1,165 @@
+name: Install production authentication
+
+on:
+  push:
+    branches: [main]
+
+auto_commit: true
+
+jobs:
+  protect-app:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install authentication directly into app.py
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("app.py")
+          text = path.read_text(encoding="utf-8")
+          marker = "# === EZZ PHARMACY AUTHENTICATION v1 ==="
+          if marker in text:
+              print("Authentication already installed.")
+              raise SystemExit(0)
+
+          block = r'''
+
+# === EZZ PHARMACY AUTHENTICATION v1 ===
+# Single-user protection for production. All pages and /api endpoints require a session.
+import base64 as _auth_base64
+import hashlib as _auth_hashlib
+import hmac as _auth_hmac
+import html as _auth_html
+import time as _auth_time
+from collections import defaultdict as _auth_defaultdict, deque as _auth_deque
+from flask import session as _auth_session, redirect as _auth_redirect, url_for as _auth_url_for
+
+_AUTH_USERNAME = os.environ.get("AUTH_USERNAME", "admin")
+_AUTH_PASSWORD_HASH = os.environ.get("AUTH_PASSWORD_HASH", "")
+_AUTH_ATTEMPTS = _auth_defaultdict(_auth_deque)
+_AUTH_WINDOW = 10 * 60
+_AUTH_MAX_ATTEMPTS = 5
+
+
+def _auth_verify_password(password):
+    try:
+        method, iterations_s, salt_s, digest_s = _AUTH_PASSWORD_HASH.split("$", 3)
+        if method != "pbkdf2_sha256":
+            return False
+        iterations = int(iterations_s)
+        salt = _auth_base64.urlsafe_b64decode(salt_s + "=" * (-len(salt_s) % 4))
+        expected = _auth_base64.urlsafe_b64decode(digest_s + "=" * (-len(digest_s) % 4))
+        actual = _auth_hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
+        return _auth_hmac.compare_digest(actual, expected)
+    except Exception:
+        return False
+
+
+def _auth_login_page(error=""):
+    error_html = f'<div class="error">{_auth_html.escape(error)}</div>' if error else ""
+    return f'''<!doctype html>
+<html lang="ar" dir="rtl"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>تسجيل الدخول - صيدلية عز الصحة</title>
+<style>
+*{{box-sizing:border-box}}body{{margin:0;min-height:100vh;display:grid;place-items:center;background:#f4f7fb;font-family:Tahoma,Arial,sans-serif;color:#18324a}}
+.card{{width:min(420px,92vw);background:#fff;border-radius:22px;padding:30px;box-shadow:0 18px 60px rgba(20,50,80,.14);border:1px solid #e6edf4}}
+.logo{{width:72px;height:72px;border-radius:18px;display:block;margin:0 auto 18px;object-fit:contain}}
+h1{{font-size:23px;text-align:center;margin:0 0 6px}}p{{text-align:center;color:#6b7b8c;margin:0 0 24px}}
+label{{display:block;font-weight:700;margin:14px 0 7px}}input{{width:100%;padding:13px 14px;border:1px solid #ccd7e2;border-radius:12px;font-size:16px;outline:none}}
+button{{width:100%;margin-top:20px;border:0;border-radius:12px;padding:13px;background:#1e6f95;color:#fff;font-size:16px;font-weight:700;cursor:pointer}}
+.error{{background:#fff0f0;color:#a62b2b;border:1px solid #f3c6c6;padding:10px 12px;border-radius:10px;margin-bottom:14px}}
+.small{{font-size:12px;color:#94a0ac;text-align:center;margin-top:18px}}
+</style></head><body>
+<div class="card"><img class="logo" src="/static/logo-mark.png" alt="شعار صيدلية عز الصحة">
+<h1>صيدلية عز الصحة</h1><p>تسجيل الدخول إلى نظام متابعة الطلبات</p>{error_html}
+<form method="post" action="/login"><label>اسم المستخدم</label><input name="username" autocomplete="username" required autofocus>
+<label>كلمة المرور</label><input name="password" type="password" autocomplete="current-password" required>
+<button type="submit">دخول</button></form>
+<div class="small">الوصول إلى النظام مخصص للمستخدم المصرح له فقط.</div></div></body></html>'''
+
+
+@app.route("/login", methods=["GET", "POST"])
+def _auth_login():
+    ip = request.headers.get("X-Forwarded-For", request.remote_addr or "unknown").split(",")[0].strip()
+    now = _auth_time.time()
+    q = _AUTH_ATTEMPTS[ip]
+    while q and now - q[0] > _AUTH_WINDOW:
+        q.popleft()
+    if request.method == "GET":
+        if _auth_session.get("authenticated"):
+            return _auth_redirect(_auth_url_for("index"))
+        return _auth_login_page()
+    if len(q) >= _AUTH_MAX_ATTEMPTS:
+        return _auth_login_page("تم تجاوز عدد المحاولات المسموح بها. حاول لاحقًا."), 429
+    q.append(now)
+    username = str(request.form.get("username") or "").strip()
+    password = str(request.form.get("password") or "")
+    if username == _AUTH_USERNAME and _AUTH_PASSWORD_HASH and _auth_verify_password(password):
+        _auth_session.clear()
+        _auth_session.permanent = True
+        _auth_session["authenticated"] = True
+        _auth_session["username"] = _AUTH_USERNAME
+        return _auth_redirect(_auth_url_for("index"))
+    return _auth_login_page("اسم المستخدم أو كلمة المرور غير صحيحة."), 401
+
+
+@app.route("/logout", methods=["GET", "POST"])
+def _auth_logout():
+    _auth_session.clear()
+    return _auth_redirect(_auth_url_for("_auth_login"))
+
+
+@app.before_request
+def _require_authentication():
+    path = request.path
+    if path in ("/login", "/logout") or path.startswith("/static/"):
+        return None
+    if _auth_session.get("authenticated"):
+        return None
+    if path.startswith("/api/"):
+        return jsonify({"error": "تسجيل الدخول مطلوب", "authenticated": False}), 401
+    return _auth_redirect(_auth_url_for("_auth_login"))
+
+
+# Secure Flask session cookie settings.
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SECURE=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    PERMANENT_SESSION_LIFETIME=12 * 60 * 60,
+)
+if os.environ.get("SECRET_KEY"):
+    app.secret_key = os.environ["SECRET_KEY"]
+
+@app.after_request
+def _auth_security_headers(response):
+    response.headers.setdefault("Cache-Control", "no-store")
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    response.headers.setdefault("Referrer-Policy", "same-origin")
+    return response
+'''
+
+          path.write_text(text.rstrip() + block + "\n", encoding="utf-8")
+          print("Authentication block appended to app.py")
+
+      - name: Commit protection changes
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app.py
+          git commit -m "Protect app with single-user authentication"
+          git push
