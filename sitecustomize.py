@@ -1,6 +1,13 @@
 # -*- coding: utf-8 -*-
-"""Load authentication, security, availability and safe export extensions."""
+"""Load application extensions safely before Flask creates app:app."""
+import os
 import flask
+
+# Never let an unresolved Render Blueprint placeholder crash the app.
+# A real PostgreSQL URL must start with postgres:// or postgresql://.
+_raw_db_url = os.environ.get("DATABASE_URL", "").strip()
+if _raw_db_url and not (_raw_db_url.startswith("postgres://") or _raw_db_url.startswith("postgresql://")):
+    os.environ.pop("DATABASE_URL", None)
 
 _original_init = flask.Flask.__init__
 
