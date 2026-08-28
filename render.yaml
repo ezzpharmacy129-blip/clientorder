@@ -7,7 +7,9 @@ services:
     startCommand: python -m gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120
     envVars:
       - key: DATABASE_URL
-        sync: false
+        fromDatabase:
+          name: ezz-pharmacy-db
+          property: connectionString
       - key: SECRET_KEY
         sync: false
       - key: ADMIN_USERNAME
