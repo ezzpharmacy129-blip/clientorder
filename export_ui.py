@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Inject read-only recovery export button into the existing UI."""
-from flask import request, session
+from flask import request
 
 
 def install_export_ui(app):
@@ -16,10 +16,7 @@ def install_export_ui(app):
             if 'text/html' not in response.headers.get('Content-Type', ''):
                 return response
             html = response.get_data(as_text=True)
-            username = str(session.get('username', '')).lower()
-            role = str(session.get('role', '')).lower()
-            is_admin = username in {'admin', 'administrator'} or role in {'admin', 'administrator'}
-            if not is_admin or 'id="export-postrollback-btn"' in html:
+            if 'id="export-postrollback-btn"' in html:
                 return response
 
             script = r'''<script>(function(){function add(){if(document.getElementById('export-postrollback-btn'))return;var host=document.querySelector('#view-backups .backup-head-actions')||document.querySelector('#view-backups .panel-header')||document.getElementById('view-backups');if(!host)return;var b=document.createElement('button');b.id='export-postrollback-btn';b.type='button';b.className='btn btn-outline';b.textContent='🛟 استخراج بيانات ما قبل الـRollback';b.style.marginInlineStart='8px';b.addEventListener('click',function(){window.location.href='/api/data/export-postrollback';});host.appendChild(b);}if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',add);else add();setTimeout(add,500);setTimeout(add,1500);})();</script>'''
