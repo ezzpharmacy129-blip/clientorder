@@ -1,0 +1,48 @@
+name: Fix recovery export UI
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch-ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch index.html and app.js
+        shell: python
+        run: |
+          from pathlib import Path
+
+          index = Path("index.html")
+          text = index.read_text(encoding="utf-8")
+          marker = 'id="export-postrollback-btn"'
+          if marker not in text:
+              target = '<button class="btn btn-primary" id="create-backup-btn">'
+              button = '''{% if session.get('role') in ['admin','administrator'] or session.get('username') in ['admin','administrator'] %}<button class="btn btn-outline" id="export-postrollback-btn" type="button">🛟 استخراج بيانات ما قبل الـRollback</button>{% endif %}'''
+              if target not in text:
+                  raise SystemExit("Could not find create-backup-btn in index.html")
+              text = text.replace(target, button + target, 1)
+              index.write_text(text, encoding="utf-8")
+
+          js = Path("app.js")
+          jstext = js.read_text(encoding="utf-8")
+          js_marker = "postrollback_export_button_v1"
+          if js_marker not in jstext:
+              patch = '''\n\n// postrollback_export_button_v1\ndocument.addEventListener("DOMContentLoaded", function(){\n  const b = document.getElementById("export-postrollback-btn");\n  if (!b) return;\n  b.addEventListener("click", function(){\n    b.disabled = true;\n    const old = b.textContent;\n    b.textContent = "جاري الاستخراج...";\n    window.location.href = "/api/data/export-postrollback";\n    setTimeout(function(){ b.disabled = false; b.textContent = old; }, 2500);\n  });\n});\n'''
+              js.write_text(jstext + patch, encoding="utf-8")
+
+      - name: Commit UI patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html app.js
+          git diff --cached --quiet && exit 0
+          git commit -m "Place recovery export control in index and bind it in app.js"
+          git push
