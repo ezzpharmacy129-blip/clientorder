@@ -3,8 +3,6 @@
 import os
 import flask
 
-# Never let an unresolved Render Blueprint placeholder crash the app.
-# A real PostgreSQL URL must start with postgres:// or postgresql://.
 _raw_db_url = os.environ.get("DATABASE_URL", "").strip()
 if _raw_db_url and not (_raw_db_url.startswith("postgres://") or _raw_db_url.startswith("postgresql://")):
     os.environ.pop("DATABASE_URL", None)
@@ -20,6 +18,7 @@ def _protected_init(self, *args, **kwargs):
     from pending_availability_fix import install_pending_availability_fix
     from data_export import install_data_export
     from export_ui import install_export_ui
+    from postrollback_export import install_postrollback_export
     from db import db
     install_auth(self, db)
     install_security_extensions(self, db)
@@ -27,6 +26,7 @@ def _protected_init(self, *args, **kwargs):
     install_pending_availability_fix(db)
     install_data_export(self, db)
     install_export_ui(self)
+    install_postrollback_export(self)
 
 
 if not getattr(flask.Flask, "_ezz_auth_constructor_patched_v2", False):
