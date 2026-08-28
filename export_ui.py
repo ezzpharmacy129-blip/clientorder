@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Inject read-only Excel export buttons into the existing UI."""
+"""Inject read-only recovery export button into the existing UI."""
 from flask import request, session
 
 
@@ -13,28 +13,20 @@ def install_export_ui(app):
         try:
             if request.path != '/' or response.status_code != 200:
                 return response
-            content_type = response.headers.get('Content-Type', '')
-            if 'text/html' not in content_type:
+            if 'text/html' not in response.headers.get('Content-Type', ''):
                 return response
             html = response.get_data(as_text=True)
-
-            marker = 'id="create-backup-btn"'
-            if marker not in html:
-                return response
-
-            # Main current-data export button.
-            if 'id="export-current-data-btn"' not in html:
-                current_button = '''<button class="btn btn-outline" id="export-current-data-btn" type="button">📤 تصدير البيانات إلى Excel</button><script>(function(){var b=document.getElementById('export-current-data-btn');if(!b)return;b.addEventListener('click',function(){window.location.href='/api/data/export-xlsx';});})();</script>'''
-                html = html.replace('</div><div class="backup-notice">', current_button + '</div><div class="backup-notice">', 1)
-
-            # Admin-only recovery export from the PostgreSQL dataset that survived the rollback.
             username = str(session.get('username', '')).lower()
             role = str(session.get('role', '')).lower()
             is_admin = username in {'admin', 'administrator'} or role in {'admin', 'administrator'}
-            if is_admin and 'id="export-postrollback-btn"' not in html:
-                recovery_button = '''<button class="btn btn-outline" id="export-postrollback-btn" type="button">🛟 استخراج بيانات ما قبل الـRollback</button><script>(function(){var b=document.getElementById('export-postrollback-btn');if(!b)return;b.addEventListener('click',function(){window.location.href='/api/data/export-postrollback';});})();</script>'''
-                html = html.replace('</div><div class="backup-notice">', recovery_button + '</div><div class="backup-notice">', 1)
+            if not is_admin or 'id="export-postrollback-btn"' in html:
+                return response
 
+            script = r'''<script>(function(){function add(){if(document.getElementById('export-postrollback-btn'))return;var host=document.querySelector('#view-backups .backup-head-actions')||document.querySelector('#view-backups .panel-header')||document.getElementById('view-backups');if(!host)return;var b=document.createElement('button');b.id='export-postrollback-btn';b.type='button';b.className='btn btn-outline';b.textContent='🛟 استخراج بيانات ما قبل الـRollback';b.style.marginInlineStart='8px';b.addEventListener('click',function(){window.location.href='/api/data/export-postrollback';});host.appendChild(b);}if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',add);else add();setTimeout(add,500);setTimeout(add,1500);})();</script>'''
+            if '</body>' in html:
+                html = html.replace('</body>', script + '</body>', 1)
+            else:
+                html += script
             response.set_data(html)
             return response
         except Exception:
