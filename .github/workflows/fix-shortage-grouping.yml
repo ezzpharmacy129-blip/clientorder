@@ -1,0 +1,42 @@
+name: Fix shortage grouping
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Patch shortage item fallback
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('static/app.js')
+          s = p.read_text(encoding='utf-8')
+          marker = '/* EZZ SHORTAGE GROUPING FIX v1 */'
+          if marker in s:
+              print('Already patched')
+              raise SystemExit(0)
+          old = '(o.Shortage_Items||[])'
+          new = "(o.Shortage_Items||((o.Items||[]).filter(i=>i.Availability_Status==='بانتظار التوفر'))||[])"
+          if old not in s:
+              raise SystemExit('Expected shortage expression was not found')
+          s = s.replace(old, new)
+          s += '\n'+marker+'\n'
+          p.write_text(s, encoding='utf-8')
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add static/app.js
+          if git diff --cached --quiet; then
+            echo 'No changes'
+            exit 0
+          fi
+          git commit -m 'Fix WhatsApp shortage grouping by product'
+          git push
