@@ -14,6 +14,24 @@ ATTEMPTS = defaultdict(deque)
 WINDOW = 600
 MAX_ATTEMPTS = 5
 
+# Arabic keyboard-layout equivalents for the Latin keys used by the login credentials.
+# This allows users to type with the Arabic keyboard active without changing the OS language.
+_ARABIC_KEYBOARD_TO_LATIN = str.maketrans({
+    "ذ":"`", "ض":"q", "ص":"w", "ث":"e", "ق":"r", "ف":"t", "غ":"y", "ع":"u", "ه":"i", "خ":"o", "ح":"p",
+    "ج":"[", "د":"]", "ش":"a", "س":"s", "ي":"d", "ب":"f", "ل":"g", "ا":"h", "ت":"j", "ن":"k", "م":"l", "ك":";",
+    "ط":"'", "ئ":"z", "ء":"x", "ؤ":"c", "ر":"v", "لا":"b", "ى":"n", "ة":"m", "و":",", "ز":".", "ظ":"/",
+    "٠":"0", "١":"1", "٢":"2", "٣":"3", "٤":"4", "٥":"5", "٦":"6", "٧":"7", "٨":"8", "٩":"9",
+    "۰":"0", "۱":"1", "۲":"2", "۳":"3", "۴":"4", "۵":"5", "۶":"6", "۷":"7", "۸":"8", "۹":"9",
+})
+
+
+def _normalize_login_input(value):
+    """Accept Arabic/English keyboard input for the same login credential."""
+    value = str(value or "")
+    # The multi-character Arabic ligature needs explicit replacement first.
+    value = value.replace("لا", "b")
+    return value.translate(_ARABIC_KEYBOARD_TO_LATIN)
+
 
 def _verify(password):
     try:
@@ -31,7 +49,7 @@ def _verify(password):
 
 def _login_page(error=""):
     msg = f'<div style="background:#fff0f0;color:#a62b2b;padding:10px;border-radius:10px;margin-bottom:12px">{html.escape(error)}</div>' if error else ""
-    return f'''<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>تسجيل الدخول - صيدلية عز الصحة</title><style>body{{margin:0;min-height:100vh;display:grid;place-items:center;background:#f4f7fb;font-family:Tahoma,Arial,sans-serif;color:#18324a}}.card{{width:min(420px,92vw);background:#fff;border-radius:22px;padding:30px;box-shadow:0 18px 60px rgba(20,50,80,.14);border:1px solid #e6edf4}}.logo{{width:72px;height:72px;border-radius:18px;display:block;margin:0 auto 18px;object-fit:contain}}h1{{font-size:23px;text-align:center;margin:0 0 6px}}p{{text-align:center;color:#6b7b8c;margin:0 0 24px}}label{{display:block;font-weight:700;margin:14px 0 7px}}input{{width:100%;padding:13px 14px;border:1px solid #ccd7e2;border-radius:12px;font-size:16px;outline:none}}button{{width:100%;margin-top:20px;border:0;border-radius:12px;padding:13px;background:#1e6f95;color:#fff;font-size:16px;font-weight:700;cursor:pointer}}.small{{font-size:12px;color:#94a0ac;text-align:center;margin-top:18px}}</style></head><body><div class="card"><img class="logo" src="/static/logo-mark.png" alt="شعار صيدلية عز الصحة"><h1>صيدلية عز الصحة</h1><p>تسجيل الدخول إلى نظام متابعة الطلبات</p>{msg}<form method="post" action="/login"><label>اسم المستخدم</label><input name="username" autocomplete="username" required autofocus><label>كلمة المرور</label><input name="password" type="password" autocomplete="current-password" required><button type="submit">دخول</button></form><div class="small">الوصول إلى النظام مخصص للمستخدم المصرح له فقط.</div></div></body></html>'''
+    return f'''<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>تسجيل الدخول - صيدلية عز الصحة</title><style>body{{margin:0;min-height:100vh;display:grid;place-items:center;background:#f4f7fb;font-family:Tahoma,Arial,sans-serif;color:#18324a}}.card{{width:min(420px,92vw);background:#fff;border-radius:22px;padding:30px;box-shadow:0 18px 60px rgba(20,50,80,.14);border:1px solid #e6edf4}}.logo{{width:72px;height:72px;border-radius:18px;display:block;margin:0 auto 18px;object-fit:contain}}h1{{font-size:23px;text-align:center;margin:0 0 6px}}p{{text-align:center;color:#6b7b8c;margin:0 0 24px}}label{{display:block;font-weight:700;margin:14px 0 7px}}input{{width:100%;padding:13px 14px;border:1px solid #ccd7e2;border-radius:12px;font-size:16px;outline:none}}button{{width:100%;margin-top:20px;border:0;border-radius:12px;padding:13px;background:#1e6f95;color:#fff;font-size:16px;font-weight:700;cursor:pointer}}.small{{font-size:12px;color:#94a0ac;text-align:center;margin-top:18px}}</style></head><body><div class="card"><img class="logo" src="/static/logo-mark.png" alt="شعار صيدلية عز الصحة"><h1>صيدلية عز الصحة</h1><p>تسجيل الدخول إلى نظام متابعة الطلبات</p>{msg}<form method="post" action="/login"><label>اسم المستخدم</label><input name="username" autocomplete="username" required autofocus><label>كلمة المرور</label><input name="password" type="password" autocomplete="current-password" required><button type="submit">دخول</button></form><div class="small">يمكنك الكتابة حتى لو كانت لوحة المفاتيح مضبوطة على العربية.</div></div></body></html>'''
 
 
 def post_worker_init(worker):
@@ -63,9 +81,9 @@ def post_worker_init(worker):
         if len(q) >= MAX_ATTEMPTS:
             return _login_page("تم تجاوز عدد المحاولات المسموح بها. حاول لاحقًا."), 429
         q.append(now)
-        username = str(request.form.get("username") or "").strip()
-        password = str(request.form.get("password") or "")
-        if username == AUTH_USERNAME and AUTH_PASSWORD_HASH and _verify(password):
+        username = _normalize_login_input(request.form.get("username", "").strip())
+        password = _normalize_login_input(request.form.get("password", ""))
+        if username == _normalize_login_input(AUTH_USERNAME) and AUTH_PASSWORD_HASH and _verify(password):
             session.clear()
             session.permanent = True
             session["authenticated"] = True
