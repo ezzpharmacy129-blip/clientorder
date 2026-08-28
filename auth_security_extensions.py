@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
+import os
 import re
+import sqlite3
 from flask import request, jsonify
 
 
@@ -10,6 +12,43 @@ def install_security_extensions(app, db):
     auth = app.extensions["ezz_auth"]
     current_user = auth["current_user"]
     audit = auth["audit"]
+
+    # The deployed cloud version uses an Excel workbook for application data.
+    # Keep the security/admin layer on the same storage model instead of trying
+    # to use a PostgreSQL-only connection method that does not exist here.
+    def audit_rows(limit=500):
+        rows = []
+        try:
+            from openpyxl import load_workbook
+            path = getattr(db, "DB_PATH", "")
+            if not path or not os.path.exists(path):
+                return rows
+            wb = load_workbook(path, read_only=True, data_only=True)
+            ws = wb["Activity_Log"] if "Activity_Log" in wb.sheetnames else None
+            if ws:
+                for r in ws.iter_rows(min_row=2, values_only=True):
+                    values = list(r) + [""] * 8
+                    rows.append({
+                        "created_at": values[6],
+                        "user_name": values[7],
+                        "action": values[2],
+                        "order_id": values[1],
+                        "note": values[5],
+                        "old_status": values[3],
+                        "new_status": values[4],
+                    })
+            wb.close()
+        except Exception:
+            return []
+        return rows[-max(1, int(limit)):][::-1]
+
+    def users_conn():
+        root = os.path.abspath(getattr(db, "SHARED_ROOT", os.path.join(os.path.expanduser("~"), ".ezz_pharmacy_fresh")))
+        os.makedirs(root, exist_ok=True)
+        path = os.path.join(root, "users.sqlite3")
+        conn = sqlite3.connect(path, timeout=20)
+        conn.row_factory = sqlite3.Row
+        return conn
 
     @app.before_request
     def admin_data_protection():
@@ -32,9 +71,7 @@ def install_security_extensions(app, db):
             limit = min(max(int(request.args.get("limit", 500)), 1), 2000)
         except (TypeError, ValueError):
             limit = 500
-        with db._connect() as conn:
-            rows = conn.execute("SELECT created_at,user_name,action,order_id,note,old_status,new_status FROM activity_log ORDER BY created_at DESC LIMIT %s", (limit,)).fetchall()
-        return jsonify({"logs":[dict(r) for r in rows]})
+        return jsonify({"logs": audit_rows(limit)})
 
     @app.after_request
     def action_audit(response):
@@ -98,3 +135,20 @@ def install_security_extensions(app, db):
             return response
         except Exception:
             return response
+
+    @app.post("/api/admin/users/<uid>/delete")
+    def admin_delete_user(uid):
+        user = current_user()
+        if not user:
+            return jsonify({"error":"تسجيل الدخول مطلوب","authenticated":False}), 401
+        if user["role"] != "admin":
+            return jsonify({"error":"غير مصرح لك بهذا الإجراء"}), 403
+        with users_conn() as conn:
+            row = conn.execute("SELECT user_id, username, name, role FROM users WHERE user_id=?", (uid,)).fetchone()
+            if not row:
+                return jsonify({"error":"المستخدم غير موجود"}), 404
+            if uid == user["user_id"]:
+                return jsonify({"error":"لا يمكنك حذف حسابك الحالي"}), 400
+            conn.execute("DELETE FROM users WHERE user_id=?", (uid,))
+        audit(action="Delete User", note=f"حذف المستخدم {row['username']}")
+        return jsonify({"success":True})
