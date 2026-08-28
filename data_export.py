@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Read-only Excel export for the current application data."""
+import os
 from io import BytesIO
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -18,17 +19,18 @@ def _write_sheet(ws, headers, rows):
 
 
 def _build_workbook(db):
+    path = getattr(db, "DB_PATH", "")
+    # Current production mode is Excel-backed. Send the real data file directly so
+    # the browser downloads the exact workbook the application is using.
+    if path and os.path.isfile(path):
+        return path, None, None
+
+    # Cloud/PostgreSQL mode: construct an Excel snapshot from the persistent DB.
     wb = Workbook()
     ws = wb.active
     ws.title = "Orders"
-
     orders = db.get_all_orders() or []
-    order_headers = [
-        "Order_ID", "Customer_Name", "Phone", "Product_Name", "Quantity",
-        "Order_Date", "Available_Date", "Status", "Contact_Status",
-        "Last_Contact_Date", "Next_Followup_Date", "Pickup_Date", "Notes",
-        "Created_At", "Updated_At"
-    ]
+    order_headers = ["Order_ID","Customer_Name","Phone","Product_Name","Quantity","Order_Date","Available_Date","Status","Contact_Status","Last_Contact_Date","Next_Followup_Date","Pickup_Date","Notes","Created_At","Updated_At"]
     _write_sheet(ws, order_headers, orders)
 
     items = []
@@ -37,31 +39,20 @@ def _build_workbook(db):
             row = dict(item)
             row.setdefault("Order_ID", order.get("Order_ID", ""))
             items.append(row)
-    item_headers = [
-        "Item_ID", "Order_ID", "Product_Name", "Quantity", "Image_Path",
-        "Availability_Status", "Available_Price", "Discounted_Price",
-        "Unavailable_Reason", "Availability_Note",
-        "Price_Confirmation_Required", "Available_At", "Created_At"
-    ]
-    _write_sheet(wb.create_sheet("Order_Items"), item_headers, items)
+    _write_sheet(wb.create_sheet("Order_Items"), ["Item_ID","Order_ID","Product_Name","Quantity","Image_Path","Availability_Status","Available_Price","Discounted_Price","Unavailable_Reason","Availability_Note","Price_Confirmation_Required","Available_At","Created_At"], items)
 
-    log_rows = []
-    getter = getattr(db, "get_activity_log", None)
-    if getter:
-        try:
-            log_rows = getter() or []
-        except Exception:
-            log_rows = []
-    log_headers = ["Log_ID", "Order_ID", "Action", "Old_Status", "New_Status", "Note", "Created_At", "User"]
-    _write_sheet(wb.create_sheet("Activity_Log"), log_headers, log_rows)
+    try:
+        logs = db.get_activity_log() or []
+    except Exception:
+        logs = []
+    _write_sheet(wb.create_sheet("Activity_Log"), ["Log_ID","Order_ID","Action","Old_Status","New_Status","Note","Created_At","User"], logs)
 
-    settings_rows = []
     try:
         settings = db.get_settings() or {}
-        settings_rows = [{"Key": k, "Value": v} for k, v in settings.items()]
+        settings_rows = [{"Key": k, "Value": v} for k,v in settings.items()]
     except Exception:
-        pass
-    _write_sheet(wb.create_sheet("Settings"), ["Key", "Value"], settings_rows)
+        settings_rows = []
+    _write_sheet(wb.create_sheet("Settings"), ["Key","Value"], settings_rows)
 
     out = BytesIO()
     wb.save(out)
@@ -79,22 +70,20 @@ def install_data_export(app, db):
 
     @app.get("/api/data/export-xlsx")
     def export_current_xlsx():
-        user = current_user()
-        if not user:
+        if not current_user():
             return jsonify({"error": "تسجيل الدخول مطلوب", "authenticated": False}), 401
         try:
-            workbook, order_count, item_count = _build_workbook(db)
+            exported, order_count, item_count = _build_workbook(db)
             ts = datetime.now(ZoneInfo("Asia/Riyadh")).strftime("%Y-%m-%d_%H%M%S")
-            response = send_file(
-                workbook,
-                mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                as_attachment=True,
-                download_name=f"Ezz_Pharmacy_Backup_{ts}.xlsx",
-                max_age=0,
-            )
+            filename = f"Ezz_Pharmacy_Backup_{ts}.xlsx"
+            if isinstance(exported, str):
+                response = send_file(exported, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", as_attachment=True, download_name=filename, max_age=0, conditional=False)
+            else:
+                response = send_file(exported, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", as_attachment=True, download_name=filename, max_age=0, conditional=False)
             response.headers["Cache-Control"] = "no-store"
-            response.headers["X-Export-Orders"] = str(order_count)
-            response.headers["X-Export-Items"] = str(item_count)
+            if order_count is not None: response.headers["X-Export-Orders"] = str(order_count)
+            if item_count is not None: response.headers["X-Export-Items"] = str(item_count)
             return response
         except Exception as exc:
+            app.logger.exception("Excel export failed")
             return jsonify({"error": f"تعذر تصدير البيانات: {exc}"}), 500
