@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Inject read-only recovery export button into the existing UI."""
+"""Inject recovery export button into the existing UI."""
 from flask import request
 
 
@@ -19,7 +19,25 @@ def install_export_ui(app):
             if 'id="export-postrollback-btn"' in html:
                 return response
 
-            script = r'''<script>(function(){function add(){if(document.getElementById('export-postrollback-btn'))return;var host=document.querySelector('#view-backups .backup-head-actions')||document.querySelector('#view-backups .panel-header')||document.getElementById('view-backups');if(!host)return;var b=document.createElement('button');b.id='export-postrollback-btn';b.type='button';b.className='btn btn-outline';b.textContent='🛟 استخراج بيانات ما قبل الـRollback';b.style.marginInlineStart='8px';b.addEventListener('click',function(){window.location.href='/api/data/export-postrollback';});host.appendChild(b);}if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',add);else add();setTimeout(add,500);setTimeout(add,1500);})();</script>'''
+            script = r'''<script>(function(){
+function addRecoveryButton(){
+  if(document.getElementById('export-postrollback-btn')) return;
+  var host=document.querySelector('#view-backups .backup-head-actions');
+  if(!host) host=document.querySelector('#view-backups .panel-header');
+  if(!host) return;
+  var b=document.createElement('button');
+  b.id='export-postrollback-btn';
+  b.type='button';
+  b.className='btn btn-outline';
+  b.textContent='🛟 استخراج بيانات ما قبل الـRollback';
+  b.title='قراءة بيانات PostgreSQL القديمة قبل الـRollback';
+  b.style.marginInlineStart='8px';
+  b.addEventListener('click',function(){window.location.href='/api/data/export-postrollback';});
+  host.appendChild(b);
+}
+function boot(){addRecoveryButton();setTimeout(addRecoveryButton,300);setTimeout(addRecoveryButton,1000);setTimeout(addRecoveryButton,2000);}
+if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot); else boot();
+})();</script>'''
             if '</body>' in html:
                 html = html.replace('</body>', script + '</body>', 1)
             else:
