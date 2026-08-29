@@ -25,6 +25,14 @@ def _install_runtime_safeguards():
         if db_obj is None or db_obj.__class__.__module__ != "cloud_db":
             return
 
+        # Controlled one-time clean restart. The operation creates an automatic
+        # cloud backup first and then clears only operational records.
+        try:
+            from one_time_reset import reset_if_requested
+            reset_if_requested(db_obj)
+        except Exception:
+            pass
+
         cloud_mod = __import__("cloud_db", fromlist=["CloudDB"])
         CloudDB = cloud_mod.CloudDB
         if not getattr(CloudDB, "_ezz_runtime_safeguards_v2", False):
