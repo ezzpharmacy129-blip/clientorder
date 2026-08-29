@@ -195,7 +195,17 @@ function initModals(){
   availabilityModal.onclick=e=>{if(e.target===availabilityModal)closeAvailability(true)};
   document.querySelectorAll(".modal-overlay").forEach(o=>{if(o===availabilityModal)return;o.onclick=e=>{if(e.target===o)o.classList.add("hidden")}});
 }
-async function loadBackups(){const b=document.getElementById("backups-table-body");try{const d=await apiFetch("/api/backups");b.innerHTML=d.backups.length?d.backups.map(x=>`<tr><td>${esc(x.created_at)}</td><td>${esc(x.reason)}</td><td>${esc(x.filename)}</td><td>${x.size_kb} KB</td><td><button class="btn btn-outline btn-sm restore-btn" data-file="${esc(x.filename)}">استعادة</button></td></tr>`).join(""):'<tr><td colspan="5" class="empty-state">لا توجد نسخ احتياطية</td></tr>';b.querySelectorAll(".restore-btn").forEach(btn=>btn.onclick=()=>openConfirm(`استعادة النسخة ${btn.dataset.file}؟ سيتم حفظ نسخة تلقائية من الحالة الحالية أولًا.`,async()=>{await apiFetch("/api/backups/restore",{method:"POST",body:JSON.stringify({filename:btn.dataset.file})});toast("تمت الاستعادة");refresh();loadBackups()}))}catch(e){toast(e.message,"error")}}
+async function loadBackups(){
+  const root=document.getElementById("backups-list");
+  if(!root){console.error("backups-list element is missing");return;}
+  try{
+    const d=await apiFetch("/api/backups");
+    const rows=Array.isArray(d?.backups)?d.backups:[];
+    if(!rows.length){root.innerHTML='<div class="empty-state">لا توجد نسخ احتياطية حاليًا</div>';return;}
+    root.innerHTML=rows.map(x=>`<div class="backup-row"><div><strong>${esc(x.filename)}</strong><div class="fi-meta">${esc(x.created_at)} — ${esc(x.reason||"")} — ${esc(x.size_kb??0)} KB</div></div><button type="button" class="btn btn-outline btn-sm restore-btn" data-file="${esc(x.filename)}">استعادة</button></div>`).join("");
+    root.querySelectorAll(".restore-btn").forEach(btn=>btn.onclick=()=>openConfirm(`استعادة النسخة ${btn.dataset.file}؟ سيتم حفظ نسخة تلقائية من الحالة الحالية أولًا.`,async()=>{try{await apiFetch("/api/backups/restore",{method:"POST",body:JSON.stringify({filename:btn.dataset.file})});toast("تمت الاستعادة");refresh();loadBackups()}catch(e){toast(e.message,"error")}}));
+  }catch(e){console.error("loadBackups failed",e);root.innerHTML='<div class="empty-state">تعذر تحميل النسخ الاحتياطية حاليًا.</div>';toast(e.message,"error");}
+}
 function initOrders(){let t;["orders-search"].forEach(id=>document.getElementById(id).oninput=()=>{clearTimeout(t);t=setTimeout(loadOrders,300)});document.getElementById("orders-status-filter").onchange=loadOrders;document.getElementById("orders-date-from").onchange=loadOrders;document.getElementById("orders-date-to").onchange=loadOrders;document.getElementById("orders-clear-filters").onclick=()=>{document.getElementById("orders-search").value="";document.getElementById("orders-status-filter").value="";document.getElementById("orders-date-from").value="";document.getElementById("orders-date-to").value="";loadOrders()}}
 async function resetAllData(){
   const first=window.prompt("تحذير: سيُحذف كل الطلبات والصور والنسخ الاحتياطية. اكتب العبارة التالية للتأكيد:\n\nحذف كل البيانات");
