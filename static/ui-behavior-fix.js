@@ -1,16 +1,9 @@
-/* Final UI behavior fix: modal visibility + automatic close after successful actions. */
+/* EZZ FINAL UI BEHAVIOR
+   Keeps core application functions intact.
+   Successful modal actions close automatically; failed actions remain visible.
+*/
 (function () {
-  function showModal(id) {
-    const el = document.getElementById(id);
-    if (!el) return null;
-    el.classList.remove('hidden');
-    el.setAttribute('aria-hidden', 'false');
-    el.style.display = 'flex';
-    el.style.visibility = 'visible';
-    el.style.opacity = '1';
-    el.style.pointerEvents = 'auto';
-    return el;
-  }
+  'use strict';
 
   function hideModal(id) {
     const el = document.getElementById(id);
@@ -23,55 +16,71 @@
     el.style.pointerEvents = 'none';
   }
 
+  function showModal(id) {
+    const el = document.getElementById(id);
+    if (!el) return null;
+    el.classList.remove('hidden');
+    el.setAttribute('aria-hidden', 'false');
+    el.style.display = 'flex';
+    el.style.visibility = 'visible';
+    el.style.opacity = '1';
+    el.style.pointerEvents = 'auto';
+    return el;
+  }
+
+  function closeTransientModals() {
+    hideModal('availability-modal');
+    hideModal('confirm-modal');
+    hideModal('postpone-modal');
+    hideModal('order-modal');
+  }
+
   function install() {
-    if (typeof window.details === 'function' && !window.details.__ezzFinalWrapped) {
-      const originalDetails = window.details;
-      const wrappedDetails = async function (id) {
-        const result = await originalDetails(id);
-        showModal('order-modal');
-        return result;
-      };
-      wrappedDetails.__ezzFinalWrapped = true;
-      window.details = wrappedDetails;
-      document.querySelectorAll('.details-btn,.dashboard-detail-btn,.act-details').forEach(btn => {
-        btn.addEventListener('click', () => showModal('order-modal'));
+    const orderModal = document.getElementById('order-modal');
+    if (orderModal && !orderModal.dataset.ezzFinalBoundV2) {
+      orderModal.dataset.ezzFinalBoundV2 = '1';
+      orderModal.addEventListener('click', e => {
+        if (e.target === orderModal) hideModal('order-modal');
       });
     }
 
-    const modal = document.getElementById('order-modal');
-    if (modal && !modal.dataset.ezzFinalBound) {
-      modal.dataset.ezzFinalBound = '1';
-      modal.addEventListener('click', e => { if (e.target === modal) hideModal('order-modal'); });
+    const availabilityModal = document.getElementById('availability-modal');
+    if (availabilityModal && !availabilityModal.dataset.ezzFinalBoundV2) {
+      availabilityModal.dataset.ezzFinalBoundV2 = '1';
+      availabilityModal.addEventListener('click', e => {
+        if (e.target === availabilityModal) hideModal('availability-modal');
+      });
     }
 
-    const availability = document.getElementById('availability-modal');
-    if (availability && !availability.dataset.ezzFinalBound) {
-      availability.dataset.ezzFinalBound = '1';
-      availability.addEventListener('click', e => { if (e.target === availability) hideModal('availability-modal'); });
-    }
-
-    if (typeof window.saveAvailability === 'function' && !window.saveAvailability.__ezzFinalWrapped) {
+    if (typeof window.saveAvailability === 'function' && !window.saveAvailability.__ezzFinalWrappedV2) {
       const originalSave = window.saveAvailability;
       const wrappedSave = async function () {
-        try {
-          const result = await originalSave.apply(this, arguments);
-          const modal = document.getElementById('availability-modal');
-          if (modal && !modal.classList.contains('hidden')) hideModal('availability-modal');
-          const orderModal = document.getElementById('order-modal');
-          if (orderModal && !orderModal.classList.contains('hidden')) hideModal('order-modal');
-          return result;
-        } catch (err) {
-          throw err;
-        }
+        const result = await originalSave.apply(this, arguments);
+        closeTransientModals();
+        return result;
       };
-      wrappedSave.__ezzFinalWrapped = true;
+      wrappedSave.__ezzFinalWrappedV2 = true;
       window.saveAvailability = wrappedSave;
       const saveBtn = document.getElementById('availability-save-btn');
       if (saveBtn) saveBtn.onclick = wrappedSave;
     }
+
+    if (typeof window.openAvailability === 'function' && !window.openAvailability.__ezzFinalWrappedV2) {
+      const originalOpen = window.openAvailability;
+      const wrappedOpen = async function () {
+        const result = await originalOpen.apply(this, arguments);
+        hideModal('order-modal');
+        showModal('availability-modal');
+        return result;
+      };
+      wrappedOpen.__ezzFinalWrappedV2 = true;
+      window.openAvailability = wrappedOpen;
+    }
   }
 
-  // app.js has already defined the functions by the time this file runs;
-  // install after DOMContentLoaded so the original initializer has bound its buttons first.
-  document.addEventListener('DOMContentLoaded', install);
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', install, { once: true });
+  } else {
+    install();
+  }
 })();
