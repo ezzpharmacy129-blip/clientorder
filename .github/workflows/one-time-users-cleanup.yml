@@ -1,0 +1,76 @@
+name: One-time users dashboard cleanup
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Normalize generated users blocks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          js = Path('static/app.js')
+          css = Path('static/style.css')
+          jt = js.read_text(encoding='utf-8')
+          ct = css.read_text(encoding='utf-8')
+
+          def normalize(text, marker, block):
+              # Remove every generated block with the same family marker.
+              text = re.sub(
+                  rf'\n/\* {re.escape(marker)}(?:V1|V2|V3|V4|V5) \*/.*?(?=\n/\* {re.escape(marker)}|\Z)',
+                  '', text, flags=re.S
+              )
+              return text.rstrip() + '\n' + block.strip() + '\n'
+
+          js_block = r'''/* EZZ_CORE_USERS_DASHBOARD_V5 */
+          (function(){'use strict';
+            let initialized=false;
+            const escU=v=>String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;').replace(/'/g,'&#39;');
+            async function apiU(url,options={}){const r=await fetch(url,{...options,headers:{'Content-Type':'application/json',...(options.headers||{})}});let d=null;try{d=await r.json()}catch(_){}if(!r.ok)throw new Error(d?.error||'حدث خطأ');return d;}
+            async function loadUsers(){const root=document.getElementById('users-list');if(!root)return;root.innerHTML='<div class="users-admin-empty">جارِ التحميل...</div>';try{const d=await apiU('/api/admin/users');const rows=Array.isArray(d?.users)?d.users:[];const c=document.getElementById('users-count');if(c)c.textContent=rows.length+' مستخدم';if(!rows.length){root.innerHTML='<div class="users-admin-empty">لا يوجد مستخدمون.</div>';return;}root.innerHTML='<table class="users-admin-table"><thead><tr><th>الاسم</th><th>اسم المستخدم</th><th>الدور</th><th>الحالة</th><th>آخر دخول</th><th>الإجراءات</th></tr></thead><tbody>'+rows.map(u=>'<tr><td><strong>'+escU(u.name)+'</strong></td><td>'+escU(u.username)+'</td><td><span class="users-admin-badge '+(u.role==='admin'?'admin':'employee')+'">'+(u.role==='admin'?'مدير':'موظف')+'</span></td><td><span class="users-admin-badge '+(u.active?'active':'inactive')+'">'+(u.active?'نشط':'معطل')+'</span></td><td>'+escU(u.last_login||'—')+'</td><td><div class="users-admin-actions"><button type="button" class="btn btn-outline btn-sm user-toggle" data-id="'+escU(u.user_id)+'">'+(u.active?'تعطيل':'تفعيل')+'</button><button type="button" class="btn btn-secondary btn-sm user-pass" data-id="'+escU(u.user_id)+'">تغيير كلمة المرور</button></div></td></tr>').join('')+'</tbody></table>';root.querySelectorAll('.user-toggle').forEach(b=>b.onclick=async()=>{try{await apiU('/api/admin/users/'+encodeURIComponent(b.dataset.id)+'/toggle',{method:'POST'});await loadUsers();}catch(e){alert(e.message);}});root.querySelectorAll('.user-pass').forEach(b=>b.onclick=async()=>{const p=prompt('كلمة المرور الجديدة (8 أحرف على الأقل):');if(p===null)return;if(p.length<8){alert('كلمة المرور يجب ألا تقل عن 8 أحرف');return;}try{await apiU('/api/admin/users/'+encodeURIComponent(b.dataset.id)+'/password',{method:'POST',body:JSON.stringify({password:p})});alert('تم تغيير كلمة المرور بنجاح');}catch(e){alert(e.message);}});}catch(e){root.innerHTML='<div class="users-admin-empty">تعذر تحميل المستخدمين.</div>';if(typeof toast==='function')toast(e.message,'error');}}
+            async function initUsers(){if(initialized)return;initialized=true;let me;try{me=(await apiU('/api/auth/me')).user;}catch(_){return;}const nav=document.getElementById('users-nav-btn'),view=document.getElementById('view-users');if(!me||me.role!=='admin'){nav?.remove();view?.remove();return;}document.getElementById('users-refresh')?.addEventListener('click',loadUsers);document.getElementById('users-add-form')?.addEventListener('submit',async e=>{e.preventDefault();const f=e.currentTarget,b=f.querySelector('button[type="submit"]');b.disabled=true;try{await apiU('/api/admin/users',{method:'POST',body:JSON.stringify(Object.fromEntries(new FormData(f).entries()))});f.reset();await loadUsers();if(typeof toast==='function')toast('تم إضافة المستخدم بنجاح');}catch(x){if(typeof toast==='function')toast(x.message,'error');else alert(x.message);}finally{b.disabled=false;}});nav?.addEventListener('click',()=>{if(typeof switchView==='function')switchView('users');else{document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));view?.classList.add('active');loadUsers();}});loadUsers();}
+            document.addEventListener('DOMContentLoaded',initUsers);if(document.readyState!=='loading')initUsers();
+          })();'''
+
+          css_block = r'''/* EZZ_CORE_USERS_DASHBOARD_CSS_V5 */
+          .users-view{max-width:100%}.users-admin-panel{margin-top:18px}.users-admin-card{background:#fbfeff;border:1px solid var(--border);border-radius:12px;padding:16px;margin-top:14px}.users-admin-form{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;align-items:end}.users-admin-form .form-row{display:flex;flex-direction:column;gap:6px}.users-admin-form label{font-weight:700;font-size:12px}.users-admin-note{font-size:12px;color:var(--muted);margin:0 0 14px}.users-admin-table-wrap{overflow:auto}.users-admin-table{width:100%;border-collapse:collapse;min-width:760px}.users-admin-table th,.users-admin-table td{border-bottom:1px solid var(--border);padding:10px;text-align:right;vertical-align:middle}.users-admin-table th{background:#f4fafb;color:var(--navy);font-size:12px}.users-admin-table td{font-size:13px}.users-admin-badge{display:inline-block;padding:4px 9px;border-radius:999px;font-size:11px;font-weight:800}.users-admin-badge.active{background:#e7f8ef;color:#18734a}.users-admin-badge.inactive{background:#fff0ef;color:#a12d2d}.users-admin-badge.admin{background:#eaf2ff;color:#244c97}.users-admin-badge.employee{background:#f3f5f7;color:#5b6872}.users-admin-actions{display:flex;gap:6px;flex-wrap:wrap}.users-admin-empty{padding:28px;text-align:center;color:var(--muted)}@media(max-width:900px){.users-admin-form{grid-template-columns:1fr 1fr}}@media(max-width:600px){.users-admin-form{grid-template-columns:1fr}}'''
+
+          jt = normalize(jt, 'EZZ_CORE_USERS_DASHBOARD_', js_block)
+          ct = normalize(ct, 'EZZ_CORE_USERS_DASHBOARD_CSS_', css_block)
+          js.write_text(jt, encoding='utf-8')
+          css.write_text(ct, encoding='utf-8')
+          PY
+          node --check static/app.js
+          python - <<'PY'
+          from pathlib import Path
+          j=Path('static/app.js').read_text(encoding='utf-8')
+          c=Path('static/style.css').read_text(encoding='utf-8')
+          assert j.count('EZZ_CORE_USERS_DASHBOARD_')==1
+          assert c.count('EZZ_CORE_USERS_DASHBOARD_CSS_')==1
+          print('ONE-TIME USERS CLEANUP: OK')
+          PY
+      - name: Commit normalized files when needed
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add static/app.js static/style.css
+          if git diff --cached --quiet; then
+            echo "Already clean"
+            exit 0
+          fi
+          git commit -m "Normalize users dashboard assets"
+          git push origin HEAD:main
