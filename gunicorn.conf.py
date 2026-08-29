@@ -2,8 +2,10 @@ import base64
 import hashlib
 import hmac
 import html
+import io
 import os
 import time
+import zipfile
 from collections import defaultdict, deque
 
 from flask import jsonify, redirect, request, session, url_for, send_file
@@ -93,10 +95,9 @@ def post_worker_init(worker):
     _install_export_route(app)
 
 def _install_export_route(app):
-    """Register a protected, read-only Excel export endpoint on the actual Flask app."""
+    """Register protected read-only Excel exports on the actual Flask app."""
     if "export_current_xlsx_direct" in app.view_functions:
         return
-    from io import BytesIO
     from datetime import datetime
     from zoneinfo import ZoneInfo
     from openpyxl import Workbook
@@ -122,9 +123,52 @@ def _install_export_route(app):
                 for row in getattr(db, "get_all_undo_history", lambda: [])(): wu.append([row.get(k, "") for k in UNDO_HEADERS])
             except Exception: pass
             for sheet in wb.worksheets: sheet.freeze_panes = "A2"
-            buf = BytesIO(); wb.save(buf); wb.close(); buf.seek(0)
+            buf = io.BytesIO(); wb.save(buf); wb.close(); buf.seek(0)
             stamp = datetime.now(ZoneInfo("Asia/Riyadh")).strftime("%Y-%m-%d_%H%M%S")
             return send_file(buf, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", as_attachment=True, download_name=f"Ezz_Pharmacy_Backup_{stamp}.xlsx")
         except Exception as exc:
             app.logger.exception("Excel export failed")
             return jsonify({"error": f"تعذر تصدير البيانات: {exc}"}), 500
+
+    @app.get("/api/data/export-postrollback", endpoint="export_postrollback_data")
+    def export_postrollback_data():
+        """Export the most recent PostgreSQL backup created before the 2026-08-28 rollback."""
+        if not session.get("authenticated") and not session.get("user_id"):
+            return jsonify({"error": "تسجيل الدخول مطلوب", "authenticated": False}), 401
+        try:
+            database_url = os.environ.get("DATABASE_URL", "").strip()
+            if not database_url:
+                return jsonify({"error": "قاعدة PostgreSQL غير متصلة"}), 503
+            import psycopg
+            cutoff = "2026-08-29 01:16:26"
+            with psycopg.connect(database_url, connect_timeout=10) as conn:
+                row = conn.execute(
+                    "SELECT filename, created_at, data FROM backups WHERE created_at <= %s ORDER BY created_at DESC LIMIT 1",
+                    (cutoff,),
+                ).fetchone()
+            if not row:
+                return jsonify({"error": "لم يتم العثور على نسخة احتياطية من PostgreSQL قبل الـRollback"}), 404
+            filename, created_at, raw = row
+            blob = bytes(raw)
+            if blob[:2] == b"PK":
+                with zipfile.ZipFile(io.BytesIO(blob), "r") as zf:
+                    names = zf.namelist()
+                    source = next((n for n in names if n.endswith("data/pharmacy_orders.xlsx") or n.endswith("pharmacy_orders.xlsx")), None)
+                    if not source:
+                        return jsonify({"error": "النسخة الاحتياطية موجودة ولكن ملف Excel غير موجود داخلها"}), 422
+                    xlsx = io.BytesIO(zf.read(source))
+            else:
+                xlsx = io.BytesIO(blob)
+            xlsx.seek(0)
+            stamp = datetime.now(ZoneInfo("Asia/Riyadh")).strftime("%Y-%m-%d_%H%M%S")
+            return send_file(
+                xlsx,
+                mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                as_attachment=True,
+                download_name=f"Ezz_Pharmacy_Pre_Rollback_{stamp}.xlsx",
+                max_age=0,
+                conditional=False,
+            )
+        except Exception as exc:
+            app.logger.exception("Pre-rollback export failed")
+            return jsonify({"error": f"تعذر استخراج بيانات ما قبل الـRollback: {exc}"}), 500
