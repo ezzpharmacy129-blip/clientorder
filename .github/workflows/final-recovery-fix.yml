@@ -1,0 +1,141 @@
+name: Final recovery and backup UI fix
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch app.py with the real pre-Rollback Excel export route
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path("app.py")
+          text = p.read_text(encoding="utf-8")
+
+          marker = "EZZ_PRE_ROLLBACK_EXPORT_ROUTE_V2"
+          if marker not in text:
+              text = text.replace(
+                  "from flask import Flask, jsonify, request, render_template, send_from_directory, send_file, Response",
+                  "from flask import Flask, jsonify, request, render_template, send_from_directory, send_file, Response, session",
+                  1,
+              )
+              route = r'''
+
+# EZZ_PRE_ROLLBACK_EXPORT_ROUTE_V2
+@app.get("/api/data/export-postrollback")
+def api_export_postrollback():
+    """Download, without modifying the database, the newest cloud backup created before the rollback."""
+    if not (session.get("authenticated") or session.get("user_id") or session.get("username")):
+        return jsonify({"error": "تسجيل الدخول مطلوب", "authenticated": False}), 401
+    try:
+        import psycopg
+        import zipfile
+
+        database_url = os.environ.get("DATABASE_URL", "").strip()
+        if not database_url:
+            return jsonify({"error": "قاعدة PostgreSQL غير متصلة"}), 503
+
+        # Backup timestamps are stored in Asia/Riyadh by cloud_db.now_str().
+        cutoff = "2026-08-29 01:16:26"
+        with psycopg.connect(database_url, row_factory=psycopg.rows.dict_row, connect_timeout=10) as conn:
+            row = conn.execute(
+                "SELECT filename, created_at, data FROM backups "
+                "WHERE created_at <= %s ORDER BY created_at DESC LIMIT 1",
+                (cutoff,),
+            ).fetchone()
+
+        if not row:
+            return jsonify({"error": "لم يتم العثور على نسخة PostgreSQL قبل وقت الـRollback"}), 404
+
+        with zipfile.ZipFile(io.BytesIO(bytes(row["data"])), "r") as zf:
+            safe_names = [n.replace("\\", "/") for n in zf.namelist()]
+            xlsx_name = next((n for n in safe_names if n == "data/pharmacy_orders.xlsx"), None)
+            if xlsx_name is None:
+                xlsx_name = next((n for n in safe_names if n == "pharmacy_orders.xlsx"), None)
+            if xlsx_name is None:
+                return jsonify({"error": "النسخة القديمة لا تحتوي ملف Excel المطلوب"}), 422
+            xlsx_bytes = zf.read(xlsx_name)
+
+        download_name = "pre-rollback-data.xlsx"
+        return send_file(
+            io.BytesIO(xlsx_bytes),
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            as_attachment=True,
+            download_name=download_name,
+            max_age=0,
+        )
+    except Exception as exc:
+        app.logger.exception("Pre-Rollback Excel export failed")
+        return jsonify({"error": f"تعذر استخراج بيانات ما قبل الـRollback: {exc}"}), 500
+'''
+              needle = '@app.get("/api/backups")\ndef api_backups():'
+              if needle in text:
+                  text = text.replace(needle, route + "\n\n" + needle, 1)
+              else:
+                  text = text.rstrip() + route + "\n"
+              p.write_text(text, encoding="utf-8")
+
+      - name: Fix the active loadBackups function
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path("static/app.js")
+          text = p.read_text(encoding="utf-8")
+          marker = "EZZ_LOAD_BACKUPS_DIRECT_FIX_V2"
+          if marker not in text:
+              old_start = 'async function loadBackups(){const b=document.getElementById("backups-table-body");'
+              new_start = '''// EZZ_LOAD_BACKUPS_DIRECT_FIX_V2
+async function loadBackups(){
+  let b=document.getElementById("backups-table-body");
+  if(!b){
+    const root=document.getElementById("view-backups");
+    if(root){
+      b=root.querySelector("tbody");
+      if(!b){
+        b=document.createElement("tbody");
+        const table=document.createElement("table");
+        table.className="orders-table";
+        const thead=document.createElement("thead");
+        thead.innerHTML="<tr><th>تاريخ النسخة</th><th>نوع النسخة</th><th>اسم الملف</th><th>الحجم</th><th>الإجراء</th></tr>";
+        table.appendChild(thead); table.appendChild(b); root.appendChild(table);
+      }
+      b.id="backups-table-body";
+    }
+  }
+  if(!b){ toast("تعذر تجهيز جدول النسخ الاحتياطية", "error"); return; }
+  try{'''
+              if old_start in text:
+                  text = text.replace(old_start, new_start, 1)
+                  # Close the existing function body remains unchanged; only replace the opening.
+              else:
+                  text += "\n" + marker + "\n"
+              p.write_text(text, encoding="utf-8")
+
+      - name: Make the recovery button a pure download action
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path("templates/index.html")
+          text = p.read_text(encoding="utf-8")
+          text = text.replace("🛟 استعادة/استخراج بيانات ما قبل الـRollback", "📥 تنزيل بيانات ما قبل الـRollback")
+          text = text.replace("🛟 استعادة بيانات ما قبل الـRollback", "📥 تنزيل بيانات ما قبل الـRollback")
+          p.write_text(text, encoding="utf-8")
+
+      - name: Commit final fix
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app.py static/app.js templates/index.html
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'Use real pre-Rollback Excel export and fix backup screen'
+          git push
