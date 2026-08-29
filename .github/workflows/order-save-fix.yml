@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Patch live app.js with safe order-save fallback
-        shell: python
+        shell: python {0}
         run: |
           from pathlib import Path
           p = Path('static/app.js')
