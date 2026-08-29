@@ -1,0 +1,99 @@
+name: Fix backup screen and restore UI
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch static app.js defensively
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('static/app.js')
+          text = p.read_text(encoding='utf-8')
+          marker = 'EZZ_BACKUP_SCREEN_GUARD_V1'
+          if marker not in text:
+              patch = r'''
+
+// EZZ_BACKUP_SCREEN_GUARD_V1
+// Prevent the backup-management view from crashing when an expected DOM node is missing.
+(function(){
+  function ensureBackupDom(){
+    const root = document.getElementById('view-backups');
+    if(!root) return;
+    const fn = window.loadBackups;
+    if(typeof fn !== 'function' || fn.__ezzSafeBackup) return;
+    const source = String(fn);
+    const ids = new Set();
+    const rx = /getElementById\(["']([^"']+)["']\)/g;
+    let m;
+    while((m = rx.exec(source))) ids.add(m[1]);
+    ids.forEach(id=>{
+      if(document.getElementById(id)) return;
+      const el = document.createElement('div');
+      el.id = id;
+      root.appendChild(el);
+    });
+    async function safeLoadBackups(){
+      ensureBackupDom();
+      try { return await fn.apply(this, arguments); }
+      catch(err){
+        console.error('loadBackups failed:', err);
+        const box = document.getElementById('view-backups');
+        if(box){
+          let msg = document.getElementById('backup-screen-error');
+          if(!msg){ msg=document.createElement('div'); msg.id='backup-screen-error'; msg.className='form-error'; box.appendChild(msg); }
+          msg.textContent='تعذر تحميل إدارة البيانات. يمكنك استخدام أزرار الاستيراد والتصدير والاستعادة أدناه.';
+        }
+        return null;
+      }
+    }
+    safeLoadBackups.__ezzSafeBackup = true;
+    window.loadBackups = safeLoadBackups;
+  }
+
+  function install(){
+    ensureBackupDom();
+    if(window.ezzRestorePreRollback) return;
+    window.ezzRestorePreRollback = async function(){
+      if(!window.confirm('سيتم حفظ نسخة احتياطية من البيانات الحالية أولًا، ثم استعادة آخر نسخة قبل الـRollback. هل تريد المتابعة؟')) return false;
+      const button = document.getElementById('export-postrollback-btn');
+      if(button){ button.disabled = true; button.textContent = 'جاري الاستعادة...'; }
+      try{
+        const r = await fetch('/api/data/restore-pre-rollback', {method:'GET', credentials:'same-origin'});
+        if(r.redirected){ window.location.href = r.url; return false; }
+        const data = await r.json().catch(()=>({}));
+        if(!r.ok) throw new Error(data.error || 'فشلت عملية الاستعادة');
+        alert('تمت استعادة البيانات بنجاح.');
+        window.location.reload();
+      }catch(err){
+        alert(err.message || 'تعذر استعادة البيانات');
+        if(button){button.disabled=false; button.textContent='🛟 استعادة بيانات ما قبل الـRollback';}
+      }
+      return false;
+    };
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',install); else install();
+})();
+'''
+              p.write_text(text.rstrip() + patch + '\n', encoding='utf-8')
+
+      - name: Commit patched UI
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add static/app.js
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'Fix backup management screen null DOM crash'
+          git push
