@@ -42,3 +42,64 @@ def _protected_init(self, *args, **kwargs):
 if not getattr(flask.Flask, "_ezz_auth_constructor_patched_v2", False):
     flask.Flask.__init__ = _protected_init
     flask.Flask._ezz_auth_constructor_patched_v2 = True
+
+
+def _current_session_user():
+    try:
+        return str(session.get("username") or "").strip() or "موظف"
+    except Exception:
+        return "موظف"
+
+
+def _install_runtime_safeguards():
+    """Patch cloud operations after db.py selects its PostgreSQL backend."""
+    try:
+        import db as _db_module
+        db_obj = getattr(_db_module, "db", None)
+        if db_obj is None or db_obj.__class__.__module__ != "cloud_db":
+            return
+
+        cloud_mod = __import__("cloud_db", fromlist=["CloudDB"])
+        CloudDB = cloud_mod.CloudDB
+        if getattr(CloudDB, "_ezz_runtime_safeguards_v1", False):
+            return
+
+        original_log = CloudDB._log
+        def audit_log(self, conn, order_id, action, old_status, new_status, note, user):
+            return original_log(self, conn, order_id, action, old_status, new_status, note, _current_session_user())
+        CloudDB._log = audit_log
+
+        original_import = CloudDB.import_legacy_data
+        def safe_import(self, source_path):
+            pre_backup = None
+            try:
+                pre_backup = self.create_manual_backup(reason="auto")
+            except Exception:
+                pass
+            result = original_import(self, source_path)
+            if isinstance(result, dict) and pre_backup and not result.get("backup"):
+                result["backup"] = pre_backup
+            return result
+        CloudDB.import_legacy_data = safe_import
+
+        original_delete = CloudDB.delete_order
+        def safe_delete(self, order_id, user="موظف"):
+            try:
+                self.create_manual_backup(reason="auto")
+            except Exception:
+                pass
+            return original_delete(self, order_id, user=_current_session_user())
+        CloudDB.delete_order = safe_delete
+
+        CloudDB._ezz_runtime_safeguards_v1 = True
+    except Exception:
+        # Never block startup because the safety patch is unavailable.
+        pass
+
+
+# db.py is imported while auth_bootstrap creates the Flask app. Apply the
+# safeguards immediately after module loading so every request gets the fix.
+try:
+    _install_runtime_safeguards()
+except Exception:
+    pass
