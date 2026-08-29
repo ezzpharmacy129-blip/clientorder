@@ -26,51 +26,43 @@ def _install_runtime_safeguards():
             return
         cloud_mod = __import__("cloud_db", fromlist=["CloudDB"])
         CloudDB = cloud_mod.CloudDB
-        if getattr(CloudDB, "_ezz_runtime_safeguards_v1", False):
-            return
+        if not getattr(CloudDB, "_ezz_runtime_safeguards_v1", False):
+            original_log = CloudDB._log
 
-        original_log = CloudDB._log
+            def audit_log(self, conn, order_id, action, old_status, new_status, note, user):
+                return original_log(self, conn, order_id, action, old_status, new_status, note, _current_session_user())
 
-        def audit_log(self, conn, order_id, action, old_status, new_status, note, user):
-            return original_log(
-                self,
-                conn,
-                order_id,
-                action,
-                old_status,
-                new_status,
-                note,
-                _current_session_user(),
-            )
+            CloudDB._log = audit_log
 
-        CloudDB._log = audit_log
+            original_import = CloudDB.import_legacy_data
 
-        original_import = CloudDB.import_legacy_data
+            def safe_import(self, source_path):
+                pre_backup = None
+                try:
+                    pre_backup = self.create_manual_backup(reason="auto")
+                except Exception:
+                    pass
+                result = original_import(self, source_path)
+                if isinstance(result, dict) and pre_backup and not result.get("backup"):
+                    result["backup"] = pre_backup
+                return result
 
-        def safe_import(self, source_path):
-            pre_backup = None
-            try:
-                pre_backup = self.create_manual_backup(reason="auto")
-            except Exception:
-                pass
-            result = original_import(self, source_path)
-            if isinstance(result, dict) and pre_backup and not result.get("backup"):
-                result["backup"] = pre_backup
-            return result
+            CloudDB.import_legacy_data = safe_import
 
-        CloudDB.import_legacy_data = safe_import
+            original_delete = CloudDB.delete_order
 
-        original_delete = CloudDB.delete_order
+            def safe_delete(self, order_id, user="موظف"):
+                try:
+                    self.create_manual_backup(reason="auto")
+                except Exception:
+                    pass
+                return original_delete(self, order_id, user=_current_session_user())
 
-        def safe_delete(self, order_id, user="موظف"):
-            try:
-                self.create_manual_backup(reason="auto")
-            except Exception:
-                pass
-            return original_delete(self, order_id, user=_current_session_user())
+            CloudDB.delete_order = safe_delete
+            CloudDB._ezz_runtime_safeguards_v1 = True
 
-        CloudDB.delete_order = safe_delete
-        CloudDB._ezz_runtime_safeguards_v1 = True
+        from cloud_db_update_fix import install_cloud_order_update_fix
+        install_cloud_order_update_fix(db_obj)
     except Exception:
         # Never block application startup because an optional safeguard is unavailable.
         pass
@@ -100,24 +92,24 @@ def _protected_init(self, *args, **kwargs):
     install_security_extensions(self, db)
     install_admin_state_controls(self, db)
 
-    # The pending-availability compatibility patch uses the local Excel internals.
-    # PostgreSQL/CloudDB has its own native implementation and must not be wrapped by it.
     if db.__class__.__module__ != "cloud_db":
         install_pending_availability_fix(db)
 
     install_data_export(self, db)
     install_postrollback_export(self)
 
-    # Load the static UI structure before app.js's DOMContentLoaded handlers run.
     @self.after_request
     def _ezz_ui_bootstrap(response):
         try:
             if response.mimetype == "text/html" and response.status_code == 200:
                 body = response.get_data(as_text=True)
-                marker = "ui-bootstrap.js"
-                if marker not in body and "</body>" in body:
-                    script = '<script src="/static/ui-bootstrap.js"></script>'
-                    response.set_data(body.replace("</body>", script + "</body>", 1))
+                scripts = ''
+                if "ui-bootstrap.js" not in body and "</body>" in body:
+                    scripts += '<script src="/static/ui-bootstrap.js"></script>'
+                if "ui-behavior-fix.js" not in body and "</body>" in body:
+                    scripts += '<script src="/static/ui-behavior-fix.js"></script>'
+                if scripts:
+                    response.set_data(body.replace("</body>", scripts + "</body>", 1))
         except Exception:
             pass
         return response
@@ -127,5 +119,4 @@ if not getattr(flask.Flask, "_ezz_auth_constructor_patched_v4", False):
     flask.Flask.__init__ = _protected_init
     flask.Flask._ezz_auth_constructor_patched_v4 = True
 
-# Apply CloudDB audit/data-safety safeguards once the backend module is available.
 _install_runtime_safeguards()
