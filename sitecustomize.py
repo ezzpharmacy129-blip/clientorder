@@ -2,7 +2,7 @@
 """Load application extensions safely before Flask creates app:app."""
 import os
 import flask
-from flask import redirect, session
+from flask import redirect, session, request, Response
 
 _raw_db_url = os.environ.get("DATABASE_URL", "").strip()
 if _raw_db_url and not (_raw_db_url.startswith("postgres://") or _raw_db_url.startswith("postgresql://")):
@@ -98,6 +98,27 @@ def _protected_init(self, *args, **kwargs):
     install_data_export(self, db)
     install_postrollback_export(self)
 
+    # The repository accumulated several frontend compatibility scripts that
+    # redefine the same event handlers as static/app.js. Keep them available as
+    # files for historical compatibility, but serve them as inert JavaScript so
+    # there is exactly one source of truth for UI actions.
+    _legacy_ui_patch_paths = {
+        "/static/undo-ui.js",
+        "/static/order-form-fix.js",
+        "/static/production-order-fix.js",
+        "/static/ui-behavior-fix.js",
+        "/static/ui-routing-fix.js",
+        "/static/modal-bootstrap.js",
+    }
+
+    @self.before_request
+    def _disable_legacy_ui_patches():
+        if request.path in _legacy_ui_patch_paths:
+            response = Response("/* legacy UI compatibility script intentionally disabled */", mimetype="application/javascript")
+            response.headers["Cache-Control"] = "no-store"
+            return response
+        return None
+
     @self.after_request
     def _ezz_ui_bootstrap(response):
         try:
@@ -106,8 +127,40 @@ def _protected_init(self, *args, **kwargs):
                 scripts = ''
                 if "ui-bootstrap.js" not in body and "</body>" in body:
                     scripts += '<script src="/static/ui-bootstrap.js"></script>'
-                if "ui-behavior-fix.js" not in body and "</body>" in body:
-                    scripts += '<script src="/static/ui-behavior-fix.js"></script>'
+
+                # Core DOM cleanup runs after app.js's existing initializer.
+                if "EZZ_CORE_UI_STABILITY_V1" not in body and "</body>" in body:
+                    scripts += '''<script>/* EZZ_CORE_UI_STABILITY_V1 */
+(function(){
+  function stabilize(){
+    const wrap=document.getElementById('product-items');
+    if(wrap){
+      const rows=[...wrap.querySelectorAll('.product-row')];
+      if(rows.length>1){
+        const keep=rows.find(r=>r.querySelector('.product-name')?.value?.trim() || r.querySelector('.product-image')?.files?.length) || rows[0];
+        rows.forEach(r=>{if(r!==keep && !r.querySelector('.product-name')?.value?.trim() && !r.querySelector('.product-image')?.files?.length) r.remove()});
+        if(typeof window.renumberProducts==='function') window.renumberProducts();
+        if(typeof window.updateProductTotals==='function') window.updateProductTotals();
+      }
+    }
+
+    const saveBtn=document.getElementById('availability-save-btn');
+    if(saveBtn && typeof window.saveAvailability==='function' && !saveBtn.dataset.ezzCoreBound){
+      saveBtn.dataset.ezzCoreBound='1';
+      const originalSave=window.saveAvailability;
+      saveBtn.onclick=async function(){
+        await originalSave.apply(this,arguments);
+        const a=document.getElementById('availability-modal');
+        const o=document.getElementById('order-modal');
+        if(a){a.classList.add('hidden');a.setAttribute('aria-hidden','true');}
+        if(o){o.classList.add('hidden');o.setAttribute('aria-hidden','true');}
+      };
+    }
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',stabilize,{once:true});
+  else stabilize();
+})();</script>'''
+
                 if scripts:
                     response.set_data(body.replace("</body>", scripts + "</body>", 1))
         except Exception:
