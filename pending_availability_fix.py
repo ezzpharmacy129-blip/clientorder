@@ -101,3 +101,14 @@ def install_pending_availability_fix(db):
     patched._ezz_pending_wrapper = True
     db.set_availability = patched
     db._ezz_pending_availability_fix = True
+
+
+# The module is imported during Render startup. Install the cloud recovery
+# layer at import time after db.py has finished creating its CloudDB instance.
+try:
+    from db import db as _runtime_db
+    from data_merge_safety import install_data_merge_safety
+    install_data_merge_safety(_runtime_db)
+except Exception:
+    # Never prevent application startup because the safety extension is optional.
+    pass
