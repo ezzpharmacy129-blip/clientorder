@@ -1,66 +1,56 @@
-name: Fix backups list null error
+name: Repair backups frontend
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  fix:
+  repair:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
 
-      - name: Fix loadBackups target and remove this temporary workflow
-        shell: python
+      - name: Patch loadBackups
         run: |
+          python - <<'PY'
           from pathlib import Path
-          p = Path("static/app.js")
-          text = p.read_text(encoding="utf-8")
-          start = text.find("async function loadBackups(){")
-          end = text.find("function initOrders(){", start)
+          p = Path('static/app.js')
+          text = p.read_text(encoding='utf-8')
+          start = text.find('async function loadBackups(){')
+          end = text.find('function initOrders(){', start)
           if start < 0 or end < 0:
-              raise SystemExit("loadBackups boundaries not found")
-
+              raise SystemExit('loadBackups boundaries not found')
           replacement = '''async function loadBackups(){
-  const root=document.getElementById("backups-list");
-  if(!root){console.error("backups-list element is missing");return;}
-  try{
-    const d=await apiFetch("/api/backups");
-    const rows=Array.isArray(d?.backups)?d.backups:[];
-    if(!rows.length){
-      root.innerHTML='<div class="empty-state">لا توجد نسخ احتياطية حاليًا</div>';
-      return;
-    }
-    root.innerHTML=rows.map(x=>`<div class="backup-row"><div><strong>${esc(x.filename)}</strong><div class="fi-meta">${esc(x.created_at)} — ${esc(x.reason||"")} — ${esc(x.size_kb??0)} KB</div></div><button type="button" class="btn btn-outline btn-sm restore-btn" data-file="${esc(x.filename)}">استعادة</button></div>`).join("");
-    root.querySelectorAll(".restore-btn").forEach(btn=>btn.onclick=()=>openConfirm(`استعادة النسخة ${btn.dataset.file}؟ سيتم حفظ نسخة تلقائية من الحالة الحالية أولًا.`,async()=>{
-      try{
-        await apiFetch("/api/backups/restore",{method:"POST",body:JSON.stringify({filename:btn.dataset.file})});
-        toast("تمت الاستعادة");
-        refresh();
-        loadBackups();
-      }catch(e){toast(e.message,"error")}
-    }));
-  }catch(e){
-    console.error("loadBackups failed",e);
-    root.innerHTML='<div class="empty-state">تعذر تحميل النسخ الاحتياطية حاليًا.</div>';
-    toast(e.message,"error");
-  }
-}
-'''
-          text = text[:start] + replacement + text[end:]
-          p.write_text(text, encoding="utf-8")
+            const root=document.getElementById("backups-list");
+            if(!root){console.error("backups-list element is missing");return;}
+            try{
+              const d=await apiFetch("/api/backups");
+              const rows=Array.isArray(d?.backups)?d.backups:[];
+              if(!rows.length){root.innerHTML='<div class="empty-state">لا توجد نسخ احتياطية حاليًا</div>';return;}
+              root.innerHTML=rows.map(x=>`<div class="backup-row"><div><strong>${esc(x.filename)}</strong><div class="fi-meta">${esc(x.created_at)} — ${esc(x.reason||"")} — ${esc(x.size_kb??0)} KB</div></div><button type="button" class="btn btn-outline btn-sm restore-btn" data-file="${esc(x.filename)}">استعادة</button></div>`).join("");
+              root.querySelectorAll(".restore-btn").forEach(btn=>btn.onclick=()=>openConfirm(`استعادة النسخة ${btn.dataset.file}؟ سيتم حفظ نسخة تلقائية من الحالة الحالية أولًا.`,async()=>{try{await apiFetch("/api/backups/restore",{method:"POST",body:JSON.stringify({filename:btn.dataset.file})});toast("تمت الاستعادة");refresh();loadBackups()}catch(e){toast(e.message,"error")}}));
+            }catch(e){console.error("loadBackups failed",e);root.innerHTML='<div class="empty-state">تعذر تحميل النسخ الاحتياطية حاليًا.</div>';toast(e.message,"error");}
+          }
+          '''
+          p.write_text(text[:start] + replacement + text[end:], encoding='utf-8')
+          PY
 
-      - name: Remove temporary workflow
-        shell: bash
+      - name: Commit patched app.js
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git rm .github/workflows/fix-backups-null.yml
           git add static/app.js
-          git commit -m 'Fix backups list DOM target and remove temporary patch workflow'
+          if git diff --cached --quiet; then
+            echo 'No app.js change needed.'
+            exit 0
+          fi
+          git commit -m 'Fix backups list rendering'
           git push
