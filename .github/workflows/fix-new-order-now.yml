@@ -1,0 +1,119 @@
+name: Reliable New Order Save Repair
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply repair to live JavaScript
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('static/app.js')
+          s = p.read_text(encoding='utf-8')
+          marker = '/* EZZ RELIABLE NEW ORDER SAVE REPAIR v1 */'
+          if marker in s:
+              print('Repair already present')
+              raise SystemExit(0)
+          patch = r'''
+
+/* EZZ RELIABLE NEW ORDER SAVE REPAIR v1 */
+(function(){
+  function normalizePhoneForSave(value){
+    let s=String(value||'').trim();
+    s=s.replace(/[٠-٩]/g,d=>String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
+    s=s.replace(/[۰-۹]/g,d=>String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)));
+    if(s.startsWith('+')) return '+'+s.slice(1).replace(/\D/g,'');
+    if(s.startsWith('00')) return '+'+s.slice(2).replace(/\D/g,'');
+    const digits=s.replace(/\D/g,'');
+    if(digits.startsWith('0') && digits.length===10) return '966'+digits.slice(1);
+    if(digits.startsWith('5') && digits.length===9) return '966'+digits;
+    return digits;
+  }
+  function install(){
+    const form=document.getElementById('new-order-form');
+    const wrap=document.getElementById('product-items');
+    const add=document.getElementById('add-product-btn');
+    if(!form||!wrap) return;
+    const renumber=()=>{
+      const rows=[...wrap.querySelectorAll('.product-row')];
+      rows.forEach((r,i)=>{const n=r.querySelector('.product-number');if(n)n.textContent=String(i+1);});
+      const c=document.getElementById('products-count');
+      const t=document.getElementById('products-total');
+      if(c)c.textContent=String(rows.length);
+      if(t)t.textContent=String(rows.reduce((n,r)=>n+(parseInt(r.querySelector('.product-qty')?.value)||0),0));
+    };
+    const addRow=()=>{
+      const r=document.createElement('div');
+      r.className='product-row';
+      r.innerHTML='<div class="product-number"></div><input class="product-name" type="text" placeholder="اسم المنتج" autocomplete="off"><input class="product-qty" type="number" min="1" value="1"><div class="product-image-cell"><label class="image-upload-btn">📷 صورة المنتج<input class="product-image" type="file" accept="image/jpeg,image/png,image/webp" hidden></label><div class="image-preview"></div></div><button type="button" class="remove-product">✕</button>';
+      r.querySelector('.remove-product').onclick=()=>{r.remove();if(!wrap.querySelector('.product-row'))addRow();renumber();};
+      r.querySelector('.product-qty').oninput=renumber;
+      wrap.appendChild(r);renumber();
+    };
+    if(!wrap.querySelector('.product-row')) addRow(); else renumber();
+    if(add&&!add.dataset.ezzRepairBound){add.dataset.ezzRepairBound='1';add.onclick=addRow;}
+    if(form.dataset.ezzRepairBound)return;
+    form.dataset.ezzRepairBound='1';
+    form.addEventListener('submit', async function(e){
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      const rows=[...wrap.querySelectorAll('.product-row')];
+      const products=rows.map(r=>({product_name:(r.querySelector('.product-name')?.value||'').trim(),quantity:parseInt(r.querySelector('.product-qty')?.value)||0}));
+      const name=(form.querySelector('[name="customer_name"]')?.value||'').trim();
+      const phone=normalizePhoneForSave(form.querySelector('[name="phone"]')?.value||'');
+      if(!name||phone.replace(/\D/g,'').length<9||products.some(p=>!p.product_name||p.quantity<1)){
+        const er=document.querySelector('[data-for="products"]');if(er)er.textContent='أدخل اسم العميل ورقم الجوال واسم المنتج والكمية';
+        return;
+      }
+      const btn=form.querySelector('button[type="submit"]');if(btn)btn.disabled=true;
+      try{
+        const response=await fetch('/api/orders',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({customer_name:name,phone,products,order_date:form.querySelector('[name="order_date"]')?.value||'',notes:(form.querySelector('[name="notes"]')?.value||'').trim()})});
+        const data=await response.json().catch(()=>({}));
+        if(!response.ok)throw new Error(data.error||(data.errors?Object.values(data.errors).join('، '):'تعذر حفظ الطلب'));
+        const ok=document.getElementById('new-order-success');if(ok)ok.textContent='تم حفظ الطلب بنجاح — رقم الطلب: '+data.order.Order_ID;
+        const files=rows.map(r=>r.querySelector('.product-image')?.files?.[0]||null);
+        if(data.order?.Order_ID){
+          for(let i=0;i<files.length;i++){
+            const file=files[i],item=data.order.Items?.[i];
+            if(!file||!item?.Item_ID)continue;
+            const fd=new FormData();fd.append('image',file);
+            await fetch('/api/orders/'+encodeURIComponent(data.order.Order_ID)+'/items/'+encodeURIComponent(item.Item_ID)+'/image',{method:'POST',credentials:'same-origin',body:fd}).catch(()=>{});
+          }
+        }
+        form.reset();wrap.innerHTML='';addRow();
+        if(typeof window.refresh==='function')window.refresh();
+      }catch(err){if(typeof window.toast==='function')window.toast(err.message,'error');else alert(err.message)}
+      finally{if(btn)btn.disabled=false;}
+    },true);
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',install);else install();
+})();
+'''
+          p.write_text(s + patch, encoding='utf-8')
+          print('repair appended')
+          PY
+
+      - name: Commit repair
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add static/app.js
+          if git diff --cached --quiet; then
+            echo 'No repair changes needed'
+            exit 0
+          fi
+          git commit -m 'Apply reliable new order save repair [order-fix]'
+          git push
