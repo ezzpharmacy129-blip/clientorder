@@ -11,23 +11,86 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Patch shortage item fallback
+      - name: Patch shortage and new-order fallback
         shell: python
         run: |
           from pathlib import Path
           p = Path('static/app.js')
           s = p.read_text(encoding='utf-8')
-          marker = '/* EZZ SHORTAGE GROUPING FIX v1 */'
-          if marker in s:
-              print('Already patched')
-              raise SystemExit(0)
+          changed = False
+
+          marker1 = '/* EZZ SHORTAGE GROUPING FIX v1 */'
           old = '(o.Shortage_Items||[])'
           new = "(o.Shortage_Items||((o.Items||[]).filter(i=>i.Availability_Status==='بانتظار التوفر'))||[])"
-          if old not in s:
-              raise SystemExit('Expected shortage expression was not found')
-          s = s.replace(old, new)
-          s += '\n'+marker+'\n'
-          p.write_text(s, encoding='utf-8')
+          if marker1 not in s and old in s:
+              s = s.replace(old, new)
+              s += '\n'+marker1+'\n'
+              changed = True
+
+          marker2 = '/* EZZ NEW ORDER SAVE FIX v2 */'
+          if marker2 not in s:
+              s += r'''
+
+/* EZZ NEW ORDER SAVE FIX v2 */
+(function(){
+  function normalizePhoneForSave(v){
+    let s=String(v||'').trim().replace(/[٠-٩]/g,d=>String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))).replace(/[۰-۹]/g,d=>String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)));
+    if(s.startsWith('+')) return '+'+s.slice(1).replace(/\D/g,'');
+    if(s.startsWith('00')) return '+'+s.slice(2).replace(/\D/g,'');
+    const d=s.replace(/\D/g,'');
+    if(d.startsWith('966') && d.length>=11)return d;
+    if(d.startsWith('0') && d.length===10)return '966'+d.slice(1);
+    if(d.startsWith('5') && d.length===9)return '966'+d;
+    return d;
+  }
+  window.ezzNormalizePhoneForSave=normalizePhoneForSave;
+  document.addEventListener('DOMContentLoaded',function(){
+    const form=document.getElementById('new-order-form');
+    const wrap=document.getElementById('product-items');
+    const add=document.getElementById('add-product-btn');
+    if(!form||!wrap)return;
+    function renumber(){
+      const rows=[...wrap.querySelectorAll('.product-row')];
+      rows.forEach((r,i)=>{const n=r.querySelector('.product-number');if(n)n.textContent=String(i+1)});
+      const c=document.getElementById('products-count'),t=document.getElementById('products-total');
+      if(c)c.textContent=String(rows.length); if(t)t.textContent=String(rows.reduce((n,r)=>n+(parseInt(r.querySelector('.product-qty')?.value)||0),0));
+    }
+    function addRow(){
+      const d=document.createElement('div');d.className='product-row';
+      d.innerHTML='<div class="product-number"></div><input class="product-name" type="text" placeholder="اسم المنتج" autocomplete="off"><input class="product-qty" type="number" min="1" value="1" inputmode="numeric"><div class="product-image-cell"><label class="image-upload-btn">📷 صورة المنتج<input class="product-image" type="file" accept="image/jpeg,image/png,image/webp" hidden></label><div class="image-preview"></div></div><button type="button" class="remove-product">✕</button>';
+      d.querySelector('.product-qty').addEventListener('input',renumber);
+      d.querySelector('.remove-product').addEventListener('click',()=>{d.remove();if(!wrap.querySelector('.product-row'))addRow();renumber()});
+      wrap.appendChild(d);renumber();
+    }
+    if(!wrap.querySelector('.product-row'))addRow();else renumber();
+    if(add)add.addEventListener('click',addRow);
+    form.addEventListener('submit',async function(e){
+      e.preventDefault();e.stopImmediatePropagation();
+      const rows=[...wrap.querySelectorAll('.product-row')];
+      const products=rows.map(r=>({product_name:(r.querySelector('.product-name')?.value||'').trim(),quantity:parseInt(r.querySelector('.product-qty')?.value)||0}));
+      if(!form.reportValidity())return;
+      const err=document.querySelector('[data-for="products"]');
+      if(!products.length||products.some(p=>!p.product_name||p.quantity<1)){if(err)err.textContent='أدخل اسم المنتج والكمية لكل منتج';return}
+      if(err)err.textContent='';
+      const btn=form.querySelector('button[type="submit"]');if(btn)btn.disabled=true;
+      try{
+        const payload={customer_name:(form.querySelector('[name="customer_name"]')?.value||'').trim(),phone:normalizePhoneForSave(form.querySelector('[name="phone"]')?.value||''),products,order_date:form.querySelector('[name="order_date"]')?.value||'',notes:(form.querySelector('[name="notes"]')?.value||'').trim()};
+        const r=await fetch('/api/orders',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+        const data=await r.json().catch(()=>({}));
+        if(!r.ok)throw new Error(data.error||(data.errors?Object.values(data.errors).join('، '):'تعذر حفظ الطلب'));
+        const success=document.getElementById('new-order-success');if(success)success.textContent='تم حفظ الطلب بنجاح — رقم الطلب: '+data.order.Order_ID;
+        form.reset();wrap.innerHTML='';addRow();
+        if(typeof refresh==='function')refresh();
+      }catch(ex){if(typeof toast==='function')toast(ex.message,'error');else alert(ex.message)}
+      finally{if(btn)btn.disabled=false}
+    },true);
+  });
+})();
+'''
+              changed = True
+
+          p.write_text(s,encoding='utf-8')
+          print('changed=',changed)
       - name: Commit patch
         shell: bash
         run: |
@@ -38,5 +101,5 @@ jobs:
             echo 'No changes'
             exit 0
           fi
-          git commit -m 'Fix WhatsApp shortage grouping by product'
+          git commit -m 'Fix new order save and phone handling [order-fix]'
           git push
