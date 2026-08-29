@@ -9,7 +9,6 @@ permissions:
 
 jobs:
   patch-order-save:
-    if: ${{ !contains(github.event.head_commit.message, '[order-fix]') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -48,9 +47,10 @@ jobs:
     const msg=document.getElementById('new-order-success');
     const error=document.querySelector('[data-for="products"]');
     function renumber(){
-      wrap?.querySelectorAll('.product-row').forEach((r,i)=>{const n=r.querySelector('.product-number');if(n)n.textContent=String(i+1)});
-      if(count) count.textContent=String(wrap?.querySelectorAll('.product-row').length||0);
-      if(total) total.textContent=String([...wrap?.querySelectorAll('.product-qty')||[]].reduce((n,x)=>n+(parseInt(x.value)||0),0));
+      if(!wrap) return;
+      wrap.querySelectorAll('.product-row').forEach((r,i)=>{const n=r.querySelector('.product-number');if(n)n.textContent=String(i+1)});
+      if(count) count.textContent=String(wrap.querySelectorAll('.product-row').length||0);
+      if(total) total.textContent=String([...wrap.querySelectorAll('.product-qty')].reduce((n,x)=>n+(parseInt(x.value)||0),0));
     }
     function addRow(){
       if(!wrap) return;
@@ -61,7 +61,7 @@ jobs:
       wrap.appendChild(d); renumber();
     }
     if(!wrap.querySelector('.product-row')) addRow(); else renumber();
-    add?.addEventListener('click', addRow);
+    if(add) add.addEventListener('click', addRow);
 
     form.addEventListener('submit', async function(e){
       e.preventDefault();
@@ -84,7 +84,8 @@ jobs:
             const file=files[i], item=d.order.Items?.[i];
             if(!file||!item?.Item_ID) continue;
             const fd=new FormData(); fd.append('image',file);
-            await fetch(`/api/orders/${encodeURIComponent(d.order.Order_ID)}/items/${encodeURIComponent(item.Item_ID)}/image`,{method:'POST',body:fd,credentials:'same-origin'});
+            const ir=await fetch(`/api/orders/${encodeURIComponent(d.order.Order_ID)}/items/${encodeURIComponent(item.Item_ID)}/image`,{method:'POST',body:fd,credentials:'same-origin'});
+            if(!ir.ok) console.warn('Image upload failed', await ir.text());
           }
         }
         if(msg) msg.textContent=`تم حفظ الطلب بنجاح — رقم الطلب: ${d.order.Order_ID}`;
