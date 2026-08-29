@@ -11,8 +11,10 @@ def install_cloud_order_update_fix(db):
     if db.__class__.__module__ != "cloud_db":
         return
     CloudDB = db.__class__
-    if getattr(CloudDB, "_ezz_order_update_fix_v1", False):
+    if getattr(CloudDB, "_ezz_order_update_fix_v2", False):
         return
+
+    from db import STATUS_PENDING, now_str
 
     def safe_update_order(self, order_id, fields, products=None, user="موظف"):
         with self._connect() as conn:
@@ -59,7 +61,7 @@ def install_cloud_order_update_fix(db):
                             (p["product_name"], p["quantity"], item["Item_ID"]),
                         )
                     else:
-                        ts = self._now_for_update()
+                        ts = now_str()
                         conn.execute(
                             "INSERT INTO order_items(item_id,order_id,product_name,quantity,image_path,availability_status,available_price,discounted_price,unavailable_reason,availability_note,price_confirmation_required,available_at,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                             (
@@ -85,7 +87,7 @@ def install_cloud_order_update_fix(db):
                     params.append(value)
             if sets:
                 sets.append("updated_at=%s")
-                params.append(self._now_for_update())
+                params.append(now_str())
                 params.append(str(order_id))
                 conn.execute(f"UPDATE orders SET {', '.join(sets)} WHERE order_id=%s", params)
 
@@ -95,9 +97,5 @@ def install_cloud_order_update_fix(db):
             self._add_undo(conn, order_id, "تعديل بيانات الطلب", snapshot, user)
             return self._refresh_order_in_conn(conn, order_id)
 
-    # Use a tiny helper instead of depending on implementation details of now_str.
-    if not hasattr(CloudDB, "_now_for_update"):
-        CloudDB._now_for_update = staticmethod(__import__("db").now_str)
-
     CloudDB.update_order = safe_update_order
-    CloudDB._ezz_order_update_fix_v1 = True
+    CloudDB._ezz_order_update_fix_v2 = True
