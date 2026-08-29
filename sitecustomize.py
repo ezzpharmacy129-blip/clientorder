@@ -108,10 +108,24 @@ def _protected_init(self, *args, **kwargs):
     install_data_export(self, db)
     install_postrollback_export(self)
 
+    # Load the static UI structure before app.js's DOMContentLoaded handlers run.
+    @self.after_request
+    def _ezz_ui_bootstrap(response):
+        try:
+            if response.mimetype == "text/html" and response.status_code == 200:
+                body = response.get_data(as_text=True)
+                marker = "ui-bootstrap.js"
+                if marker not in body and "</body>" in body:
+                    script = '<script src="/static/ui-bootstrap.js"></script>'
+                    response.set_data(body.replace("</body>", script + "</body>", 1))
+        except Exception:
+            pass
+        return response
 
-if not getattr(flask.Flask, "_ezz_auth_constructor_patched_v3", False):
+
+if not getattr(flask.Flask, "_ezz_auth_constructor_patched_v4", False):
     flask.Flask.__init__ = _protected_init
-    flask.Flask._ezz_auth_constructor_patched_v3 = True
+    flask.Flask._ezz_auth_constructor_patched_v4 = True
 
 # Apply CloudDB audit/data-safety safeguards once the backend module is available.
 _install_runtime_safeguards()
