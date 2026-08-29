@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   syntax:
@@ -15,8 +15,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -27,61 +25,16 @@ jobs:
         run: python -m compileall -q app.py db.py cloud_db.py sitecustomize.py auth_bootstrap.py auth_pg.py auth_security_extensions.py admin_state_controls.py data_export.py
       - name: Validate JavaScript syntax
         run: node --check static/app.js
-      - name: Integrate and normalize users dashboard
-        if: github.event_name == 'push'
-        shell: bash
+      - name: Verify users dashboard core integration
         run: |
-          set -euo pipefail
-          python - <<'PY'
-          from pathlib import Path
-          import re
-          index=Path('templates/index.html'); js=Path('static/app.js'); css=Path('static/style.css')
-          it=index.read_text(encoding='utf-8'); jt=js.read_text(encoding='utf-8'); ct=css.read_text(encoding='utf-8')
-
-          # Core HTML: exactly one users nav button and one users view.
-          it=re.sub(r'<button[^>]*data-view=["\']users["\'][^>]*>.*?</button>', '', it, flags=re.S)
-          it=re.sub(r'<section[^>]*id=["\']view-users["\'][^>]*>.*?</section>\s*', '', it, flags=re.S)
-          nav_button='<button class="nav-btn" data-view="users" id="users-nav-btn">👥 المستخدمون</button>'
-          if '</nav>' not in it or '</main>' not in it: raise SystemExit('Core layout markers not found')
-          it=it.replace('</nav>',nav_button+'</nav>',1)
-          view='''<section id="view-users" class="view users-view"><div class="panel users-admin-panel"><div class="panel-header"><div><h2>👥 إدارة المستخدمين</h2><p class="panel-subtitle">إدارة المستخدمين والصلاحيات مباشرة من النظام.</p></div><button type="button" class="btn btn-secondary btn-sm" id="users-refresh">تحديث</button></div><div class="users-admin-card"><h3>إضافة مستخدم</h3><p class="users-admin-note">اسم المستخدم فريد، وكلمة المرور لا تقل عن 8 أحرف.</p><form id="users-add-form" class="users-admin-form"><div class="form-row"><label>اسم الموظف</label><input name="name" required></div><div class="form-row"><label>اسم المستخدم</label><input name="username" minlength="3" required></div><div class="form-row"><label>كلمة المرور</label><input name="password" type="password" minlength="8" required autocomplete="new-password"></div><div class="form-row"><label>الدور</label><select name="role"><option value="employee">موظف</option><option value="admin">مدير</option></select></div><div class="form-actions"><button type="submit" class="btn btn-primary">+ إضافة المستخدم</button></div></form></div><div class="users-admin-card"><div class="panel-header"><h3>المستخدمون الحاليون</h3><span id="users-count" class="fi-meta"></span></div><div id="users-list" class="users-admin-table-wrap"></div></div></div></section>'''
-          it=it.replace('</main>',view+'</main>',1)
-
-          # Remove every prior generated users JS/CSS block, then add exactly one.
-          jt=re.sub(r'\n/\* EZZ_CORE_USERS_DASHBOARD_(?:V1|V2|V3|V4|V5) \*/.*?(?=\n/\* EZZ_CORE_USERS_DASHBOARD_|\Z)', '', jt, flags=re.S)
-          jt += r'''
-/* EZZ_CORE_USERS_DASHBOARD_V5 */
-(function(){'use strict';
-  let initialized=false;
-  const escU=v=>String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-  async function apiU(url,options={}){const r=await fetch(url,{...options,headers:{'Content-Type':'application/json',...(options.headers||{})}});let d=null;try{d=await r.json()}catch(_){}if(!r.ok)throw new Error(d?.error||'حدث خطأ');return d;}
-  async function loadUsers(){const root=document.getElementById('users-list');if(!root)return;root.innerHTML='<div class="users-admin-empty">جارِ التحميل...</div>';try{const d=await apiU('/api/admin/users');const rows=Array.isArray(d?.users)?d.users:[];const c=document.getElementById('users-count');if(c)c.textContent=rows.length+' مستخدم';if(!rows.length){root.innerHTML='<div class="users-admin-empty">لا يوجد مستخدمون.</div>';return;}root.innerHTML='<table class="users-admin-table"><thead><tr><th>الاسم</th><th>اسم المستخدم</th><th>الدور</th><th>الحالة</th><th>آخر دخول</th><th>الإجراءات</th></tr></thead><tbody>'+rows.map(u=>'<tr><td><strong>'+escU(u.name)+'</strong></td><td>'+escU(u.username)+'</td><td><span class="users-admin-badge '+(u.role==='admin'?'admin':'employee')+'">'+(u.role==='admin'?'مدير':'موظف')+'</span></td><td><span class="users-admin-badge '+(u.active?'active':'inactive')+'">'+(u.active?'نشط':'معطل')+'</span></td><td>'+escU(u.last_login||'—')+'</td><td><div class="users-admin-actions"><button type="button" class="btn btn-outline btn-sm user-toggle" data-id="'+escU(u.user_id)+'">'+(u.active?'تعطيل':'تفعيل')+'</button><button type="button" class="btn btn-secondary btn-sm user-pass" data-id="'+escU(u.user_id)+'">تغيير كلمة المرور</button></div></td></tr>').join('')+'</tbody></table>';root.querySelectorAll('.user-toggle').forEach(b=>b.onclick=async()=>{try{await apiU('/api/admin/users/'+encodeURIComponent(b.dataset.id)+'/toggle',{method:'POST'});await loadUsers();}catch(e){alert(e.message);}});root.querySelectorAll('.user-pass').forEach(b=>b.onclick=async()=>{const p=prompt('كلمة المرور الجديدة (8 أحرف على الأقل):');if(p===null)return;if(p.length<8){alert('كلمة المرور يجب ألا تقل عن 8 أحرف');return;}try{await apiU('/api/admin/users/'+encodeURIComponent(b.dataset.id)+'/password',{method:'POST',body:JSON.stringify({password:p})});alert('تم تغيير كلمة المرور بنجاح');}catch(e){alert(e.message);}});}catch(e){root.innerHTML='<div class="users-admin-empty">تعذر تحميل المستخدمين.</div>';if(typeof toast==='function')toast(e.message,'error');}}
-  async function initUsers(){if(initialized)return;initialized=true;let me;try{me=(await apiU('/api/auth/me')).user;}catch(_){return;}const nav=document.getElementById('users-nav-btn'),view=document.getElementById('view-users');if(!me||me.role!=='admin'){nav?.remove();view?.remove();return;}document.getElementById('users-refresh')?.addEventListener('click',loadUsers);document.getElementById('users-add-form')?.addEventListener('submit',async e=>{e.preventDefault();const f=e.currentTarget,b=f.querySelector('button[type="submit"]');b.disabled=true;try{await apiU('/api/admin/users',{method:'POST',body:JSON.stringify(Object.fromEntries(new FormData(f).entries()))});f.reset();await loadUsers();if(typeof toast==='function')toast('تم إضافة المستخدم بنجاح');}catch(x){if(typeof toast==='function')toast(x.message,'error');else alert(x.message);}finally{b.disabled=false;}});nav?.addEventListener('click',()=>{if(typeof switchView==='function')switchView('users');else{document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));view?.classList.add('active');loadUsers();}});loadUsers();}
-  document.addEventListener('DOMContentLoaded',initUsers);if(document.readyState!=='loading')initUsers();
-})();
-'''
-          ct=re.sub(r'\n/\* EZZ_CORE_USERS_DASHBOARD_(?:V1|V2|V3|V4|V5) \*/.*?(?=\n/\* EZZ_CORE_USERS_DASHBOARD_|\Z)', '', ct, flags=re.S)
-          ct += r'''
-/* EZZ_CORE_USERS_DASHBOARD_CSS_V5 */
-.users-view{max-width:100%}.users-admin-panel{margin-top:18px}.users-admin-card{background:#fbfeff;border:1px solid var(--border);border-radius:12px;padding:16px;margin-top:14px}.users-admin-form{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;align-items:end}.users-admin-form .form-row{display:flex;flex-direction:column;gap:6px}.users-admin-form label{font-weight:700;font-size:12px}.users-admin-note{font-size:12px;color:var(--muted);margin:0 0 14px}.users-admin-table-wrap{overflow:auto}.users-admin-table{width:100%;border-collapse:collapse;min-width:760px}.users-admin-table th,.users-admin-table td{border-bottom:1px solid var(--border);padding:10px;text-align:right;vertical-align:middle}.users-admin-table th{background:#f4fafb;color:var(--navy);font-size:12px}.users-admin-table td{font-size:13px}.users-admin-badge{display:inline-block;padding:4px 9px;border-radius:999px;font-size:11px;font-weight:800}.users-admin-badge.active{background:#e7f8ef;color:#18734a}.users-admin-badge.inactive{background:#fff0ef;color:#a12d2d}.users-admin-badge.admin{background:#eaf2ff;color:#244c97}.users-admin-badge.employee{background:#f3f5f7;color:#5b6872}.users-admin-actions{display:flex;gap:6px;flex-wrap:wrap}.users-admin-empty{padding:28px;text-align:center;color:var(--muted)}@media(max-width:900px){.users-admin-form{grid-template-columns:1fr 1fr}}@media(max-width:600px){.users-admin-form{grid-template-columns:1fr}}
-'''
-          index.write_text(it,encoding='utf-8');js.write_text(jt,encoding='utf-8');css.write_text(ct,encoding='utf-8')
-          PY
-          node --check static/app.js
           python - <<'PY'
           from pathlib import Path
           t=Path('templates/index.html').read_text(encoding='utf-8')
           j=Path('static/app.js').read_text(encoding='utf-8')
           c=Path('static/style.css').read_text(encoding='utf-8')
-          assert t.count('id="users-nav-btn"')==1
-          assert t.count('id="view-users"')==1
-          assert j.count('EZZ_CORE_USERS_DASHBOARD_')==1
-          assert c.count('EZZ_CORE_USERS_DASHBOARD_CSS_')==1
-          print('USERS CORE INTEGRATION CLEAN: OK')
+          assert t.count('id="users-nav-btn"') == 1
+          assert t.count('id="view-users"') == 1
+          assert j.count('EZZ_CORE_USERS_DASHBOARD_') == 1
+          assert c.count('EZZ_CORE_USERS_DASHBOARD_CSS_') == 1
+          print('USERS CORE INTEGRATION VERIFIED')
           PY
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add templates/index.html static/app.js static/style.css
-          if git diff --cached --quiet; then exit 0; fi
-          git commit -m "Normalize users dashboard core integration"
-          git push origin HEAD:main
