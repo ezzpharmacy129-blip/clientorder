@@ -2,6 +2,42 @@
   'use strict';
   let installed = false;
 
+  function forceModalStyles(modal){
+    if(!modal) return;
+    modal.classList.remove('hidden');
+    modal.setAttribute('aria-hidden','false');
+    modal.style.display='flex';
+    modal.style.visibility='visible';
+    modal.style.opacity='1';
+    modal.style.pointerEvents='auto';
+    modal.style.position='fixed';
+    modal.style.inset='0';
+    modal.style.zIndex='1000';
+    const card=modal.querySelector('.modal');
+    if(card){
+      card.style.display='block';
+      card.style.visibility='visible';
+      card.style.opacity='1';
+      card.style.background='#fff';
+      card.style.color='var(--text,#17324d)';
+      card.style.width='min(780px,100%)';
+      card.style.maxHeight='90vh';
+      card.style.overflow='auto';
+      card.style.borderRadius='16px';
+      card.style.boxShadow='0 20px 70px rgba(0,0,0,.2)';
+    }
+  }
+
+  function hideModal(modal){
+    if(!modal) return;
+    modal.classList.add('hidden');
+    modal.setAttribute('aria-hidden','true');
+    modal.style.display='none';
+    modal.style.visibility='hidden';
+    modal.style.opacity='0';
+    modal.style.pointerEvents='none';
+  }
+
   function ensureDetailsModal(){
     let modal = document.getElementById('order-modal');
     if(!modal){
@@ -9,33 +45,49 @@
       modal.id='order-modal';
       modal.className='modal-overlay hidden';
       modal.setAttribute('aria-hidden','true');
-      modal.innerHTML='<div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div class="modal-header"><h3 id="modal-title">تفاصيل الطلب</h3><button type="button" class="modal-close" id="modal-close-btn" aria-label="إغلاق">×</button></div><div id="modal-body" class="modal-body"></div></div>';
+      modal.innerHTML='<div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div class="modal-header"><h3 id="modal-title">تفاصيل الطلب</h3><button type="button" class="modal-close" id="modal-close-btn" aria-label="إغلاق">×</button></div><div id="modal-body" class="modal-body"></div></div>';
       document.body.appendChild(modal);
-    }
-    if(!document.getElementById('modal-title')){
-      const h=document.createElement('h3');h.id='modal-title';h.textContent='تفاصيل الطلب';(modal.querySelector('.modal-header')||modal).appendChild(h);
-    }
-    if(!document.getElementById('modal-body')){
-      const b=document.createElement('div');b.id='modal-body';b.className='modal-body';modal.appendChild(b);
+    }else{
+      let card=modal.querySelector('.modal');
+      if(!card){
+        const old=modal.querySelector('.modal-card');
+        if(old){old.classList.remove('modal-card');old.classList.add('modal');card=old;}
+      }
+      if(!card){
+        card=document.createElement('div');
+        card.className='modal';
+        card.setAttribute('role','dialog');
+        card.setAttribute('aria-modal','true');
+        card.setAttribute('aria-labelledby','modal-title');
+        modal.appendChild(card);
+      }
+      if(!card.querySelector('#modal-title')){
+        const header=card.querySelector('.modal-header')||document.createElement('div');
+        if(!header.classList.contains('modal-header')){header.className='modal-header';card.insertBefore(header,card.firstChild);}
+        const h=document.createElement('h3');h.id='modal-title';h.textContent='تفاصيل الطلب';header.prepend(h);
+      }
+      if(!card.querySelector('#modal-body')){
+        const b=document.createElement('div');b.id='modal-body';b.className='modal-body';card.appendChild(b);
+      }
     }
     const close=document.getElementById('modal-close-btn');
     if(close&&!close.dataset.ezzBound){
       close.dataset.ezzBound='1';
-      close.addEventListener('click',()=>{modal.classList.add('hidden');modal.setAttribute('aria-hidden','true')});
-      modal.addEventListener('click',e=>{if(e.target===modal){modal.classList.add('hidden');modal.setAttribute('aria-hidden','true')}});
+      close.addEventListener('click',()=>hideModal(modal));
+      modal.addEventListener('click',e=>{if(e.target===modal)hideModal(modal)});
     }
     return modal;
   }
 
   function ensureActionModals(){
     if(!document.getElementById('availability-modal')){
-      const x=document.createElement('div');x.id='availability-modal';x.className='modal-overlay hidden';x.setAttribute('aria-hidden','true');x.innerHTML='<div class="modal-card" role="dialog" aria-modal="true"><div class="modal-header"><h3>تحديث توفر المنتجات</h3><button type="button" class="modal-close" id="availability-close-btn">×</button></div><div id="availability-items" class="modal-body"></div><div class="modal-actions"><button type="button" class="btn btn-secondary" id="availability-cancel-btn">إلغاء</button><button type="button" class="btn btn-primary" id="availability-save-btn">حفظ</button></div></div>';document.body.appendChild(x);
+      const x=document.createElement('div');x.id='availability-modal';x.className='modal-overlay hidden';x.setAttribute('aria-hidden','true');x.innerHTML='<div class="modal" role="dialog" aria-modal="true"><div class="modal-header"><h3>تحديث توفر المنتجات</h3><button type="button" class="modal-close" id="availability-close-btn">×</button></div><div id="availability-items" class="modal-body"></div><div class="modal-actions"><button type="button" class="btn btn-secondary" id="availability-cancel-btn">إلغاء</button><button type="button" class="btn btn-primary" id="availability-save-btn">حفظ</button></div></div>';document.body.appendChild(x);
     }
     if(!document.getElementById('confirm-modal')){
-      const x=document.createElement('div');x.id='confirm-modal';x.className='modal-overlay hidden';x.innerHTML='<div class="modal-card" role="dialog" aria-modal="true"><div class="modal-header"><h3>تأكيد</h3></div><div id="confirm-message" class="modal-body"></div><div class="modal-actions"><button type="button" class="btn btn-secondary" id="confirm-no-btn">إلغاء</button><button type="button" class="btn btn-danger" id="confirm-yes-btn">تأكيد</button></div></div>';document.body.appendChild(x);
+      const x=document.createElement('div');x.id='confirm-modal';x.className='modal-overlay hidden';x.innerHTML='<div class="modal" role="dialog" aria-modal="true"><div class="modal-header"><h3>تأكيد</h3></div><div id="confirm-message" class="modal-body"></div><div class="modal-actions"><button type="button" class="btn btn-secondary" id="confirm-no-btn">إلغاء</button><button type="button" class="btn btn-danger" id="confirm-yes-btn">تأكيد</button></div></div>';document.body.appendChild(x);
     }
     if(!document.getElementById('postpone-modal')){
-      const x=document.createElement('div');x.id='postpone-modal';x.className='modal-overlay hidden';x.innerHTML='<div class="modal-card" role="dialog" aria-modal="true"><div class="modal-header"><h3>تأجيل المتابعة</h3></div><div class="modal-body"><input type="date" id="postpone-custom-date"></div><div class="modal-actions"><button type="button" class="btn btn-secondary" id="postpone-close-btn">إلغاء</button><button type="button" class="btn btn-primary" id="postpone-custom-confirm">حفظ</button></div></div>';document.body.appendChild(x);
+      const x=document.createElement('div');x.id='postpone-modal';x.className='modal-overlay hidden';x.innerHTML='<div class="modal" role="dialog" aria-modal="true"><div class="modal-header"><h3>تأجيل المتابعة</h3></div><div class="modal-body"><input type="date" id="postpone-custom-date"></div><div class="modal-actions"><button type="button" class="btn btn-secondary" id="postpone-close-btn">إلغاء</button><button type="button" class="btn btn-primary" id="postpone-custom-confirm">حفظ</button></div></div>';document.body.appendChild(x);
     }
   }
 
@@ -44,15 +96,16 @@
     const modal=ensureDetailsModal();
     ensureActionModals();
     const title=document.getElementById('modal-title'),body=document.getElementById('modal-body');
+    if(!title||!body)return;
     title.textContent='تفاصيل الطلب '+id;
     body.innerHTML='<div class="empty-state">جارِ تحميل تفاصيل الطلب...</div>';
-    modal.classList.remove('hidden');modal.setAttribute('aria-hidden','false');
+    forceModalStyles(modal);
     try{
       const r=await fetch('/api/orders/'+encodeURIComponent(id),{credentials:'same-origin',cache:'no-store'});
       const d=await r.json().catch(()=>({}));
       if(!r.ok)throw new Error(d.error||'تعذر تحميل تفاصيل الطلب');
       const o=d.order||{}, items=Array.isArray(o.Items)?o.Items:[], log=Array.isArray(d.activity_log)?d.activity_log:[], undo=d.undo?.available?d.undo:null;
-      const esc=s=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      const esc=s=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;');
       const fmt=s=>{if(!s)return '—';const p=String(s).split(' ')[0].split('-');return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:String(s)};
       const products=items.length?items.map(i=>`<div class="item-detail-row"><div><strong>${esc(i.Product_Name)}</strong> × ${esc(i.Quantity)}${i.Image_Path?' 📷':''}</div><div>${i.Available_Price?esc(i.Available_Price)+' ريال':''}</div></div>`).join(''):'<div class="empty-state">لا توجد منتجات</div>';
       const activity=log.length?log.map(a=>`<div class="activity-item"><b>${esc(a.Created_At)}</b><span>${esc(a.Action)}${a.Note?` — ${esc(a.Note)}`:''}</span></div>`).join(''):'<div class="empty-state">لا يوجد سجل متابعة</div>';
@@ -64,13 +117,14 @@
       if(undo)actions.push(`<button type="button" class="btn btn-warning" id="direct-undo">↩ التراجع عن: ${esc(undo.action||'آخر إجراء')}</button>`);
       if(o.Phone)actions.unshift('<button type="button" class="btn btn-outline btn-sm" id="direct-wa">💬 واتساب</button>');
       body.innerHTML=`<div class="order-head"><div><b>${esc(o.Customer_Name)}</b><div>${esc(o.Phone)}</div></div></div><div class="detail-grid"><div class="detail-item full"><div class="di-label">المنتجات</div><div class="items-detail">${products}</div></div><div class="detail-item"><div class="di-label">الحالة</div><div class="di-value">${esc(o.Status||'—')}</div></div><div class="detail-item"><div class="di-label">تاريخ الطلب</div><div class="di-value">${fmt(o.Order_Date)}</div></div><div class="detail-item"><div class="di-label">تاريخ التوفر</div><div class="di-value">${fmt(o.Available_Date)}</div></div><div class="detail-item"><div class="di-label">آخر تواصل</div><div class="di-value">${fmt(o.Last_Contact_Date)}</div></div><div class="detail-item"><div class="di-label">موعد المتابعة</div><div class="di-value">${fmt(o.Next_Followup_Date)}</div></div><div class="detail-item"><div class="di-label">تاريخ الاستلام</div><div class="di-value">${fmt(o.Pickup_Date)}</div></div>${o.Notes?`<div class="detail-item full"><div class="di-label">ملاحظات</div><div class="di-value">${esc(o.Notes)}</div></div>`:''}</div><div class="contact-status-panel"><div class="di-label">حالة التواصل</div><div class="di-value">${esc(o.Contact_Status||'لم يتم التواصل')}</div></div><div class="detail-actions">${actions.join('')}</div><div class="activity-log"><h4>سجل المتابعة</h4>${activity}</div>`;
+      forceModalStyles(modal);
       document.getElementById('direct-wa')?.addEventListener('click',()=>window.openClientWhatsApp?.(id));
       document.getElementById('direct-availability')?.addEventListener('click',()=>window.openAvailability?.(id));
       document.getElementById('direct-contact')?.addEventListener('click',()=>window.contact?.(id));
       document.getElementById('direct-pickup')?.addEventListener('click',()=>window.pickup?.(id));
       document.getElementById('direct-cancel')?.addEventListener('click',()=>window.cancelOrder?.(id));
       document.getElementById('direct-undo')?.addEventListener('click',()=>window.undoOrder?.(id,undo.action||'آخر إجراء'));
-    }catch(e){body.innerHTML=`<div class="empty-state">تعذر تحميل تفاصيل الطلب: ${String(e.message||'خطأ')}</div>`;}
+    }catch(e){body.innerHTML=`<div class="empty-state">تعذر تحميل تفاصيل الطلب: ${String(e.message||'خطأ')}</div>`;forceModalStyles(modal);}
   }
 
   function installDetailRouting(){
