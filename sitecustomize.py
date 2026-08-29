@@ -31,16 +31,7 @@ def _install_runtime_safeguards():
             original_log = CloudDB._log
 
             def audit_log(self, conn, order_id, action, old_status, new_status, note, user):
-                return original_log(
-                    self,
-                    conn,
-                    order_id,
-                    action,
-                    old_status,
-                    new_status,
-                    note,
-                    _current_session_user(),
-                )
+                return original_log(self, conn, order_id, action, old_status, new_status, note, _current_session_user())
 
             CloudDB._log = audit_log
 
@@ -74,20 +65,25 @@ def _install_runtime_safeguards():
         from cloud_db_update_fix import install_cloud_order_update_fix
         install_cloud_order_update_fix(db_obj)
     except Exception:
-        # Runtime safeguards are optional and must never prevent startup.
         pass
 
 
 def _protected_init(self, *args, **kwargs):
     _original_init(self, *args, **kwargs)
 
-    from auth_bootstrap import install_auth
+    from db import db
+    # Production uses PostgreSQL-native authentication/users/audit. Local builds
+    # retain the existing SQLite/Excel fallback in auth_bootstrap.py.
+    if db.__class__.__module__ == "cloud_db":
+        from auth_pg import install_auth
+    else:
+        from auth_bootstrap import install_auth
+
     from auth_security_extensions import install_security_extensions
     from admin_state_controls import install_admin_state_controls
     from pending_availability_fix import install_pending_availability_fix
     from data_export import install_data_export
     from postrollback_export import install_postrollback_export
-    from db import db
 
     install_auth(self, db)
 
