@@ -78,21 +78,6 @@ def _protected_init(self, *args, **kwargs):
         install_pending_availability_fix(db)
     install_data_export(self, db)
     install_postrollback_export(self)
-    if is_cloud:
-        @self.after_request
-        def _inject_users_ui(response):
-            try:
-                if response.mimetype == "text/html" and session.get("user_id"):
-                    text = response.get_data(as_text=True)
-                    if "users-admin.js" not in text:
-                        marker = "</head>"
-                        assets = '<link rel="stylesheet" href="/static/users-admin.css?v=1"><script src="/static/users-admin.js?v=1" defer></script>'
-                        if marker in text:
-                            response.set_data(text.replace(marker, assets + marker, 1))
-            except Exception:
-                pass
-            return response
-
 if not getattr(flask.Flask, "_ezz_auth_constructor_patched_v6", False):
     flask.Flask.__init__ = _protected_init
     flask.Flask._ezz_auth_constructor_patched_v6 = True
