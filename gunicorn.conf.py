@@ -16,7 +16,6 @@ ATTEMPTS = defaultdict(deque)
 WINDOW = 600
 MAX_ATTEMPTS = 5
 
-# Arabic keyboard-layout equivalents for Latin keys used in login credentials.
 _ARABIC_KEYBOARD_TO_LATIN = str.maketrans({
     "ذ":"`", "ض":"q", "ص":"w", "ث":"e", "ق":"r", "ف":"t", "غ":"y", "ع":"u", "ه":"i", "خ":"o", "ح":"p",
     "ج":"[", "د":"]", "ش":"a", "س":"s", "ي":"d", "ب":"f", "ل":"g", "ا":"h", "ت":"j", "ن":"k", "م":"l", "ك":";",
@@ -90,12 +89,70 @@ def post_worker_init(worker):
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
         response.headers.setdefault("Referrer-Policy", "same-origin")
+        if response.mimetype == "text/html" and response.get_data():
+            try:
+                body = response.get_data(as_text=True)
+                marker = "EZZ_BACKUP_UI_FIX_V3"
+                if marker not in body and "</body>" in body:
+                    patch = r'''<script>
+/* EZZ_BACKUP_UI_FIX_V3 */
+(function(){
+  function ensureBackupsTable(){
+    var b=document.getElementById("backups-table-body");
+    if(b) return b;
+    var root=document.getElementById("view-backups");
+    if(!root) return null;
+    b=root.querySelector("table tbody");
+    if(!b){
+      var table=document.createElement("table");
+      table.className="orders-table";
+      table.innerHTML='<thead><tr><th>تاريخ النسخة</th><th>نوع النسخة</th><th>اسم الملف</th><th>الحجم</th><th>الإجراء</th></tr></thead><tbody id="backups-table-body"></tbody>';
+      root.appendChild(table);
+      b=table.querySelector("tbody");
+    }
+    b.id="backups-table-body";
+    return b;
+  }
+
+  var originalLoad=window.loadBackups;
+  if(typeof originalLoad === "function" && !originalLoad.__ezzSafeV3){
+    var safeLoad=async function(){
+      var b=ensureBackupsTable();
+      if(!b){console.error("Backup table element is missing");return;}
+      try{return await originalLoad.apply(this,arguments)}catch(e){
+        console.error("loadBackups failed",e);
+        b.innerHTML='<tr><td colspan="5" class="empty-state">تعذر تحميل قائمة النسخ الاحتياطية حاليًا.</td></tr>';
+      }
+    };
+    safeLoad.__ezzSafeV3=true;
+    window.loadBackups=safeLoad;
+  }
+
+  function bindRestore(){
+    var r=document.getElementById("export-postrollback-btn");
+    if(r && !r.__ezzBoundV3){
+      r.__ezzBoundV3=true;
+      r.textContent="📥 تنزيل بيانات ما قبل الـRollback";
+      r.onclick=function(e){
+        e.preventDefault();
+        window.location.assign("/api/data/export-postrollback");
+        return false;
+      };
+    }
+    ensureBackupsTable();
+  }
+  bindRestore();
+  if(document.readyState === "loading") document.addEventListener("DOMContentLoaded",bindRestore); 
+})();
+</script>'''
+                    response.set_data(body.replace("</body>", patch + "</body>"))
+            except Exception:
+                pass
         return response
     app.after_request_funcs.setdefault(None, []).insert(0, _headers)
     _install_export_route(app)
 
 def _install_export_route(app):
-    """Register protected read-only Excel exports on the actual Flask app."""
     if "export_current_xlsx_direct" in app.view_functions:
         return
     from datetime import datetime
@@ -132,7 +189,6 @@ def _install_export_route(app):
 
     @app.get("/api/data/export-postrollback", endpoint="export_postrollback_data")
     def export_postrollback_data():
-        """Export the most recent PostgreSQL backup created before the 2026-08-28 rollback."""
         if not session.get("authenticated") and not session.get("user_id"):
             return jsonify({"error": "تسجيل الدخول مطلوب", "authenticated": False}), 401
         try:
@@ -161,14 +217,7 @@ def _install_export_route(app):
                 xlsx = io.BytesIO(blob)
             xlsx.seek(0)
             stamp = datetime.now(ZoneInfo("Asia/Riyadh")).strftime("%Y-%m-%d_%H%M%S")
-            return send_file(
-                xlsx,
-                mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                as_attachment=True,
-                download_name=f"Ezz_Pharmacy_Pre_Rollback_{stamp}.xlsx",
-                max_age=0,
-                conditional=False,
-            )
+            return send_file(xlsx, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", as_attachment=True, download_name=f"Ezz_Pharmacy_Pre_Rollback_{stamp}.xlsx", max_age=0, conditional=False)
         except Exception as exc:
             app.logger.exception("Pre-rollback export failed")
             return jsonify({"error": f"تعذر استخراج بيانات ما قبل الـRollback: {exc}"}), 500
