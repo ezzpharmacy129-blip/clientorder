@@ -1,4 +1,4 @@
-name: Fix recovery export UI
+name: Install pre-Rollback recovery
 
 on:
   push:
@@ -8,41 +8,93 @@ permissions:
   contents: write
 
 jobs:
-  patch-ui:
+  patch-recovery:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Patch index.html and app.js
+      - name: Install real restore route
         shell: python
         run: |
           from pathlib import Path
 
-          index = Path("index.html")
-          text = index.read_text(encoding="utf-8")
-          marker = 'id="export-postrollback-btn"'
+          path = Path("gunicorn.conf.py")
+          text = path.read_text(encoding="utf-8")
+          marker = "RESTORE_PRE_ROLLBACK_ROUTE_V1"
           if marker not in text:
-              target = '<button class="btn btn-primary" id="create-backup-btn">'
-              button = '''{% if session.get('role') in ['admin','administrator'] or session.get('username') in ['admin','administrator'] %}<button class="btn btn-outline" id="export-postrollback-btn" type="button">🛟 استخراج بيانات ما قبل الـRollback</button>{% endif %}'''
-              if target not in text:
-                  raise SystemExit("Could not find create-backup-btn in index.html")
-              text = text.replace(target, button + target, 1)
-              index.write_text(text, encoding="utf-8")
+              block = r'''
 
-          js = Path("app.js")
+    # RESTORE_PRE_ROLLBACK_ROUTE_V1
+    @app.get("/api/data/restore-pre-rollback", endpoint="restore_pre_rollback_data")
+    def restore_pre_rollback_data():
+        """Restore the newest PostgreSQL backup created before the 2026-08-28 rollback."""
+        if not session.get("authenticated") and not session.get("user_id"):
+            return jsonify({"error": "تسجيل الدخول مطلوب", "authenticated": False}), 401
+        try:
+            database_url = os.environ.get("DATABASE_URL", "").strip()
+            if not database_url:
+                return jsonify({"error": "قاعدة PostgreSQL غير متصلة"}), 503
+            import psycopg
+            cutoff = "2026-08-29 01:16:26"
+            with psycopg.connect(database_url, connect_timeout=10) as conn:
+                row = conn.execute(
+                    "SELECT filename, created_at FROM backups WHERE created_at <= %s ORDER BY created_at DESC LIMIT 1",
+                    (cutoff,),
+                ).fetchone()
+            if not row:
+                return jsonify({"error": "لم يتم العثور على نسخة احتياطية من PostgreSQL قبل الـRollback"}), 404
+            filename, created_at = row
+            ok = db.restore_backup(filename)
+            if not ok:
+                return jsonify({"error": "تعذر العثور على النسخة الاحتياطية المطلوب استعادتها"}), 404
+            app.logger.info("Pre-rollback restore completed from %s created at %s", filename, created_at)
+            return redirect(url_for("index"))
+        except Exception as exc:
+            app.logger.exception("Pre-rollback restore failed")
+            return jsonify({"error": f"تعذر استعادة بيانات ما قبل الـRollback: {exc}"}), 500
+'''
+              text = text.rstrip() + block + "\n"
+              path.write_text(text, encoding="utf-8")
+
+      - name: Point button directly to restore route
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path("templates/index.html")
+          text = path.read_text(encoding="utf-8")
+          text = text.replace(
+              "window.ezzRestorePreRollback ? window.ezzRestorePreRollback() : false;",
+              "window.ezzRestorePreRollback ? window.ezzRestorePreRollback() : false;"
+          )
+          text = text.replace(
+              "🛟 استعادة/استخراج بيانات ما قبل الـRollback",
+              "🛟 استعادة بيانات ما قبل الـRollback"
+          )
+          path.write_text(text, encoding="utf-8")
+
+          js = Path("static/app.js")
           jstext = js.read_text(encoding="utf-8")
-          js_marker = "postrollback_export_button_v1"
-          if js_marker not in jstext:
-              patch = '''\n\n// postrollback_export_button_v1\ndocument.addEventListener("DOMContentLoaded", function(){\n  const b = document.getElementById("export-postrollback-btn");\n  if (!b) return;\n  b.addEventListener("click", function(){\n    b.disabled = true;\n    const old = b.textContent;\n    b.textContent = "جاري الاستخراج...";\n    window.location.href = "/api/data/export-postrollback";\n    setTimeout(function(){ b.disabled = false; b.textContent = old; }, 2500);\n  });\n});\n'''
-              js.write_text(jstext + patch, encoding="utf-8")
+          marker = "EZZ_RESTORE_PRE_ROLLBACK_V1"
+          if marker not in jstext:
+              patch = r'''
 
-      - name: Commit UI patch
+// EZZ_RESTORE_PRE_ROLLBACK_V1
+window.ezzRestorePreRollback = function(){
+  const msg = "سيتم حفظ نسخة احتياطية من البيانات الحالية تلقائيًا، ثم استعادة آخر نسخة قبل الـRollback. هل تريد المتابعة؟";
+  if(!window.confirm(msg)) return false;
+  window.location.href = "/api/data/restore-pre-rollback";
+  return false;
+};
+'''
+              js.write_text(jstext.rstrip() + patch + "\n", encoding="utf-8")
+
+      - name: Commit recovery changes
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add index.html app.js
+          git add gunicorn.conf.py templates/index.html static/app.js
           git diff --cached --quiet && exit 0
-          git commit -m "Place recovery export control in index and bind it in app.js"
+          git commit -m "Make pre-Rollback recovery button restore data safely"
           git push
