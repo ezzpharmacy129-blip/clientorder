@@ -2,6 +2,7 @@
 """Load application extensions safely before Flask creates app:app."""
 import os
 import flask
+from flask import redirect, url_for, session
 
 _raw_db_url = os.environ.get("DATABASE_URL", "").strip()
 if _raw_db_url and not (_raw_db_url.startswith("postgres://") or _raw_db_url.startswith("postgresql://")):
@@ -21,6 +22,15 @@ def _protected_init(self, *args, **kwargs):
     from postrollback_export import install_postrollback_export
     from db import db
     install_auth(self, db)
+    # Safety net: ensure the template's logout endpoint always exists before
+    # index.html is rendered, even if auth_bootstrap was already installed.
+    if "ezz_logout" not in self.view_functions:
+        @self.route("/logout", methods=["GET", "POST"], endpoint="ezz_logout")
+        def _ezz_logout_fallback():
+            session.clear()
+            r = redirect("/login")
+            r.headers["Cache-Control"] = "no-store"
+            return r
     install_security_extensions(self, db)
     install_admin_state_controls(self, db)
     install_pending_availability_fix(db)
