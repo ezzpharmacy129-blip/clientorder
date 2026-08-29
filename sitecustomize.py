@@ -72,15 +72,13 @@ def _protected_init(self, *args, **kwargs):
     _original_init(self, *args, **kwargs)
 
     from db import db
-    # Production uses PostgreSQL-native authentication/users/audit. Local builds
-    # retain the existing SQLite/Excel fallback in auth_bootstrap.py.
-    if db.__class__.__module__ == "cloud_db":
+    is_cloud = db.__class__.__module__ == "cloud_db"
+    if is_cloud:
         from auth_pg import install_auth
     else:
         from auth_bootstrap import install_auth
 
     from auth_security_extensions import install_security_extensions
-    from admin_state_controls import install_admin_state_controls
     from pending_availability_fix import install_pending_availability_fix
     from data_export import install_data_export
     from postrollback_export import install_postrollback_export
@@ -96,8 +94,11 @@ def _protected_init(self, *args, **kwargs):
             return response
 
     install_security_extensions(self, db)
-    install_admin_state_controls(self, db)
-    if db.__class__.__module__ != "cloud_db":
+    # This module directly manipulates Excel DB_PATH and therefore must not run
+    # against the PostgreSQL production backend. It remains available for local builds.
+    if not is_cloud:
+        from admin_state_controls import install_admin_state_controls
+        install_admin_state_controls(self, db)
         install_pending_availability_fix(db)
     install_data_export(self, db)
     install_postrollback_export(self)
