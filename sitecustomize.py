@@ -103,3 +103,70 @@ try:
     _install_runtime_safeguards()
 except Exception:
     pass
+
+
+def _install_order_ui_patch():
+    """Add the hardened new-order uploader without changing the existing template."""
+    try:
+        from flask import request
+        root = os.path.dirname(os.path.abspath(__file__))
+        script_path = os.path.join(root, "static", "production-order-fix.js")
+        if not os.path.isfile(script_path):
+            return
+        with open(script_path, "r", encoding="utf-8") as fh:
+            script_src = fh.read()
+        marker = "production-order-fix.js"
+        if marker in script_src:
+            return
+
+        # Inject once into HTML responses. The script is inline so it is
+        # available before DOMContentLoaded and can intercept the legacy form
+        # handler in capture phase, preventing duplicate orders.
+        @flask.current_app.after_request
+        def _ezz_order_fix_injection(response):
+            try:
+                if response.mimetype == "text/html" and "</body>" in response.get_data(as_text=True):
+                    body = response.get_data(as_text=True)
+                    marker_text = "EZZ_PRODUCTION_ORDER_FIX_V1"
+                    if marker_text not in body:
+                        payload = "<script>/* EZZ_PRODUCTION_ORDER_FIX_V1 */\n" + script_src + "\n</script>"
+                        response.set_data(body.replace("</body>", payload + "</body>"))
+            except Exception:
+                pass
+            return response
+    except Exception:
+        pass
+
+
+# The order UI injection is installed from the Flask constructor after app
+# initialization. It is safe to skip if Flask refuses registration.
+_original_protected_init = _protected_init
+
+def _protected_init_with_ui(self, *args, **kwargs):
+    _original_protected_init(self, *args, **kwargs)
+    try:
+        if not getattr(self, "_ezz_order_ui_patch_v1", False):
+            from flask import request
+            root = os.path.dirname(os.path.abspath(__file__))
+            script_path = os.path.join(root, "static", "production-order-fix.js")
+            if os.path.isfile(script_path):
+                with open(script_path, "r", encoding="utf-8") as fh:
+                    script_src = fh.read()
+                @self.after_request
+                def _ezz_order_fix_injection(response):
+                    try:
+                        if response.mimetype == "text/html":
+                            body = response.get_data(as_text=True)
+                            if "EZZ_PRODUCTION_ORDER_FIX_V1" not in body and "</body>" in body:
+                                payload = "<script>/* EZZ_PRODUCTION_ORDER_FIX_V1 */\n" + script_src + "\n</script>"
+                                response.set_data(body.replace("</body>", payload + "</body>"))
+                    except Exception:
+                        pass
+                    return response
+                self._ezz_order_ui_patch_v1 = True
+    except Exception:
+        pass
+
+
+flask.Flask.__init__ = _protected_init_with_ui
+flask.Flask._ezz_auth_constructor_patched_v2 = True
