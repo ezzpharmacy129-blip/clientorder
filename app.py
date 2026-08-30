@@ -6,7 +6,7 @@ import threading
 import webbrowser
 import os
 from urllib.parse import quote
-from flask import Flask, jsonify, request, render_template, send_from_directory, send_file, Response
+from flask import Flask, jsonify, request, render_template, send_from_directory, send_file, Response, session
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from db import (
@@ -14,6 +14,15 @@ from db import (
     STATUS_CONTACTED, STATUS_PICKED_UP, STATUS_NOT_PICKED, STATUS_CANCELLED,
     CONTACT_NOT_CONTACTED, CONTACT_AWAITING, CONTACT_ACCEPTED, CONTACT_REJECTED, CONTACT_POSTPONED,
     today_str, MAX_IMAGE_SIZE,
+)
+from daily_shortages import (
+    ensure_schema as ensure_pharmacy_shortage_schema,
+    list_shortages as list_pharmacy_shortages,
+    create_shortage as create_pharmacy_shortage,
+    update_shortage as update_pharmacy_shortage,
+    set_available as set_pharmacy_shortage_available,
+    undo_last as undo_pharmacy_shortage,
+    stats as pharmacy_shortage_stats,
 )
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -322,7 +331,6 @@ def api_followups_overdue():
     items.sort(key=lambda o:str(o.get("Next_Followup_Date",""))); return jsonify({"followups":items,"count":len(items)})
 
 
-
 def _whatsapp_clean_products(order):
     items = order.get("Items") or []
     if not items and order.get("Product_Name"):
@@ -391,7 +399,6 @@ def whatsapp_customer_message(order):
         template = settings.get("Message_Template_Unavailable")
     else:
         template = settings.get("Message_Template_Available")
-    # Backward-safe fallback in case a damaged/old settings sheet omits a template.
     if not template:
         template = settings.get("Message_Template_Available", "السلام عليكم {اسم_العميل} 🌷\n\nمعك {اسم_الصيدلية}.\n\n{المنتجات_المتوفرة}")
     return _template_fill(template, values)
@@ -409,8 +416,6 @@ def api_whatsapp_order(order_id):
 
 
 def _open_whatsapp_app(url):
-    # Kept only for backwards compatibility. The browser now launches
-    # WhatsApp on the device where the UI is open (desktop or mobile).
     return False
 
 
@@ -483,6 +488,123 @@ def api_whatsapp_shortages_grouped():
     items = sorted(grouped.values(), key=lambda x: (-x["Quantity"], str(x["Product_Name"]).lower()))
     body = "\n".join(f"{idx}. {x['Product_Name']} — إجمالي المطلوب: {x['Quantity']} ({x['Orders']} طلب)" for idx, x in enumerate(items, 1))
     return jsonify({"items": items, "count": len(items), "message": render_shortage_message(body)})
+
+
+# ---------------------------------------------------------------------------
+# Daily Pharmacy Shortages
+# ---------------------------------------------------------------------------
+
+def _daily_shortage_actor():
+    provider = getattr(db, "_auth_user_provider", None)
+    if provider:
+        try:
+            user = provider()
+            if user:
+                return str(user.get("name") or user.get("username") or "موظف")
+        except Exception:
+            pass
+    return str(session.get("username") or "موظف")
+
+def _daily_shortage_auth():
+    provider = getattr(db, "_auth_user_provider", None)
+    if provider:
+        try:
+            if provider():
+                return None
+        except Exception:
+            pass
+    if session.get("authenticated") or session.get("user_id"):
+        return None
+    return jsonify({"error":"تسجيل الدخول مطلوب","authenticated":False}), 401
+
+@app.get("/api/pharmacy-shortages")
+def api_pharmacy_shortages():
+    denied = _daily_shortage_auth()
+    if denied: return denied
+    try:
+        ensure_pharmacy_shortage_schema()
+        return jsonify({"shortages": list_pharmacy_shortages(), "stats": pharmacy_shortage_stats()})
+    except Exception as e:
+        return jsonify({"error":f"تعذر قراءة نواقص الصيدلية: {e}"}),500
+
+@app.post("/api/pharmacy-shortages")
+def api_create_pharmacy_shortage():
+    denied = _daily_shortage_auth()
+    if denied: return denied
+    data = request.get_json(silent=True) or {}
+    try:
+        ensure_pharmacy_shortage_schema()
+        row = create_pharmacy_shortage(data.get("product_name"), data.get("quantity"), data.get("note", ""), _daily_shortage_actor())
+        return jsonify({"shortage":row}),201
+    except ValueError as e:
+        return jsonify({"error":str(e)}),400
+    except Exception as e:
+        return jsonify({"error":f"تعذر إضافة نقص الصيدلية: {e}"}),500
+
+@app.put("/api/pharmacy-shortages/<shortage_id>")
+def api_update_pharmacy_shortage(shortage_id):
+    denied = _daily_shortage_auth()
+    if denied: return denied
+    data = request.get_json(silent=True) or {}
+    try:
+        ensure_pharmacy_shortage_schema()
+        row = update_pharmacy_shortage(shortage_id, data.get("product_name"), data.get("quantity"), data.get("note"), _daily_shortage_actor())
+        if row is None: return jsonify({"error":"النقص غير موجود"}),404
+        return jsonify({"shortage":row})
+    except (ValueError, TypeError):
+        return jsonify({"error":"اسم المنتج مطلوب والكمية يجب أن تكون رقمًا صحيحًا أكبر من صفر"}),400
+    except Exception as e:
+        return jsonify({"error":f"تعذر تعديل النقص: {e}"}),500
+
+@app.post("/api/pharmacy-shortages/<shortage_id>/available")
+def api_pharmacy_shortage_available(shortage_id):
+    denied = _daily_shortage_auth()
+    if denied: return denied
+    try:
+        ensure_pharmacy_shortage_schema()
+        row = set_pharmacy_shortage_available(shortage_id, _daily_shortage_actor())
+        if row is None: return jsonify({"error":"النقص غير موجود"}),404
+        return jsonify({"shortage":row})
+    except Exception as e:
+        return jsonify({"error":f"تعذر تغيير حالة النقص: {e}"}),500
+
+@app.post("/api/pharmacy-shortages/<shortage_id>/undo")
+def api_pharmacy_shortage_undo(shortage_id):
+    denied = _daily_shortage_auth()
+    if denied: return denied
+    try:
+        ensure_pharmacy_shortage_schema()
+        return result_response(undo_pharmacy_shortage(shortage_id, _daily_shortage_actor()))
+    except Exception as e:
+        return jsonify({"error":f"تعذر التراجع عن النقص: {e}"}),500
+
+@app.get("/api/pharmacy-shortages/whatsapp")
+def api_pharmacy_shortages_whatsapp():
+    denied = _daily_shortage_auth()
+    if denied: return denied
+    kind = (request.args.get("kind") or "all").strip().lower()
+    if kind not in {"customer", "pharmacy", "all"}:
+        return jsonify({"error":"نوع الإرسال غير صحيح"}),400
+    ensure_pharmacy_shortage_schema()
+    customer_lines=[]
+    for order in db.get_all_orders():
+        pending_items=[i for i in (order.get("Items") or []) if i.get("Availability_Status")=="بانتظار التوفر"]
+        if pending_items:
+            customer_lines.append(f"• {order.get('Customer_Name','')} — {order.get('Order_ID','')}")
+            for item in pending_items:
+                customer_lines.append(f"  - {item.get('Product_Name','')} × {item.get('Quantity') or 1}")
+        elif order.get("Status")==STATUS_PENDING:
+            customer_lines.append(f"• {order.get('Customer_Name','')} — {order.get('Order_ID','')} — {order.get('Product_Name','')}")
+    pharmacy_rows=[r for r in list_pharmacy_shortages() if r.get("status")=="pending"]
+    pharmacy_lines=[f"• {r['product_name']} × {r['quantity']}" for r in pharmacy_rows]
+    sections=[]
+    if kind in {"customer","all"}:
+        sections.append("نواقص العملاء:\n" + ("\n".join(customer_lines) if customer_lines else "لا توجد نواقص عملاء حاليًا ✅"))
+    if kind in {"pharmacy","all"}:
+        sections.append("نواقص الصيدلية:\n" + ("\n".join(pharmacy_lines) if pharmacy_lines else "لا توجد نواقص صيدلية حاليًا ✅"))
+    message="النواقص اليومية\n\n" + "\n\n".join(sections)
+    return jsonify({"message":message,"customer_count":len(customer_lines),"pharmacy_count":len(pharmacy_rows)})
+
 
 @app.post("/api/import-data")
 def api_import_data():
