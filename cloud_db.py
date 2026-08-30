@@ -413,7 +413,7 @@ class CloudDB:
                 conn.execute('INSERT INTO order_items(item_id,order_id,product_name,quantity,image_path,availability_status,available_price,discounted_price,unavailable_reason,availability_note,price_confirmation_required,available_at,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
                              tuple(item.get(k, '') for k in ('Item_ID','Order_ID','Product_Name','Quantity','Image_Path','Availability_Status','Available_Price','Discounted_Price','Unavailable_Reason','Availability_Note','Price_Confirmation_Required','Available_At','Created_At')))
             conn.execute('UPDATE undo_history SET undone_at=%s WHERE undo_id=%s', (now_str(), row['undo_id']))
-            self._log(conn, order_id, f"تراجع عن: {row['action']}", current['status'], order_data.get('Status',''), 'تم التراجع عن آخر تغيير للمستخدم', user)
+            self._log(conn, order_id, f"تراجع عن: {row['action']}", current['Status'], order_data.get('Status',''), 'تم التراجع عن آخر تغيير للمستخدم', user)
             return {'order': self._refresh_order_in_conn(conn, order_id), 'undone_action': row['action']}
 
     def _action(self, order_id, name, allowed_from, fields, note, user):
