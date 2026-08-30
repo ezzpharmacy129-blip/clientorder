@@ -404,7 +404,7 @@ class CloudDB:
             snapshot = json.loads(row['snapshot_json'])
             order_data = snapshot.get('order', {})
             sets=[]; params=[]
-            for key, dbkey in [('Customer_Name','customer_name'),('Phone','phone'),('Product_Name','product_name'),('Quantity','quantity'),('Order_Date','order_date'),('Available_Date','available_date'),('Status','status'),('Contact_Status','contact_status'),('Last_Contact_Date','last_contact_date'),('Next_Followup_Date','next_followup_date'),('Pickup_Date','pickup_date'),('Notes','notes'),('Created_At','created_at'),('Updated_At','updated_at')]:
+            for key, dbkey in [('Customer_Name','customer_name'),('Phone','phone'),('Product_Name','product_name'),('Quantity','quantity'),('Order_Date','order_date'),('Available_Date','available_date'),('Status','status'),('Contact_Status','contact_status'),('Last_Contact_Date','last_contact_date'),('Next_Followup_Date','next_followup_date'),('Pickup_Date','pickup_date'),('Notes','notes'),('Created_At','created_at')]:
                 sets.append(f'{dbkey}=%s'); params.append(order_data.get(key, ''))
             sets.append('updated_at=%s'); params.append(now_str()); params.append(str(order_id))
             conn.execute(f"UPDATE orders SET {', '.join(sets)} WHERE order_id=%s", params)
