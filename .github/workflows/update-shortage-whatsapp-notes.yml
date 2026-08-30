@@ -1,0 +1,52 @@
+name: Add shortage WhatsApp notes
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/update-shortage-whatsapp-notes.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Patch shortage WhatsApp message
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('app.py')
+          text = path.read_text(encoding='utf-8')
+
+          old_customer = '''        if pending_items:\n            customer_lines.append(f"• {order.get('Customer_Name','')} — {order.get('Order_ID','')}")\n            for item in pending_items:\n                customer_lines.append(f"  - {item.get('Product_Name','')} × {item.get('Quantity') or 1}")\n        elif order.get("Status")==STATUS_PENDING:\n            customer_lines.append(f"• {order.get('Customer_Name','')} — {order.get('Order_ID','')} — {order.get('Product_Name','')}")'''
+
+          new_customer = '''        if pending_items:\n            customer_lines.append(f"• {order.get('Customer_Name','')} — {order.get('Order_ID','')}")\n            order_note = str(order.get("Notes") or "").strip()\n            if order_note:\n                customer_lines.append(f"  📝 الملاحظة: {order_note}")\n            for item in pending_items:\n                customer_lines.append(f"  - {item.get('Product_Name','')} × {item.get('Quantity') or 1}")\n        elif order.get("Status")==STATUS_PENDING:\n            customer_lines.append(f"• {order.get('Customer_Name','')} — {order.get('Order_ID','')} — {order.get('Product_Name','')}")\n            order_note = str(order.get("Notes") or "").strip()\n            if order_note:\n                customer_lines.append(f"  📝 الملاحظة: {order_note}")'''
+
+          old_pharmacy = '''    pharmacy_rows=[r for r in list_pharmacy_shortages() if r.get("status")=="pending"]\n    pharmacy_lines=[f"• {r['product_name']} × {r['quantity']}" for r in pharmacy_rows]'''
+
+          new_pharmacy = '''    pharmacy_rows=[r for r in list_pharmacy_shortages() if r.get("status")=="pending"]\n    pharmacy_lines=[]\n    for r in pharmacy_rows:\n        line = f"• {r['product_name']} × {r['quantity']}"\n        note = str(r.get("note") or "").strip()\n        if note:\n            line += f" — 📝 الملاحظة: {note}"\n        pharmacy_lines.append(line)'''
+
+          if old_customer not in text:
+              raise SystemExit('Customer shortage block not found; aborting without changes.')
+          if old_pharmacy not in text:
+              raise SystemExit('Pharmacy shortage block not found; aborting without changes.')
+
+          text = text.replace(old_customer, new_customer, 1)
+          text = text.replace(old_pharmacy, new_pharmacy, 1)
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Commit application change and remove patch workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app.py
+          git diff --cached --quiet && { echo "No application changes were made."; exit 1; }
+          git commit -m "Include notes in shortage WhatsApp messages"
+          git push
