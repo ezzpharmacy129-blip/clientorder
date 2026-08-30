@@ -1,0 +1,14 @@
+.git
+.github
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.env
+.env.*
+!.env.example
+data/
+backups/
+uploads/
+*.xlsx
+*.dump
