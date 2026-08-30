@@ -591,12 +591,24 @@ def api_pharmacy_shortages_whatsapp():
         pending_items=[i for i in (order.get("Items") or []) if i.get("Availability_Status")=="بانتظار التوفر"]
         if pending_items:
             customer_lines.append(f"• {order.get('Customer_Name','')} — {order.get('Order_ID','')}")
+            order_note = str(order.get("Notes") or "").strip()
+            if order_note:
+                customer_lines.append(f"  📝 الملاحظة: {order_note}")
             for item in pending_items:
                 customer_lines.append(f"  - {item.get('Product_Name','')} × {item.get('Quantity') or 1}")
         elif order.get("Status")==STATUS_PENDING:
             customer_lines.append(f"• {order.get('Customer_Name','')} — {order.get('Order_ID','')} — {order.get('Product_Name','')}")
+            order_note = str(order.get("Notes") or "").strip()
+            if order_note:
+                customer_lines.append(f"  📝 الملاحظة: {order_note}")
     pharmacy_rows=[r for r in list_pharmacy_shortages() if r.get("status")=="pending"]
-    pharmacy_lines=[f"• {r['product_name']} × {r['quantity']}" for r in pharmacy_rows]
+    pharmacy_lines=[]
+    for r in pharmacy_rows:
+        line = f"• {r['product_name']} × {r['quantity']}"
+        note = str(r.get("note") or "").strip()
+        if note:
+            line += f" — 📝 الملاحظة: {note}"
+        pharmacy_lines.append(line)
     sections=[]
     if kind in {"customer","all"}:
         sections.append("نواقص العملاء:\n" + ("\n".join(customer_lines) if customer_lines else "لا توجد نواقص عملاء حاليًا ✅"))
