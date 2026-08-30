@@ -1,0 +1,64 @@
+/* Daily Pharmacy Shortages — isolated UI module */
+(() => {
+  "use strict";
+  const state = { rows: [], tab: "all", editingId: null, customerOrders: [] };
+  const escLocal = window.esc || (s => String(s ?? "").replace(/[&<>\"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])));
+  const dateLocal = window.fmtDate || (s => s ? String(s).split(" ")[0].split("-").reverse().join("/") : "—");
+  const callApi = window.apiFetch || (async (url, options={}) => {
+    const r = await fetch(url, options);
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || "حدث خطأ");
+    return d;
+  });
+  const notify = window.toast || ((m) => alert(m));
+
+  function install() {
+    const nav = document.querySelector(".main-nav");
+    const main = document.querySelector(".app-main");
+    if (!nav || !main || document.getElementById("daily-shortages-nav")) return;
+    const style = document.createElement("style");
+    style.textContent = `
+      .daily-shortages-panel{max-width:1400px;margin:auto}.daily-shortages-header{align-items:center}.daily-shortage-tabs{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}.daily-shortage-tab{border:1px solid var(--border,#d9e7ea);background:#fff;border-radius:10px;padding:10px 16px;cursor:pointer;font-weight:700}.daily-shortage-tab.active{background:var(--primary,#0b8f9b);color:#fff}.daily-shortage-tab span{display:inline-block;min-width:24px;margin-right:5px}.daily-shortage-form-wrap{padding:16px;background:#f7fbfc;border:1px solid var(--border,#d9e7ea);border-radius:14px;margin-bottom:18px}.daily-shortage-form{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;align-items:end}.daily-shortage-form .form-actions{grid-column:1/-1}.daily-shortage-subsection{margin:0 0 24px}.daily-shortage-subsection h3{display:flex;justify-content:space-between;align-items:center;margin:0 0 10px}.daily-shortage-subsection h3 span{font-size:.85em;opacity:.75}.daily-shortage-table th,.daily-shortage-table td{vertical-align:middle}.daily-shortage-actions{display:flex;gap:6px;flex-wrap:wrap}.daily-shortage-send-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px;padding-top:16px;border-top:1px solid var(--border,#d9e7ea)}
+      @media(max-width:800px){.daily-shortage-form{grid-template-columns:1fr}.daily-shortage-actions{flex-direction:column}.daily-shortage-actions .btn{width:100%}}
+    `;
+    document.head.appendChild(style);
+
+    const navBtn = document.createElement("button");
+    navBtn.id = "daily-shortages-nav"; navBtn.className = "nav-btn"; navBtn.dataset.view = "daily-shortages"; navBtn.textContent = "📦 النواقص اليومية"; nav.appendChild(navBtn);
+    const section = document.createElement("section"); section.id = "view-daily-shortages"; section.className = "view";
+    section.innerHTML = `
+      <div class="panel daily-shortages-panel">
+        <div class="panel-header daily-shortages-header"><div><h2>📦 النواقص اليومية</h2><p class="panel-subtitle">نواقص العملاء الحالية + نواقص الصيدلية في مكان واحد، بدون خلط بين بيانات الطلبات.</p></div><button class="btn btn-primary" id="add-pharmacy-shortage">+ إضافة نقص صيدلية</button></div>
+        <div class="daily-shortage-tabs" role="tablist"><button class="daily-shortage-tab active" data-shortage-tab="all">الكل <span id="shortage-count-all">0</span></button><button class="daily-shortage-tab" data-shortage-tab="customer">نواقص العملاء <span id="shortage-count-customer">0</span></button><button class="daily-shortage-tab" data-shortage-tab="pharmacy">نواقص الصيدلية <span id="shortage-count-pharmacy">0</span></button></div>
+        <div id="pharmacy-shortage-form-wrap" class="daily-shortage-form-wrap hidden"></div><div id="daily-shortage-content"></div>
+        <div class="daily-shortage-send-actions"><button class="btn btn-outline" id="send-customer-shortages">إرسال نواقص العملاء</button><button class="btn btn-outline" id="send-pharmacy-shortages">إرسال نواقص الصيدلية</button><button class="btn btn-primary" id="send-all-shortages">إرسال الكل</button></div>
+      </div>`;
+    main.appendChild(section);
+    navBtn.addEventListener("click", switchToDaily);
+    section.querySelectorAll("[data-shortage-tab]").forEach(b => b.addEventListener("click", () => { state.tab=b.dataset.shortageTab; section.querySelectorAll("[data-shortage-tab]").forEach(x=>x.classList.toggle("active",x===b)); render(); }));
+    document.getElementById("add-pharmacy-shortage").onclick = () => openForm();
+    document.getElementById("send-customer-shortages").onclick = () => sendShortages("customer");
+    document.getElementById("send-pharmacy-shortages").onclick = () => sendShortages("pharmacy");
+    document.getElementById("send-all-shortages").onclick = () => sendShortages("all");
+  }
+
+  function switchToDaily(){ document.querySelectorAll(".view").forEach(x=>x.classList.remove("active")); document.querySelectorAll(".nav-btn[data-view]").forEach(x=>x.classList.remove("active")); document.getElementById("view-daily-shortages")?.classList.add("active"); document.getElementById("daily-shortages-nav")?.classList.add("active"); load(); }
+  async function load(){ try{ const [p,o]=await Promise.all([callApi("/api/pharmacy-shortages"),callApi("/api/orders")]); state.rows=p.shortages||[]; state.customerOrders=(o.orders||[]).filter(order=>(order.Items||[]).some(i=>i.Availability_Status==="بانتظار التوفر")||order.Status==="بانتظار التوفر"); render(); }catch(e){notify(e.message,"error");} }
+
+  function openForm(row=null){
+    state.editingId=row?.shortage_id||null; const wrap=document.getElementById("pharmacy-shortage-form-wrap"); wrap.classList.remove("hidden");
+    wrap.innerHTML=`<form id="pharmacy-shortage-form" class="daily-shortage-form"><div class="form-row"><label>اسم المنتج <span class="req">*</span></label><input id="ps-product" required value="${escLocal(row?.product_name||"")}"></div><div class="form-row"><label>الكمية <span class="req">*</span></label><input id="ps-quantity" type="number" min="1" step="1" required value="${row?.quantity??1}"></div><div class="form-row"><label>ملاحظة</label><textarea id="ps-note" rows="2">${escLocal(row?.note||"")}</textarea></div><div class="form-actions"><button type="submit" class="btn btn-primary">${row?"حفظ التعديل":"حفظ النقص"}</button><button type="button" class="btn btn-secondary" id="ps-cancel">إلغاء</button></div></form>`;
+    document.getElementById("ps-cancel").onclick=()=>{wrap.classList.add("hidden");wrap.innerHTML="";state.editingId=null;};
+    document.getElementById("pharmacy-shortage-form").onsubmit=async e=>{e.preventDefault();const product_name=document.getElementById("ps-product").value.trim(),quantity=Number(document.getElementById("ps-quantity").value),note=document.getElementById("ps-note").value.trim();if(!product_name||!Number.isInteger(quantity)||quantity<=0){notify("اسم المنتج مطلوب والكمية يجب أن تكون رقمًا صحيحًا أكبر من صفر","error");return;}try{if(state.editingId){await callApi(`/api/pharmacy-shortages/${encodeURIComponent(state.editingId)}`,{method:"PUT",body:JSON.stringify({product_name,quantity,note})});notify("تم تعديل نقص الصيدلية");}else{await callApi("/api/pharmacy-shortages",{method:"POST",body:JSON.stringify({product_name,quantity,note})});notify("تمت إضافة نقص الصيدلية");}wrap.classList.add("hidden");wrap.innerHTML="";state.editingId=null;await load();}catch(e){notify(e.message,"error");}};
+    document.getElementById("ps-product").focus();
+  }
+  function customerRows(){return state.customerOrders.flatMap(o=>{const items=(o.Items||[]).filter(i=>i.Availability_Status==="بانتظار التوفر");if(!items.length&&o.Status==="بانتظار التوفر")return[{order:o,item:null}];return items.map(item=>({order:o,item}));});}
+  function render(){const c=document.getElementById("daily-shortage-content");if(!c)return;const cr=customerRows();document.getElementById("shortage-count-customer").textContent=cr.length;document.getElementById("shortage-count-pharmacy").textContent=state.rows.length;document.getElementById("shortage-count-all").textContent=cr.length+state.rows.length;if(state.tab==="customer")c.innerHTML=customerTable(cr);else if(state.tab==="pharmacy")c.innerHTML=pharmacyTable(state.rows);else c.innerHTML=allTables(cr,state.rows);bindRows(c);}
+  function customerTable(rows){if(!rows.length)return `<div class="empty-state">لا توجد نواقص عملاء حاليًا ✅</div>`;return `<div class="table-wrap"><table class="orders-table daily-shortage-table"><thead><tr><th>المنتج</th><th>العميل</th><th>رقم الطلب</th><th>الهاتف</th><th>الكمية</th></tr></thead><tbody>${rows.map(({order,item})=>`<tr><td>${escLocal(item?.Product_Name||order.Product_Name||"")}</td><td>${escLocal(order.Customer_Name||"")}</td><td>${escLocal(order.Order_ID||"")}</td><td>${escLocal(order.Phone||"")}</td><td>${item?.Quantity??order.Quantity??1}</td></tr>`).join("")}</tbody></table></div>`;}
+  function pharmacyTable(rows){if(!rows.length)return `<div class="empty-state">لا توجد نواقص صيدلية حاليًا.</div>`;return `<div class="table-wrap"><table class="orders-table daily-shortage-table"><thead><tr><th>المنتج</th><th>الكمية</th><th>الملاحظة</th><th>أضافه</th><th>التاريخ</th><th>الحالة</th><th>الإجراء</th></tr></thead><tbody>${rows.map(r=>`<tr><td><strong>${escLocal(r.product_name)}</strong></td><td>${r.quantity}</td><td>${escLocal(r.note||"—")}</td><td>${escLocal(r.created_by||"موظف")}</td><td>${dateLocal(r.created_at)}</td><td><span class="status-badge ${r.status==="available"?"status-available":"status-pending"}">${r.status==="available"?"تم التوفير":"بانتظار التوفير"}</span></td><td class="daily-shortage-actions">${r.status==="pending"?`<button class="btn btn-primary btn-sm ps-available" data-id="${escLocal(r.shortage_id)}">تم التوفير</button>`:""}<button class="btn btn-outline btn-sm ps-edit" data-id="${escLocal(r.shortage_id)}">تعديل</button><button class="btn btn-secondary btn-sm ps-undo" data-id="${escLocal(r.shortage_id)}">تراجع</button></td></tr>`).join("")}</tbody></table></div>`;}
+  function allTables(cr,pr){return `<div class="daily-shortage-subsection"><h3>نواقص العملاء <span>${cr.length}</span></h3>${customerTable(cr)}</div><div class="daily-shortage-subsection"><h3>نواقص الصيدلية <span>${pr.length}</span></h3>${pharmacyTable(pr)}</div>`;}
+  function bindRows(c){c.querySelectorAll(".ps-available").forEach(b=>b.onclick=async()=>{try{await callApi(`/api/pharmacy-shortages/${encodeURIComponent(b.dataset.id)}/available`,{method:"POST",body:"{}"});notify("تم توفير المنتج");await load();}catch(e){notify(e.message,"error");}});c.querySelectorAll(".ps-edit").forEach(b=>b.onclick=()=>{const row=state.rows.find(x=>x.shortage_id===b.dataset.id);if(row)openForm(row);});c.querySelectorAll(".ps-undo").forEach(b=>b.onclick=async()=>{try{const d=await callApi(`/api/pharmacy-shortages/${encodeURIComponent(b.dataset.id)}/undo`,{method:"POST",body:"{}"});notify(`تم التراجع عن: ${d.undone_action||"آخر إجراء"}`);await load();}catch(e){notify(e.message,"error");}});}
+  async function sendShortages(kind){try{const d=await callApi(`/api/pharmacy-shortages/whatsapp?kind=${encodeURIComponent(kind)}`);try{await navigator.clipboard.writeText(d.message||"");}catch(_){}if(window.openWhatsAppOnThisDevice){window.openWhatsAppOnThisDevice("whatsapp://send?text="+encodeURIComponent(d.message||""),"https://web.whatsapp.com/");}else{window.open("https://web.whatsapp.com/","_blank","noopener");}notify("تم تجهيز الرسالة ونسخها. الصقها في القروب ثم أرسلها.");}catch(e){notify(e.message,"error");}}
+  if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",install);else install();
+  window.dailyShortages={load};
+})();
