@@ -1,0 +1,40 @@
+name: Fix undo status field
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: contains(github.event.head_commit.message, 'Fix undo Status field') == false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply source fix
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('cloud_db.py')
+          s = p.read_text(encoding='utf-8')
+          old = "self._log(conn, order_id, f\"تراجع عن: {row['action']}\", current['status'], order_data.get('Status',''), 'تم التراجع عن آخر تغيير للمستخدم', user)"
+          new = "self._log(conn, order_id, f\"تراجع عن: {row['action']}\", current.get('Status', current.get('status', '')), order_data.get('Status',''), 'تم التراجع عن آخر تغيير للمستخدم', user)"
+          if old not in s:
+              raise SystemExit('target line not found')
+          p.write_text(s.replace(old, new), encoding='utf-8')
+          PY
+      - name: Commit fix
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add cloud_db.py
+          git commit -m 'Fix undo Status field'
+          git push
+      - name: Remove temporary workflow
+        run: |
+          rm -f .github/workflows/fix-undo-status.yml
+          git add .github/workflows/fix-undo-status.yml
+          git commit -m 'Remove temporary undo status workflow'
+          git push
