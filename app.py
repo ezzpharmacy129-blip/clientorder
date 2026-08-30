@@ -662,6 +662,16 @@ def api_restore():
     except Exception as e:return jsonify({"error":f"تعذر الاستعادة: {e}"}),500
     return (jsonify({"success":True}),200) if ok else (jsonify({"error":"النسخة غير موجودة"}),404)
 
+
+# Register the PostgreSQL Excel export endpoint directly in the Flask app.
+# This is the cloud-safe export used by the existing backup-page button.
+try:
+    from postrollback_export import install_postrollback_export
+    install_postrollback_export(app)
+except Exception as exc:
+    app.logger.exception("Failed to register Excel export route: %s", exc)
+
+
 @app.after_request
 def add_security_headers(response):
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
