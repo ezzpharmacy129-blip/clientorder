@@ -1,0 +1,142 @@
+name: Fix Excel export endpoint
+
+on:
+  workflow_dispatch:
+  push:
+    paths-ignore:
+      - '.github/workflows/fix-excel-export.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Patch app.py
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('app.py')
+          text = path.read_text(encoding='utf-8')
+          marker = '\nif __name__ == "__main__":'
+          if '/api/data/export-postrollback' in text:
+              print('Export endpoint already exists; nothing to do.')
+              raise SystemExit(0)
+          route = r'''
+
+@app.get("/api/data/export-postrollback")
+def api_export_postrollback():
+    """Export current cloud data to a downloadable Excel workbook."""
+    from openpyxl import Workbook
+    from openpyxl.utils import get_column_letter
+    from io import BytesIO
+    from datetime import datetime
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Orders"
+    orders = db.get_all_orders()
+    order_headers = [
+        "Order_ID", "Customer_Name", "Phone", "Product_Name", "Quantity",
+        "Order_Date", "Available_Date", "Status", "Contact_Status",
+        "Last_Contact_Date", "Next_Followup_Date", "Pickup_Date", "Notes",
+        "Created_At", "Updated_At"
+    ]
+    ws.append(order_headers)
+    for o in orders:
+        ws.append([o.get(h, "") for h in order_headers])
+
+    ws_items = wb.create_sheet("Order_Items")
+    item_headers = [
+        "Item_ID", "Order_ID", "Product_Name", "Quantity", "Image_Path",
+        "Availability_Status", "Available_Price", "Discounted_Price",
+        "Unavailable_Reason", "Availability_Note", "Price_Confirmation_Required",
+        "Available_At", "Created_At"
+    ]
+    ws_items.append(item_headers)
+    for o in orders:
+        for i in (o.get("Items") or []):
+            ws_items.append([i.get(h, "") for h in item_headers])
+
+    ws_short = wb.create_sheet("Pharmacy_Shortages")
+    try:
+        rows = list_pharmacy_shortages()
+    except Exception:
+        rows = []
+    short_headers = ["shortage_id", "product_name", "quantity", "note", "status", "created_at", "updated_at", "created_by", "resolved_at"]
+    ws_short.append(short_headers)
+    for r in rows:
+        ws_short.append([r.get(h, "") for h in short_headers])
+
+    ws_users = wb.create_sheet("Users")
+    user_headers = ["user_id", "username", "name", "role", "active", "created_at", "last_login"]
+    ws_users.append(user_headers)
+    try:
+        users = db.get_all_users()
+    except Exception:
+        users = []
+    for u in users:
+        ws_users.append([u.get(h, "") for h in user_headers])
+
+    ws_log = wb.create_sheet("Activity_Log")
+    log_headers = ["log_id", "order_id", "action", "old_status", "new_status", "note", "created_at", "user_name"]
+    ws_log.append(log_headers)
+    try:
+        activity = db.get_all_activity_log()
+    except Exception:
+        activity = []
+    for r in activity:
+        ws_log.append([r.get(h, "") for h in log_headers])
+
+    ws_undo = wb.create_sheet("Undo_History")
+    undo_headers = ["undo_id", "order_id", "action", "snapshot_json", "created_at", "undone_at", "user_name"]
+    ws_undo.append(undo_headers)
+    try:
+        undo_rows = db.get_all_undo_history()
+    except Exception:
+        undo_rows = []
+    for r in undo_rows:
+        ws_undo.append([r.get(h, "") for h in undo_headers])
+
+    ws_set = wb.create_sheet("Settings")
+    ws_set.append(["key", "value"])
+    for k, v in db.get_settings().items():
+        ws_set.append([k, v])
+
+    for sheet in wb.worksheets:
+        sheet.freeze_panes = "A2"
+        sheet.auto_filter.ref = sheet.dimensions
+        for col_cells in sheet.columns:
+            width = min(max(len(str(c.value or "")) for c in col_cells) + 2, 50)
+            sheet.column_dimensions[get_column_letter(col_cells[0].column)].width = width
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    return send_file(
+        output,
+        as_attachment=True,
+        download_name=f"ezz-pharmacy-export-{stamp}.xlsx",
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+'''
+          if marker not in text:
+              raise SystemExit('Could not find app.py main marker')
+          path.write_text(text.replace(marker, route + marker, 1), encoding='utf-8')
+
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app.py
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git commit -m "Fix Excel export endpoint [skip ci]"
+          git push
