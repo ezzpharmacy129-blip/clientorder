@@ -42,13 +42,13 @@ def verify_password(password, encoded):
 def install_auth(app, db):
     if getattr(app, "_ezz_auth_installed", False):
         return
-    app._ezz_auth_installed = True
     if getattr(db.__class__, "__module__", "") != "cloud_db":
         raise RuntimeError("auth_pg requires the PostgreSQL/CloudDB backend")
 
     secret = os.environ.get("SECRET_KEY", "").strip()
     if not secret:
         raise RuntimeError("SECRET_KEY is required in production")
+    app._ezz_auth_installed = True
     app.secret_key = secret
     app.config.update(
         SESSION_COOKIE_HTTPONLY=True,
@@ -79,7 +79,11 @@ def install_auth(app, db):
             if au and ap:
                 conn.execute("""INSERT INTO users(user_id,username,name,password_hash,role,active,created_at,last_login)
                     VALUES(%s,%s,%s,%s,'admin',TRUE,%s,NULL)
-                    ON CONFLICT(username) DO NOTHING""", (str(uuid.uuid4()), au, au, hash_password(ap), now_str()))
+                    ON CONFLICT(username) DO UPDATE SET
+                        name=EXCLUDED.name,
+                        password_hash=EXCLUDED.password_hash,
+                        role='admin',
+                        active=TRUE""", (str(uuid.uuid4()), au, au, hash_password(ap), now_str()))
 
     def migrate_legacy_sqlite():
         if not os.path.exists(legacy_users_db):
