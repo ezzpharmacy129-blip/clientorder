@@ -15,7 +15,7 @@
   function install() {
     const nav = document.querySelector(".main-nav");
     const main = document.querySelector(".app-main");
-    if (!nav || !main || document.getElementById("daily-shortages-nav")) return;
+    if (!nav || !main || document.getElementById("view-daily-shortages")) return;
     const style = document.createElement("style");
     style.textContent = `
       .daily-shortages-panel{max-width:1400px;margin:auto}.daily-shortages-header{align-items:center}.daily-shortage-tabs{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}.daily-shortage-tab{border:1px solid var(--border,#d9e7ea);background:#fff;border-radius:10px;padding:10px 16px;cursor:pointer;font-weight:700}.daily-shortage-tab.active{background:var(--primary,#0b8f9b);color:#fff}.daily-shortage-tab span{display:inline-block;min-width:24px;margin-right:5px}.daily-shortage-form-wrap{padding:16px;background:#f7fbfc;border:1px solid var(--border,#d9e7ea);border-radius:14px;margin-bottom:18px}.daily-shortage-form{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;align-items:end}.daily-shortage-form .form-actions{grid-column:1/-1}.daily-shortage-subsection{margin:0 0 24px}.daily-shortage-subsection h3{display:flex;justify-content:space-between;align-items:center;margin:0 0 10px}.daily-shortage-subsection h3 span{font-size:.85em;opacity:.75}.daily-shortage-table th,.daily-shortage-table td{vertical-align:middle}.daily-shortage-actions{display:flex;gap:6px;flex-wrap:wrap}.daily-shortage-send-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px;padding-top:16px;border-top:1px solid var(--border,#d9e7ea)}
@@ -23,8 +23,15 @@
     `;
     document.head.appendChild(style);
 
-    const navBtn = document.createElement("button");
-    navBtn.id = "daily-shortages-nav"; navBtn.className = "nav-btn"; navBtn.dataset.view = "daily-shortages"; navBtn.textContent = "📦 النواقص اليومية"; nav.appendChild(navBtn);
+    let navBtn = document.getElementById("daily-shortages-nav");
+    if (!navBtn) {
+      navBtn = document.createElement("button");
+      navBtn.id = "daily-shortages-nav";
+      navBtn.className = "nav-btn";
+      navBtn.dataset.view = "daily-shortages";
+      navBtn.textContent = "📦 النواقص اليومية";
+      nav.appendChild(navBtn);
+    }
     const section = document.createElement("section"); section.id = "view-daily-shortages"; section.className = "view";
     section.innerHTML = `
       <div class="panel daily-shortages-panel">
