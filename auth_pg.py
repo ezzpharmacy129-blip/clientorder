@@ -99,7 +99,6 @@ def install_auth(app, db):
                         str(r[0]), str(r[1]), str(r[2]), str(r[3]), str(r[4]), bool(r[5]), str(r[6]), r[7] if len(r) > 7 else None
                     ))
         except Exception:
-            # Legacy migration is non-destructive and must never stop startup.
             pass
 
     ensure_pg_users()
@@ -131,7 +130,6 @@ def install_auth(app, db):
             with db._connect() as conn:
                 db._log(conn, str(order_id or ""), str(action or ""), str(old_status or ""), str(new_status or ""), str(note or ""), username)
         except Exception:
-            # Do not fall back to Excel/SQLite in production.
             pass
 
     def set_last_login(user_id):
@@ -183,20 +181,6 @@ def install_auth(app, db):
         "change_password": change_password,
     }
     db._auth_user_provider = current_user
-
-    for attr in ("_log", "_append_log"):
-        original = getattr(db, attr, None)
-        if original and not getattr(original, "_ezz_wrapped", False):
-            def make_wrapper(fn):
-                @wraps(fn)
-                def wrapped(*args, **kwargs):
-                    u = current_user()
-                    if u and kwargs.get("user", "موظف") == "موظف":
-                        kwargs["user"] = u["name"]
-                    return fn(*args, **kwargs)
-                wrapped._ezz_wrapped = True
-                return wrapped
-            setattr(db, attr, make_wrapper(original))
 
     @app.before_request
     def require_auth():
