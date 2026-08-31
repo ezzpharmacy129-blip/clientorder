@@ -1,0 +1,165 @@
+name: Install VIP Customers Page
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install VIP feature
+        shell: python
+        run: |
+          from pathlib import Path
+          vip_module = r'''# -*- coding: utf-8 -*-
+"""VIP customers feature. Uses its own PostgreSQL table only."""
+import os
+import uuid
+from datetime import datetime
+from zoneinfo import ZoneInfo
+import psycopg
+from psycopg.rows import dict_row
+TZ = ZoneInfo("Asia/Riyadh")
+SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS vip_customers (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    phone TEXT NOT NULL DEFAULT '',
+    offer_product TEXT NOT NULL,
+    offer_price TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'قيد الانتظار',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_vip_customers_status ON vip_customers(status);
+CREATE INDEX IF NOT EXISTS idx_vip_customers_created_at ON vip_customers(created_at DESC);
+"""
+def _db_url(): return os.environ.get("DATABASE_URL", "").strip()
+def _now(): return datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
+def ensure_schema():
+    url=_db_url()
+    if not url: return
+    with psycopg.connect(url) as conn: conn.execute(SCHEMA_SQL)
+def _row(r):
+    if not r: return None
+    return {"id":r["id"],"name":r["name"],"phone":r["phone"],"offer_product":r["offer_product"],"offer_price":r["offer_price"],"status":r["status"],"created_at":r["created_at"],"updated_at":r["updated_at"]}
+def list_customers():
+    with psycopg.connect(_db_url(), row_factory=dict_row) as conn:
+        rows=conn.execute("SELECT * FROM vip_customers ORDER BY CASE WHEN status='قيد الانتظار' THEN 0 ELSE 1 END, created_at DESC").fetchall()
+    return [_row(r) for r in rows]
+def create_customer(name, phone, offer_product, offer_price):
+    name=str(name or '').strip(); phone=str(phone or '').strip(); offer_product=str(offer_product or '').strip(); offer_price=str(offer_price or '').strip()
+    if not name: raise ValueError('اسم العميل مطلوب')
+    if not offer_product: raise ValueError('منتج العرض مطلوب')
+    if not offer_price: raise ValueError('سعر العرض مطلوب')
+    now=_now(); item={"id":f"VIP-{uuid.uuid4().hex[:10].upper()}","name":name,"phone":phone,"offer_product":offer_product,"offer_price":offer_price,"status":"قيد الانتظار","created_at":now,"updated_at":now}
+    with psycopg.connect(_db_url(), row_factory=dict_row) as conn:
+        conn.execute("INSERT INTO vip_customers(id,name,phone,offer_product,offer_price,status,created_at,updated_at) VALUES (%(id)s,%(name)s,%(phone)s,%(offer_product)s,%(offer_price)s,%(status)s,%(created_at)s,%(updated_at)s)", item)
+    return item
+def set_status(customer_id, status):
+    if status not in {'قيد الانتظار','تم استلام العرض'}: raise ValueError('حالة غير صحيحة')
+    now=_now()
+    with psycopg.connect(_db_url(), row_factory=dict_row) as conn:
+        row=conn.execute("UPDATE vip_customers SET status=%s, updated_at=%s WHERE id=%s RETURNING *", (status,now,customer_id)).fetchone()
+    return _row(row)
+'''
+          Path('vip_customers.py').write_text(vip_module, encoding='utf-8')
+          app=Path('app.py'); text=app.read_text(encoding='utf-8'); marker='# Register the PostgreSQL Excel export endpoint directly in the Flask app.'
+          if 'VIP_CUSTOMERS_FEATURE_V1' not in text:
+              block=r'''
+
+# VIP_CUSTOMERS_FEATURE_V1 — isolated feature; no existing order/data tables are touched.
+try:
+    import vip_customers as _vip_customers
+    _vip_customers.ensure_schema()
+except Exception as _vip_schema_error:
+    app.logger.exception("VIP customers schema initialization failed: %s", _vip_schema_error)
+
+def _vip_auth():
+    return _daily_shortage_auth()
+
+@app.get("/api/vip-customers")
+def api_vip_customers():
+    denied=_vip_auth()
+    if denied: return denied
+    try:
+        import vip_customers; vip_customers.ensure_schema()
+        return jsonify({"customers":vip_customers.list_customers()})
+    except Exception as e: return jsonify({"error":f"تعذر قراءة العملاء المميزين: {e}"}),500
+
+@app.post("/api/vip-customers")
+def api_create_vip_customer():
+    denied=_vip_auth()
+    if denied: return denied
+    data=request.get_json(silent=True) or {}
+    try:
+        import vip_customers; vip_customers.ensure_schema()
+        customer=vip_customers.create_customer(data.get("name"),data.get("phone"),data.get("offer_product"),data.get("offer_price"))
+        return jsonify({"customer":customer}),201
+    except ValueError as e: return jsonify({"error":str(e)}),400
+    except Exception as e: return jsonify({"error":f"تعذر إضافة العميل المميز: {e}"}),500
+
+@app.post("/api/vip-customers/<customer_id>/status")
+def api_vip_customer_status(customer_id):
+    denied=_vip_auth()
+    if denied: return denied
+    data=request.get_json(silent=True) or {}
+    try:
+        import vip_customers; vip_customers.ensure_schema()
+        customer=vip_customers.set_status(customer_id,str(data.get("status") or ""))
+        if customer is None: return jsonify({"error":"العميل غير موجود"}),404
+        return jsonify({"customer":customer})
+    except ValueError as e: return jsonify({"error":str(e)}),400
+    except Exception as e: return jsonify({"error":f"تعذر تحديث حالة العرض: {e}"}),500
+'''
+              if marker not in text: raise SystemExit('App insertion marker not found')
+              app.write_text(text.replace(marker,block+'\n'+marker,1),encoding='utf-8')
+          js=r'''(() => {
+  const V='vip-customers', S='vip-customers-style-v1';
+  function style(){if(document.getElementById(S))return;const s=document.createElement('style');s.id=S;s.textContent=`#view-vip-customers .vip-hero{display:flex;justify-content:space-between;gap:18px;align-items:center;margin-bottom:18px}#view-vip-customers .vip-title{display:flex;align-items:center;gap:12px}#view-vip-customers .vip-icon{width:48px;height:48px;border-radius:16px;display:grid;place-items:center;background:rgba(11,143,155,.12);font-size:25px}#view-vip-customers .vip-sub{margin:4px 0 0;color:#6b7f8d}#view-vip-customers .vip-add{min-width:145px}#view-vip-customers .vip-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:18px}#view-vip-customers .vip-stat{background:var(--surface,#fff);border:1px solid var(--border,#d9e7ea);border-radius:16px;padding:14px 16px}#view-vip-customers .vip-stat strong{display:block;font-size:25px;color:var(--navy,#123f7a)}#view-vip-customers .vip-stat span{color:#6b7f8d;font-size:13px}#view-vip-customers .vip-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:14px}#view-vip-customers .vip-card{border:1px solid var(--border,#d9e7ea);border-radius:18px;padding:17px;background:#fff;box-shadow:0 4px 16px rgba(18,63,122,.06)}#view-vip-customers .vip-card-top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}#view-vip-customers .vip-name{font-size:18px;font-weight:800;color:var(--navy,#123f7a)}#view-vip-customers .vip-phone{font-size:13px;color:#6b7f8d;margin-top:4px}#view-vip-customers .vip-offer{margin:15px 0;padding:13px;border-radius:14px;background:var(--bg,#f5fafb)}#view-vip-customers .vip-label{font-size:12px;color:#71838d;margin-bottom:4px}#view-vip-customers .vip-product{font-weight:700}#view-vip-customers .vip-price{font-size:21px;font-weight:900;color:var(--primary,#0b8f9b);margin-top:5px}#view-vip-customers .vip-status{display:inline-flex;align-items:center;padding:6px 10px;border-radius:999px;font-size:12px;font-weight:800}.vip-status.pending{background:#fff5d6;color:#8a6500}.vip-status.received{background:#e6f7ee;color:#16704a}#view-vip-customers .vip-actions{margin-top:14px;display:flex;gap:8px}#view-vip-customers .vip-actions .btn{flex:1}#view-vip-customers .vip-modal-note{font-size:13px;color:#6b7f8d;margin-top:-4px;margin-bottom:14px}#view-vip-customers .vip-search{max-width:320px}@media(max-width:700px){#view-vip-customers .vip-hero{align-items:stretch;flex-direction:column}#view-vip-customers .vip-add{width:100%}#view-vip-customers .vip-stats{grid-template-columns:1fr 1fr}#view-vip-customers .vip-stats .vip-stat:last-child{grid-column:1/-1}#view-vip-customers .vip-search{max-width:none;width:100%}}`;document.head.appendChild(s)}
+  const esc=x=>String(x??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const api=(u,o={})=>fetch(u,{...o,headers:{...(o.body?{'Content-Type':'application/json'}:{})}}).then(async r=>{let d={};try{d=await r.json()}catch{}if(!r.ok)throw new Error(d.error||'حدث خطأ');return d});
+  const msg=(m,t='success')=>typeof window.toast==='function'?window.toast(m,t):alert(m);
+  function nav(){const n=document.querySelector('.main-nav');if(!n||document.querySelector('[data-view="'+V+'"]'))return;const b=document.createElement('button');b.className='nav-btn';b.dataset.view=V;b.textContent='⭐ العملاء المميزين';b.onclick=()=>{window.switchView?.(V);load()};n.insertBefore(b,n.querySelector('.nav-btn.primary')||n.lastElementChild)}
+  function view(){if(document.getElementById('view-'+V))return;const m=document.querySelector('main.app-main');if(!m)return;const s=document.createElement('section');s.id='view-'+V;s.className='view';s.innerHTML=`<div class="panel"><div class="vip-hero"><div class="vip-title"><div class="vip-icon">⭐</div><div><h2>العملاء المميزين</h2><p class="vip-sub">سجل عروض العملاء المميزين وتابع استلام العرض بسرعة.</p></div></div><button class="btn btn-primary vip-add" id="vip-add-btn">+ إضافة عميل مميز</button></div><div class="vip-stats"><div class="vip-stat"><strong id="vip-total">0</strong><span>إجمالي العملاء</span></div><div class="vip-stat"><strong id="vip-pending">0</strong><span>قيد الانتظار</span></div><div class="vip-stat"><strong id="vip-received">0</strong><span>تم استلام العرض</span></div></div><div class="panel-header"><div><h3>قائمة العملاء</h3></div><input id="vip-search" class="vip-search" placeholder="ابحث باسم العميل أو المنتج..."></div><div id="vip-list" class="vip-grid"><div class="empty-state">جارِ التحميل...</div></div></div><div id="vip-form-modal" class="modal-overlay hidden"><div class="modal small"><div class="modal-header"><h3>⭐ إضافة عميل مميز</h3><button class="modal-close" id="vip-form-close">✕</button></div><div class="modal-body"><p class="vip-modal-note">رقم الهاتف اختياري. الحالة تبدأ تلقائيًا: قيد الانتظار.</p><form id="vip-form" class="order-form"><div class="form-row"><label>اسم العميل <span class="req">*</span></label><input name="name" required></div><div class="form-row"><label>رقم الهاتف</label><input name="phone" type="tel" placeholder="اختياري"></div><div class="form-row"><label>منتج العرض <span class="req">*</span></label><input name="offer_product" required></div><div class="form-row"><label>سعر العرض <span class="req">*</span></label><input name="offer_price" type="number" min="0" step="0.01" required></div><div class="form-actions"><button class="btn btn-primary" type="submit">حفظ العميل</button><button class="btn btn-secondary" type="button" id="vip-form-cancel">إلغاء</button></div></form></div></div></div>`;m.appendChild(s);document.getElementById('vip-add-btn').onclick=()=>document.getElementById('vip-form-modal').classList.remove('hidden');document.getElementById('vip-form-close').onclick=close;document.getElementById('vip-form-cancel').onclick=close;document.getElementById('vip-form-modal').onclick=e=>{if(e.target.id==='vip-form-modal')close()};document.getElementById('vip-form').onsubmit=save;document.getElementById('vip-search').oninput=render}
+  const close=()=>document.getElementById('vip-form-modal')?.classList.add('hidden');let customers=[];
+  function render(){const q=(document.getElementById('vip-search')?.value||'').trim().toLowerCase(),rows=q?customers.filter(c=>`${c.name} ${c.phone} ${c.offer_product}`.toLowerCase().includes(q)):customers,l=document.getElementById('vip-list');if(!rows.length){l.innerHTML='<div class="empty-state">لا توجد نتائج.</div>';return}l.innerHTML=rows.map(c=>`<div class="vip-card"><div class="vip-card-top"><div><div class="vip-name">${esc(c.name)}</div><div class="vip-phone">${c.phone?'📱 '+esc(c.phone):'بدون رقم هاتف'}</div></div><span class="vip-status ${c.status==='تم استلام العرض'?'received':'pending'}">${esc(c.status)}</span></div><div class="vip-offer"><div class="vip-label">منتج العرض</div><div class="vip-product">${esc(c.offer_product)}</div><div class="vip-price">${esc(c.offer_price)} ريال</div></div><div class="vip-actions">${c.status==='قيد الانتظار'?`<button class="btn btn-primary" data-r="${esc(c.id)}">✓ تم استلام العرض</button>`:`<button class="btn btn-outline" data-p="${esc(c.id)}">↩ قيد الانتظار</button>`}</div></div>`).join('');l.querySelectorAll('[data-r]').forEach(b=>b.onclick=()=>status(b.dataset.r,'تم استلام العرض'));l.querySelectorAll('[data-p]').forEach(b=>b.onclick=()=>status(b.dataset.p,'قيد الانتظار'))}
+  function stats(){vip('vip-total',customers.length);vip('vip-pending',customers.filter(c=>c.status==='قيد الانتظار').length);vip('vip-received',customers.filter(c=>c.status==='تم استلام العرض').length)} const vip=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v};
+  async function load(){try{const d=await api('/api/vip-customers');customers=d.customers||[];stats();render()}catch(e){const l=document.getElementById('vip-list');if(l)l.innerHTML=`<div class="empty-state">تعذر تحميل العملاء المميزين: ${esc(e.message)}</div>`}}
+  async function save(e){e.preventDefault();const f=e.currentTarget,b=f.querySelector('[type=submit]');b.disabled=true;try{await api('/api/vip-customers',{method:'POST',body:JSON.stringify({name:f.name.value,phone:f.phone.value,offer_product:f.offer_product.value,offer_price:f.offer_price.value})});msg('تمت إضافة العميل المميز');f.reset();close();load()}catch(x){msg(x.message,'error')}finally{b.disabled=false}}
+  async function status(id,v){try{await api('/api/vip-customers/'+encodeURIComponent(id)+'/status',{method:'POST',body:JSON.stringify({status:v})});msg(v==='تم استلام العرض'?'تم تسجيل استلام العرض':'تمت إعادة الحالة إلى قيد الانتظار');load()}catch(e){msg(e.message,'error')}}
+  document.addEventListener('DOMContentLoaded',()=>{style();nav();view()});
+})();
+'''
+          Path('static/vip_customers.js').write_text(js,encoding='utf-8')
+          index=Path('index.html'); html=index.read_text(encoding='utf-8'); marker="<script src=\"{{ url_for('static', filename='app.js') }}\"></script>"; tag=marker+"\n<script src=\"{{ url_for('static', filename='vip_customers.js') }}\"></script>"
+          if 'vip_customers.js' not in html:
+              if marker not in html: raise SystemExit('index script marker not found')
+              index.write_text(html.replace(marker,tag,1),encoding='utf-8')
+          print('VIP feature patch completed')
+
+      - name: Verify source changes
+        run: |
+          test -f vip_customers.py
+          test -f static/vip_customers.js
+          grep -q 'VIP_CUSTOMERS_FEATURE_V1' app.py
+          grep -q 'vip_customers.js' index.html
+          python -m py_compile vip_customers.py app.py
+          echo 'Source verification passed.'
+
+      - name: Commit feature changes
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app.py index.html vip_customers.py static/vip_customers.js
+          if git diff --cached --quiet; then echo 'No changes to commit.'; exit 0; fi
+          git commit -m 'Add VIP customers offer tracking page'
+          git push
