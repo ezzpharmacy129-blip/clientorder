@@ -1,0 +1,209 @@
+name: Apply robust item-level order state fix
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  apply-fix:
+    if: ${{ !contains(github.event.head_commit.message, '[item-state-fix]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Apply source changes
+        shell: bash
+        run: |
+          cat > /tmp/apply_fix.py <<'PY'
+          from pathlib import Path
+          import re
+          import sys
+
+          ROOT = Path('.')
+
+          def read(path):
+              return path.read_text(encoding='utf-8')
+
+          def write(path, text):
+              path.write_text(text, encoding='utf-8')
+
+          def replace_once(text, old, new, label):
+              if old not in text:
+                  raise SystemExit(f'Missing anchor for {label}')
+              return text.replace(old, new, 1)
+
+          def replace_regex(text, pattern, new, label, flags=re.S):
+              out, n = re.subn(pattern, new, text, count=1, flags=flags)
+              if n != 1:
+                  raise SystemExit(f'Missing/ambiguous regex anchor for {label}: matches={n}')
+              return out
+
+          # Keep the schema contract shared by export/import code.
+          db_path = ROOT / 'db.py'
+          db = read(db_path)
+          db = replace_once(
+              db,
+              '"Price_Confirmation_Required", "Available_At", "Created_At"]',
+              '"Price_Confirmation_Required", "Available_At", "Created_At", "Customer_Decision"]',
+              'ITEM_HEADERS',
+          )
+          write(db_path, db)
+
+          cloud_path = ROOT / 'cloud_db.py'
+          cloud = read(cloud_path)
+
+          cloud = replace_once(
+              cloud,
+              '    price_confirmation_required TEXT NOT NULL DEFAULT \'\',\n    available_at TEXT NOT NULL DEFAULT \'\',\n    created_at TEXT NOT NULL\n);',
+              '    price_confirmation_required TEXT NOT NULL DEFAULT \'\',\n    available_at TEXT NOT NULL DEFAULT \'\',\n    created_at TEXT NOT NULL,\n    customer_decision TEXT NOT NULL DEFAULT \'\'\n);',
+              'cloud order_items schema',
+          )
+
+          cloud = replace_once(
+              cloud,
+              '    def ensure_db(self):\n        with self._connect() as conn:\n            conn.execute(SCHEMA_SQL)\n            rows = conn.execute(\'SELECT key FROM settings\').fetchall()',
+              '    def ensure_db(self):\n        with self._connect() as conn:\n            conn.execute(SCHEMA_SQL)\n            # Backward-compatible schema extension: adds only one nullable-by-default\n            # item-level field. Existing order/item values are never rewritten here.\n            conn.execute("ALTER TABLE order_items ADD COLUMN IF NOT EXISTS customer_decision TEXT NOT NULL DEFAULT \'\'")\n            rows = conn.execute(\'SELECT key FROM settings\').fetchall()',
+              'cloud ensure_db schema extension',
+          )
+
+          cloud = replace_once(
+              cloud,
+              "        'Price_Confirmation_Required': row.get('price_confirmation_required', ''),\n        'Available_At': row.get('available_at', ''),\n        'Created_At': row.get('created_at', ''),",
+              "        'Price_Confirmation_Required': row.get('price_confirmation_required', ''),\n        'Available_At': row.get('available_at', ''),\n        'Created_At': row.get('created_at', ''),\n        'Customer_Decision': row.get('customer_decision', ''),",
+              'cloud item mapper',
+          )
+
+          cloud = replace_once(
+              cloud,
+              "                'Quantity': order.get('Quantity') or 1, 'Image_Path': '', 'Availability_Status': 'بانتظار التوفر',\n                    'Available_Price': '', 'Discounted_Price': '', 'Unavailable_Reason': '', 'Availability_Note': '',\n                    'Price_Confirmation_Required': '', 'Available_At': '', 'Created_At': order.get('Created_At', ''),",
+              "                'Quantity': order.get('Quantity') or 1, 'Image_Path': '', 'Availability_Status': 'بانتظار التوفر',\n                    'Available_Price': '', 'Discounted_Price': '', 'Unavailable_Reason': '', 'Availability_Note': '',\n                    'Price_Confirmation_Required': '', 'Available_At': '', 'Created_At': order.get('Created_At', ''), 'Customer_Decision': '',",
+              'cloud fallback item mapper',
+          )
+
+          # Insert customer_decision in undo restoration without disturbing older snapshots.
+          cloud = replace_once(
+              cloud,
+              "            for item in snapshot.get('items', []):\n                conn.execute('INSERT INTO order_items(item_id,order_id,product_name,quantity,image_path,availability_status,available_price,discounted_price,unavailable_reason,availability_note,price_confirmation_required,available_at,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',\n                             tuple(item.get(k, '') for k in ('Item_ID','Order_ID','Product_Name','Quantity','Image_Path','Availability_Status','Available_Price','Discounted_Price','Unavailable_Reason','Availability_Note','Price_Confirmation_Required','Available_At','Created_At')))",
+              "            for item in snapshot.get('items', []):\n                conn.execute('INSERT INTO order_items(item_id,order_id,product_name,quantity,image_path,availability_status,available_price,discounted_price,unavailable_reason,availability_note,price_confirmation_required,available_at,created_at,customer_decision) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',\n                             tuple(item.get(k, '') for k in ('Item_ID','Order_ID','Product_Name','Quantity','Image_Path','Availability_Status','Available_Price','Discounted_Price','Unavailable_Reason','Availability_Note','Price_Confirmation_Required','Available_At','Created_At','Customer_Decision')))",
+              'cloud undo item restore',
+          )
+
+          helper = '''\n    def _item_is_rejected(self, order, item):\n        decision = str(item.get('Customer_Decision') or '').strip()\n        if decision == 'rejected':\n            return True\n        # Compatibility for historical orders that were cancelled at the order\n        # level before item-level decisions existed: non-pending items are treated\n        # as rejected for workflow calculations, but are NOT rewritten on read.\n        if (not decision and order.get('Status') == STATUS_CANCELLED\n                and order.get('Contact_Status') == CONTACT_REJECTED\n                and item.get('Availability_Status') != 'بانتظار التوفر'):\n            return True\n        return False\n\n    def _derive_workflow_status(self, order, items=None):\n        items = items if items is not None else (order.get('Items') or [])\n        active = [i for i in items if not self._item_is_rejected(order, i)]\n        if not active:\n            return STATUS_CANCELLED\n        states = [str(i.get('Availability_Status') or 'بانتظار التوفر').strip() for i in active]\n        if all(x == 'بانتظار التوفر' for x in states):\n            return STATUS_PENDING\n        if all(x == 'متوفر' for x in states):\n            return STATUS_AVAILABLE\n        if all(x == 'غير متوفر' for x in states):\n            return STATUS_UNAVAILABLE\n        return STATUS_PARTIAL\n'''
+          cloud = replace_once(cloud, "    def _attach_items(self, orders, item_groups):\n", helper + "\n    def _attach_items(self, orders, item_groups):\n", 'workflow helpers')
+
+          cloud = replace_once(
+              cloud,
+              "            else:\n                order['Product_Name'] = ''\n                order['Quantity'] = 0\n        return orders",
+              "            else:\n                order['Product_Name'] = ''\n                order['Quantity'] = 0\n            order['Status'] = self._derive_workflow_status(order, items) if order.get('Status') == STATUS_CANCELLED and order.get('Contact_Status') == CONTACT_REJECTED else order.get('Status')\n        return orders",
+              'effective status for list',
+          )
+
+          cloud = replace_once(
+              cloud,
+              "            if order['Items']:\n                order['Product_Name'] = '، '.join(f\"{i.get('Product_Name','')} × {i.get('Quantity',1)}\" for i in order['Items'])\n                order['Quantity'] = sum(int(i.get('Quantity') or 0) for i in order['Items'])\n            return order",
+              "            if order['Items']:\n                order['Product_Name'] = '، '.join(f\"{i.get('Product_Name','')} × {i.get('Quantity',1)}\" for i in order['Items'])\n                order['Quantity'] = sum(int(i.get('Quantity') or 0) for i in order['Items'])\n            if order.get('Status') == STATUS_CANCELLED and order.get('Contact_Status') == CONTACT_REJECTED:\n                order['Status'] = self._derive_workflow_status(order, order['Items'])\n            return order",
+              'effective status for detail',
+          )
+
+          new_set_availability = '''    def set_availability(self, order_id, item_updates, available_date=None, user='موظف'):\n        \"\"\"Update availability independently per item, including historical closed orders\n        that still contain pending items. Explicit item changes never erase another\n        item's customer decision unless reopen_customer is requested.\"\"\"\n        d = available_date or today_str()\n        with self._connect() as conn:\n            current = self._fetch_order(conn, order_id)\n            if not current:\n                return {'error':'الطلب غير موجود','code':404}\n            items = self._fetch_items(conn, order_id)\n            if not items:\n                return {'error':'لا توجد منتجات في هذا الطلب','code':409}\n            updates = {str(x.get('Item_ID')): x for x in (item_updates or []) if x.get('Item_ID')}\n            snapshot = self._snapshot(conn, order_id)\n\n            for item in items:\n                iid = str(item['Item_ID'])\n                u = updates.get(iid, {})\n                status = str(u.get('availability_status') or item.get('Availability_Status') or 'بانتظار التوفر').strip()\n                if status not in {'متوفر','غير متوفر','بانتظار التوفر'}:\n                    return {'error': f\"حالة توفر غير صحيحة للمنتج {item['Product_Name']}\", 'code':400}\n\n                reopen = bool(u.get('reopen_customer') in (True, 'true', 'True', 1, '1', 'نعم'))\n                legacy_rejected = (not str(item.get('Customer_Decision') or '').strip()\n                                   and current.get('Status') == STATUS_CANCELLED\n                                   and current.get('Contact_Status') == CONTACT_REJECTED\n                                   and item.get('Availability_Status') != 'بانتظار التوفر')\n                if legacy_rejected and not reopen:\n                    conn.execute('UPDATE order_items SET customer_decision=\'rejected\' WHERE item_id=%s', (iid,))\n                elif reopen:\n                    conn.execute('UPDATE order_items SET customer_decision=\'\' WHERE item_id=%s', (iid,))\n\n                if status == 'متوفر':\n                    normal_raw = str(u.get('available_price') or item.get('Available_Price') or '').strip()\n                    disc_raw = str(u.get('discounted_price') or item.get('Discounted_Price') or '').strip()\n                    try:\n                        normal = float(normal_raw) if normal_raw else None\n                        disc = float(disc_raw) if disc_raw else None\n                        if (normal is not None and normal < 0) or (disc is not None and disc < 0):\n                            raise ValueError\n                        if normal is not None and disc is not None and disc > normal:\n                            return {'error': f\"سعر الخصم لا يمكن أن يكون أعلى من السعر العادي للمنتج {item['Product_Name']}\", 'code':400}\n                    except ValueError:\n                        return {'error': f\"السعر المدخل غير صحيح للمنتج {item['Product_Name']}\", 'code':400}\n                    conn.execute(\n                        'UPDATE order_items SET availability_status=%s,available_price=%s,discounted_price=%s,unavailable_reason=%s,availability_note=%s,price_confirmation_required=%s,available_at=%s WHERE item_id=%s',\n                        (status, normal_raw, disc_raw, '', str(u.get('availability_note') or item.get('Availability_Note') or '').strip(),\n                         'نعم' if u.get('price_confirmation_required') in (True,'true','True',1,'1','نعم') else str(item.get('Price_Confirmation_Required') or ''), d, iid)\n                    )\n                elif status == 'غير متوفر':\n                    reason = str(u.get('unavailable_reason') or item.get('Unavailable_Reason') or '').strip()\n                    if not reason:\n                        return {'error': f\"يجب اختيار سبب عدم التوفر للمنتج {item['Product_Name']}\", 'code':400}\n                    conn.execute(\n                        'UPDATE order_items SET availability_status=%s,available_price=%s,discounted_price=%s,unavailable_reason=%s,availability_note=%s,price_confirmation_required=%s,available_at=%s WHERE item_id=%s',\n                        (status,'','',reason,str(u.get('availability_note') or item.get('Availability_Note') or '').strip(),'','',iid)\n                    )\n                else:\n                    conn.execute(\n                        'UPDATE order_items SET availability_status=%s,available_price=%s,discounted_price=%s,unavailable_reason=%s,availability_note=%s,price_confirmation_required=%s,available_at=%s WHERE item_id=%s',\n                        (status,'','','','','','',iid)\n                    )\n\n            fresh = self._fetch_items(conn, order_id)\n            active = [i for i in fresh if not self._item_is_rejected(current, i)]\n            new_status = self._derive_workflow_status(current, fresh)\n            if new_status == STATUS_CANCELLED and any(i.get('Availability_Status') == 'بانتظار التوفر' and not self._item_is_rejected(current, i) for i in fresh):\n                new_status = STATUS_PENDING\n\n            newly_actionable = [i for i in active\n                                if i.get('Availability_Status') in ('متوفر','غير متوفر')\n                                and str(i.get('Customer_Decision') or '').strip() not in ('accepted','rejected')]\n            reset_contact = bool(newly_actionable and current.get('Contact_Status') in (CONTACT_REJECTED, CONTACT_ACCEPTED, CONTACT_AWAITING))\n\n            self._invalidate_undo(conn, order_id)\n            fields = {\n                'Status': new_status,\n                'Available_Date': d if any(i.get('Availability_Status') == 'متوفر' and not self._item_is_rejected(current, i) for i in fresh) else '',\n                'Next_Followup_Date': today_str() if any(i.get('Availability_Status') == 'متوفر' and not self._item_is_rejected(current, i) for i in fresh) else '',\n            }\n            if reset_contact:\n                fields.update({'Contact_Status': CONTACT_NOT_CONTACTED, 'Last_Contact_Date': ''})\n\n            sets=[]; params=[]\n            col_map={'Status':'status','Available_Date':'available_date','Next_Followup_Date':'next_followup_date','Contact_Status':'contact_status','Last_Contact_Date':'last_contact_date'}\n            for k,v in fields.items():\n                sets.append(f'{col_map[k]}=%s'); params.append(v)\n            sets.append('updated_at=%s'); params.append(now_str()); params.append(str(order_id))\n            conn.execute(f\"UPDATE orders SET {', '.join(sets)} WHERE order_id=%s\", params)\n\n            note=[]\n            for i in fresh:\n                if self._item_is_rejected(current, i):\n                    continue\n                if i['Availability_Status']=='متوفر':\n                    note.append(f\"{i['Product_Name']}: متوفر\" + (f\" بسعر {i['Available_Price']}\" if i['Available_Price'] else '') + (f\" بعد الخصم {i['Discounted_Price']}\" if i['Discounted_Price'] else ''))\n                elif i['Availability_Status']=='غير متوفر':\n                    note.append(f\"{i['Product_Name']}: غير متوفر — {i['Unavailable_Reason']}\")\n                else:\n                    note.append(f\"{i['Product_Name']}: بانتظار التوفر\")\n\n            self._log(conn, order_id, 'تحديث توفر المنتجات', current['Status'], new_status, ' | '.join(note), user)\n            self._add_undo(conn, order_id, 'تحديث توفر المنتجات', snapshot, user)\n            return {'order': self._refresh_order_in_conn(conn, order_id)}\n\n'''
+          cloud = replace_regex(cloud, r"    def set_availability\(self, order_id, item_updates, available_date=None, user='موظف'\):.*?\n    def mark_available", new_set_availability + "    def mark_available", 'cloud set_availability')
+
+          new_set_contact = '''    def set_contact_status(self, order_id, contact_status, note='', user='موظف', rejected_item_ids=None):\n        if contact_status not in ALL_CONTACT_STATUSES:\n            return {'error':'حالة التواصل غير صحيحة','code':400}\n        rejected_item_ids = {str(x) for x in (rejected_item_ids or []) if x}\n        with self._connect() as conn:\n            current=self._fetch_order(conn, order_id)\n            if not current:\n                return {'error':'الطلب غير موجود','code':404}\n            snapshot=self._snapshot(conn, order_id)\n            items=self._fetch_items(conn, order_id)\n\n            if contact_status == CONTACT_ACCEPTED:\n                if not any(i['Availability_Status']=='متوفر' and not self._item_is_rejected(current, i) for i in items):\n                    return {'error':'لا يمكن تسجيل موافقة العميل لأن لا يوجد منتج متوفر في الطلب','code':409}\n                conn.execute(\"UPDATE order_items SET customer_decision='accepted' WHERE order_id=%s AND availability_status='متوفر' AND COALESCE(customer_decision,'')=''\", (str(order_id),))\n\n            elif contact_status == CONTACT_REJECTED:\n                available_ids={str(i['Item_ID']) for i in items if i.get('Availability_Status')=='متوفر'}\n                if not rejected_item_ids:\n                    rejected_item_ids = set(available_ids)\n                invalid = rejected_item_ids - available_ids\n                if invalid:\n                    return {'error':'يمكن تسجيل رفض العميل فقط للمنتجات المتوفرة حاليًا','code':400}\n                if rejected_item_ids:\n                    for iid in rejected_item_ids:\n                        conn.execute(\"UPDATE order_items SET customer_decision='rejected' WHERE item_id=%s AND order_id=%s\", (iid, str(order_id)))\n\n            fresh=self._fetch_items(conn, order_id)\n            temp_order=dict(current)\n            temp_order['Items']=fresh\n            if contact_status == CONTACT_REJECTED:\n                new_status=self._derive_workflow_status(temp_order, fresh)\n                active=[i for i in fresh if not self._item_is_rejected(temp_order, i)]\n                fields={'Contact_Status':contact_status,'Last_Contact_Date':today_str(),\n                        'Next_Followup_Date': today_str() if any(i.get('Availability_Status')=='متوفر' and not self._item_is_rejected(temp_order,i) and str(i.get('Customer_Decision') or '') not in ('accepted','rejected') for i in active) else ''}\n                if not active:\n                    fields['Status']=STATUS_CANCELLED\n                else:\n                    fields['Status']=new_status\n            elif contact_status == CONTACT_AWAITING:\n                fields={'Contact_Status':contact_status,'Last_Contact_Date':today_str(),'Next_Followup_Date':add_days(today_str(),2)}\n            elif contact_status == CONTACT_ACCEPTED:\n                fields={'Contact_Status':contact_status,'Status':STATUS_CONTACTED,'Last_Contact_Date':today_str(),'Next_Followup_Date':''}\n            elif contact_status == CONTACT_POSTPONED:\n                fields={'Contact_Status':contact_status,'Status':STATUS_NOT_PICKED,'Next_Followup_Date':add_days(today_str(),1)}\n            else:\n                fields={'Contact_Status':contact_status}\n\n            self._invalidate_undo(conn, order_id)\n            col_map={'Contact_Status':'contact_status','Status':'status','Last_Contact_Date':'last_contact_date','Next_Followup_Date':'next_followup_date'}\n            sets=[]; params=[]\n            for k,v in fields.items():\n                sets.append(f'{col_map[k]}=%s'); params.append(v)\n            sets.append('updated_at=%s'); params.append(now_str()); params.append(str(order_id))\n            conn.execute(f\"UPDATE orders SET {', '.join(sets)} WHERE order_id=%s\", params)\n            self._log(conn,order_id,'تحديث حالة التواصل',current['Status'],fields.get('Status',current['Status']),note or contact_status,user)\n            self._add_undo(conn,order_id,'تحديث حالة التواصل',snapshot,user)\n            return {'order':self._refresh_order_in_conn(conn, order_id)}\n\n'''
+          cloud = replace_regex(cloud, r"    def set_contact_status\(self, order_id, contact_status, note='', user='موظف'\):.*?\n    def mark_pickup", new_set_contact + "    def mark_pickup", 'cloud set_contact_status')
+
+          write(cloud_path, cloud)
+
+          app_path = ROOT / 'app.py'
+          app = read(app_path)
+          app = replace_once(
+              app,
+              "    return result_response(db.set_contact_status(order_id, str(data.get(\"contact_status\") or \"\"), str(data.get(\"note\") or \"\")))",
+              "    return result_response(db.set_contact_status(order_id, str(data.get(\"contact_status\") or \"\"), str(data.get(\"note\") or \"\"), rejected_item_ids=data.get(\"rejected_item_ids\") or []))",
+              'app contact-status route',
+          )
+
+          # Prevent a historical order-level rejection from reappearing as a new offer.
+          old_msg = '''    available = [i for i in items if i.get("Availability_Status") == "متوفر"]\n    unavailable = [i for i in items if i.get("Availability_Status") == "غير متوفر"]\n    if not available and not unavailable:\n        available = items\n'''
+          new_msg = '''    legacy_order_rejected = (order.get("Status") == STATUS_CANCELLED\n                             and order.get("Contact_Status") == CONTACT_REJECTED\n                             and any(i.get("Availability_Status") == "بانتظار التوفر" for i in items))\n    eligible_items = [i for i in items\n                      if str(i.get("Customer_Decision") or "").strip() != "rejected"\n                      and not (legacy_order_rejected and i.get("Availability_Status") != "بانتظار التوفر")]\n    available = [i for i in eligible_items if i.get("Availability_Status") == "متوفر"]\n    unavailable = [i for i in eligible_items if i.get("Availability_Status") == "غير متوفر"]\n    if not available and not unavailable and items and not any(i.get("Availability_Status") for i in items):\n        available = eligible_items\n'''
+          app = replace_once(app, old_msg, new_msg, 'WhatsApp customer item filtering')
+          write(app_path, app)
+
+          # Front-end: item-level rejection selection + reopening controls + closed-order availability access.
+          js_path = ROOT / 'static/app.js'
+          js = read(js_path)
+
+          js = replace_once(
+              js,
+              '''async function saveContactStatus(id,status){try{const note=document.getElementById("detail-contact-note")?.value||"";await apiFetch(`/api/orders/${id}/contact-status`,{method:"POST",body:JSON.stringify({contact_status:status,note})});toast("تم تحديث حالة التواصل");details(id);refresh()}catch(e){toast(e.message,"error")}}''',
+              '''function renderRejectedItemsChooser(order){\n  const host=document.querySelector('#detail-rejected-items-host');\n  if(!host)return;\n  const show=order && (document.getElementById('detail-contact-status')?.value==='العميل رفض');\n  if(!show){host.innerHTML='';return}\n  const available=(order.Items||[]).filter(i=>i.Availability_Status==='متوفر');\n  if(!available.length){host.innerHTML='<div class="field-error">لا توجد منتجات متوفرة حاليًا لتسجيل رفضها.</div>';return}\n  host.innerHTML=`<div class="di-label">المنتجات التي رفضها العميل</div><div class="rejected-items-chooser">${available.map(i=>{const legacyRejected=order.Contact_Status==='العميل رفض'&&!String(i.Customer_Decision||'').trim()&&order.Status==='ملغي';const checked=String(i.Customer_Decision||'').trim()==='rejected'||legacyRejected?' checked':'';return `<label><input type="checkbox" class="detail-rejected-item" value="${esc(i.Item_ID)}"${checked}> ${esc(i.Product_Name)} × ${i.Quantity}</label>`}).join('')}</div>`;\n}\nasync function saveContactStatus(id,status){try{const note=document.getElementById("detail-contact-note")?.value||"";const rejected_item_ids=[...document.querySelectorAll('.detail-rejected-item:checked')].map(x=>x.value);await apiFetch(`/api/orders/${id}/contact-status`,{method:"POST",body:JSON.stringify({contact_status:status,note,rejected_item_ids})});toast("تم تحديث حالة التواصل");details(id);refresh()}catch(e){toast(e.message,"error")}}''',
+              'saveContactStatus',
+          )
+
+          js = replace_regex(
+              js,
+              r"function openAvailability\(id\)\{.*?\}\nfunction closeAvailability",
+              '''function openAvailability(id){currentAvailability=id;availabilityReturnOrder=id;const orderModal=document.getElementById('order-modal');orderModal.classList.add('hidden');orderModal.setAttribute('aria-hidden','true');const availabilityModal=document.getElementById('availability-modal');availabilityModal.classList.remove('hidden');availabilityModal.setAttribute('aria-hidden','false');apiFetch(`/api/orders/${id}`).then(d=>{const items=d.order.Items||[];document.getElementById('availability-items').innerHTML=items.map(i=>`<div class="availability-row" data-item-id="${esc(i.Item_ID)}"><div class="availability-item-head"><div><b>${esc(i.Product_Name)}</b><span> × ${i.Quantity}</span>${String(i.Customer_Decision||'').trim()==='rejected'?'<span class="image-attached">❌ العميل رفضه سابقًا</span>':''}</div><select class="avail-status"><option value="بانتظار التوفر" ${i.Availability_Status==='بانتظار التوفر'?'selected':''}>بانتظار التوفر</option><option value="متوفر" ${i.Availability_Status==='متوفر'?'selected':''}>متوفر</option><option value="غير متوفر" ${i.Availability_Status==='غير متوفر'?'selected':''}>غير متوفر</option></select></div><div class="availability-fields"><input class="avail-price" type="number" min="0" step="0.01" placeholder="السعر العادي (اختياري)" value="${esc(i.Available_Price||'')}"><input class="avail-discount" type="number" min="0" step="0.01" placeholder="السعر بعد الخصم (اختياري)" value="${esc(i.Discounted_Price||'')}"><label class="price-confirm-check"><input type="checkbox" class="avail-price-confirm" ${String(i.Price_Confirmation_Required||'').trim()==='نعم'?'checked':''}> التأكد من السعر مع العميل قبل التوفير</label><select class="avail-reason"><option value="">سبب عدم التوفر</option><option ${i.Unavailable_Reason==='غير متوفر لدى المورد'?'selected':''}>غير متوفر لدى المورد</option><option ${i.Unavailable_Reason==='متوقف من الشركة'?'selected':''}>متوقف من الشركة</option><option ${i.Unavailable_Reason==='لا يوجد مخزون حاليًا'?'selected':''}>لا يوجد مخزون حاليًا</option><option ${i.Unavailable_Reason==='المنتج غير متاح حاليًا'?'selected':''}>المنتج غير متاح حاليًا</option><option ${i.Unavailable_Reason==='السعر من المورد غير مناسب'?'selected':''}>السعر من المورد غير مناسب</option><option ${i.Unavailable_Reason==='سبب آخر'?'selected':''}>سبب آخر</option></select><input class="avail-note" placeholder="ملاحظة إضافية (اختياري)" value="${esc(i.Availability_Note||'')}">${String(i.Customer_Decision||'').trim()==='rejected'?'<label class="price-confirm-check"><input type="checkbox" class="avail-reopen-customer"> إعادة فتح المنتج للتواصل مع العميل</label>':''}</div><div class="availability-current">${i.Available_Price?`السعر الحالي: ${esc(i.Available_Price)} ريال`:'السعر غير مسجل'}${i.Discounted_Price?` — بعد الخصم: ${esc(i.Discounted_Price)} ريال`:''}</div></div>`).join('');document.getElementById('availability-modal').classList.remove('hidden');document.querySelectorAll('.availability-row').forEach(row=>{const st=row.querySelector('.avail-status');const reason=row.querySelector('.avail-reason');const fields=row.querySelector('.availability-fields');const toggle=()=>{const available=st.value==='متوفر', unavailable=st.value==='غير متوفر';row.querySelector('.avail-price').disabled=!available;row.querySelector('.avail-discount').disabled=!available;row.querySelector('.avail-price-confirm').disabled=!available;reason.disabled=!unavailable;row.querySelector('.avail-note').disabled=!(available||unavailable)};st.onchange=toggle;toggle();});}).catch(e=>toast(e.message,'error'))}\nfunction closeAvailability''',
+              'openAvailability',
+          )
+
+          js = replace_once(
+              js,
+              '''async function saveAvailability(){if(!currentAvailability)return;const items=[...document.querySelectorAll('.availability-row')].map(r=>({Item_ID:r.dataset.itemId,availability_status:r.querySelector('.avail-status').value,available_price:r.querySelector('.avail-price').value,discounted_price:r.querySelector('.avail-discount').value,unavailable_reason:r.querySelector('.avail-reason').value,availability_note:r.querySelector('.avail-note').value,price_confirmation_required:r.querySelector('.avail-price-confirm').checked}));try{const id=currentAvailability;await apiFetch(`/api/orders/${id}/availability`,{method:'POST',body:JSON.stringify({items})});toast('تم حفظ حالة توفر المنتجات');currentAvailability=null;availabilityReturnOrder=null;document.getElementById('availability-modal').classList.add('hidden');document.getElementById('availability-modal').setAttribute('aria-hidden','true');refresh();details(id)}catch(e){toast(e.message,'error')}}''',
+              '''async function saveAvailability(){if(!currentAvailability)return;const items=[...document.querySelectorAll('.availability-row')].map(r=>({Item_ID:r.dataset.itemId,availability_status:r.querySelector('.avail-status').value,available_price:r.querySelector('.avail-price').value,discounted_price:r.querySelector('.avail-discount').value,unavailable_reason:r.querySelector('.avail-reason').value,availability_note:r.querySelector('.avail-note').value,price_confirmation_required:r.querySelector('.avail-price-confirm').checked,reopen_customer:!!r.querySelector('.avail-reopen-customer')?.checked}));try{const id=currentAvailability;await apiFetch(`/api/orders/${id}/availability`,{method:'POST',body:JSON.stringify({items})});toast('تم حفظ حالة توفر المنتجات');currentAvailability=null;availabilityReturnOrder=null;document.getElementById('availability-modal').classList.add('hidden');document.getElementById('availability-modal').setAttribute('aria-hidden','true');refresh();details(id)}catch(e){toast(e.message,'error')}}''',
+              'saveAvailability',
+          )
+
+          # Make the item-level availability action visible whenever any item is pending, even on historical cancelled orders.
+          js = replace_once(
+              js,
+              "${['بانتظار التوفر','متوفر - يحتاج اتصال','متوفر جزئيًا - يحتاج اتصال'].includes(o.Status)?`<button class=\"btn btn-primary modal-avail\">تحديث توفر المنتجات</button>`:\"\"}",
+              "${(((o.Items||[]).some(i=>i.Availability_Status==='بانتظار التوفر'))||['بانتظار التوفر','متوفر - يحتاج اتصال','متوفر جزئيًا - يحتاج اتصال'].includes(o.Status))?`<button class=\"btn btn-primary modal-avail\">تحديث توفر المنتجات</button>`:\"\"}",
+              'details availability button',
+          )
+
+          # Add the item rejection chooser and wire it to the existing contact-status selector.
+          js = replace_once(
+              js,
+              'm.classList.remove("hidden");const cs=m.querySelector("#detail-contact-status"); if(cs) cs.value=o.Contact_Status||"لم يتم التواصل"; if(m.querySelector("#detail-contact-note")) m.querySelector("#detail-contact-note").value=""; m.querySelector("#save-contact-status")?.addEventListener("click",()=>saveContactStatus(id,cs.value));',
+              'm.classList.remove("hidden");const cs=m.querySelector("#detail-contact-status"); if(cs) cs.value=o.Contact_Status||"لم يتم التواصل"; if(cs){cs.onchange=()=>renderRejectedItemsChooser(o);}\nconst contactHost=m.querySelector(".contact-status-actions"); if(contactHost&&!m.querySelector("#detail-rejected-items-host")){const host=document.createElement("div");host.id="detail-rejected-items-host";host.className="full-width";contactHost.parentElement.appendChild(host)} renderRejectedItemsChooser(o); if(m.querySelector("#detail-contact-note")) m.querySelector("#detail-contact-note").value=""; m.querySelector("#save-contact-status")?.addEventListener("click",()=>saveContactStatus(id,cs.value));',
+              'details rejection chooser wiring',
+          )
+
+          write(js_path, js)
+
+          # Static checks before committing.
+          import py_compile
+          for name in ('app.py','db.py','cloud_db.py'):
+              py_compile.compile(name, doraise=True)
+          js_text = read(js_path)
+          required = [
+              'rejected_item_ids',
+              'Customer_Decision',
+              'reopen_customer',
+              'renderRejectedItemsChooser',
+              'لا توجد منتجات متوفرة حاليًا لتسجيل رفضها.',
+          ]
+          for marker in required:
+              if marker not in js_text and marker != 'Customer_Decision':
+                  raise SystemExit(f'Missing JS marker after patch: {marker}')
+          cloud_text = read(cloud_path)
+          for marker in ('customer_decision TEXT NOT NULL DEFAULT', 'def _derive_workflow_status', "customer_decision='rejected'", 'def set_contact_status'):
+              if marker not in cloud_text:
+                  raise SystemExit(f'Missing backend marker after patch: {marker}')
+          print('PATCH_OK')
+          PY
+          python /tmp/apply_fix.py
+
+      - name: Commit and remove temporary workflow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app.py db.py cloud_db.py static/app.js .github/workflows/item-state-fix.yml
+          git rm .github/workflows/item-state-fix.yml
+          git commit -m "Fix item-level order state handling [item-state-fix]"
+          git push
