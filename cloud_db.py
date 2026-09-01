@@ -64,7 +64,8 @@ CREATE TABLE IF NOT EXISTS order_items (
     availability_note TEXT NOT NULL DEFAULT '',
     price_confirmation_required TEXT NOT NULL DEFAULT '',
     available_at TEXT NOT NULL DEFAULT '',
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    customer_decision TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items(order_id);
 
@@ -167,6 +168,7 @@ def _row_to_item(row):
         'Price_Confirmation_Required': row.get('price_confirmation_required', ''),
         'Available_At': row.get('available_at', ''),
         'Created_At': row.get('created_at', ''),
+        'Customer_Decision': row.get('customer_decision', ''),
     }
 
 
@@ -184,6 +186,7 @@ class CloudDB:
     def ensure_db(self):
         with self._connect() as conn:
             conn.execute(SCHEMA_SQL)
+            conn.execute("ALTER TABLE order_items ADD COLUMN IF NOT EXISTS customer_decision TEXT NOT NULL DEFAULT ''")
             rows = conn.execute('SELECT key FROM settings').fetchall()
             existing = {r['key'] for r in rows}
             for key, value in DEFAULT_SETTINGS.items():
@@ -230,6 +233,33 @@ class CloudDB:
         rows = conn.execute('SELECT * FROM order_items WHERE order_id=%s ORDER BY created_at, item_id', (str(order_id),)).fetchall()
         return [_row_to_item(dict(r)) for r in rows]
 
+
+    def _item_is_rejected(self, order, item):
+        decision = str(item.get('Customer_Decision') or '').strip()
+        if decision == 'rejected':
+            return True
+        # Compatibility for old cancelled/rejected orders: a non-pending item was
+        # already part of the customer decision before item-level decisions existed.
+        if (not decision and order.get('Status') == STATUS_CANCELLED
+                and order.get('Contact_Status') == CONTACT_REJECTED
+                and item.get('Availability_Status') != 'بانتظار التوفر'):
+            return True
+        return False
+
+    def _derive_workflow_status(self, order, items=None):
+        items = items if items is not None else (order.get('Items') or [])
+        active = [i for i in items if not self._item_is_rejected(order, i)]
+        if not active:
+            return STATUS_CANCELLED
+        states = [str(i.get('Availability_Status') or 'بانتظار التوفر').strip() for i in active]
+        if all(x == 'بانتظار التوفر' for x in states):
+            return STATUS_PENDING
+        if all(x == 'متوفر' for x in states):
+            return STATUS_AVAILABLE
+        if all(x == 'غير متوفر' for x in states):
+            return STATUS_UNAVAILABLE
+        return STATUS_PARTIAL
+
     def _attach_items(self, orders, item_groups):
         for order in orders:
             items = item_groups.get(str(order['Order_ID']), [])
@@ -238,7 +268,7 @@ class CloudDB:
                     'Item_ID': '', 'Order_ID': order.get('Order_ID'), 'Product_Name': order.get('Product_Name'),
                     'Quantity': order.get('Quantity') or 1, 'Image_Path': '', 'Availability_Status': 'بانتظار التوفر',
                     'Available_Price': '', 'Discounted_Price': '', 'Unavailable_Reason': '', 'Availability_Note': '',
-                    'Price_Confirmation_Required': '', 'Available_At': '', 'Created_At': order.get('Created_At', ''),
+                    'Price_Confirmation_Required': '', 'Available_At': '', 'Created_At': order.get('Created_At', ''), 'Customer_Decision': '',
                 }]
             order['Items'] = items
             if items:
@@ -410,8 +440,8 @@ class CloudDB:
             conn.execute(f"UPDATE orders SET {', '.join(sets)} WHERE order_id=%s", params)
             conn.execute('DELETE FROM order_items WHERE order_id=%s', (str(order_id),))
             for item in snapshot.get('items', []):
-                conn.execute('INSERT INTO order_items(item_id,order_id,product_name,quantity,image_path,availability_status,available_price,discounted_price,unavailable_reason,availability_note,price_confirmation_required,available_at,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
-                             tuple(item.get(k, '') for k in ('Item_ID','Order_ID','Product_Name','Quantity','Image_Path','Availability_Status','Available_Price','Discounted_Price','Unavailable_Reason','Availability_Note','Price_Confirmation_Required','Available_At','Created_At')))
+                conn.execute('INSERT INTO order_items(item_id,order_id,product_name,quantity,image_path,availability_status,available_price,discounted_price,unavailable_reason,availability_note,price_confirmation_required,available_at,created_at,customer_decision) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+                             tuple(item.get(k, '') for k in ('Item_ID','Order_ID','Product_Name','Quantity','Image_Path','Availability_Status','Available_Price','Discounted_Price','Unavailable_Reason','Availability_Note','Price_Confirmation_Required','Available_At','Created_At','Customer_Decision')))
             conn.execute('UPDATE undo_history SET undone_at=%s WHERE undo_id=%s', (now_str(), row['undo_id']))
             self._log(conn, order_id, f"تراجع عن: {row['action']}", current['Status'], order_data.get('Status',''), 'تم التراجع عن آخر تغيير للمستخدم', user)
             return {'order': self._refresh_order_in_conn(conn, order_id), 'undone_action': row['action']}
@@ -449,51 +479,66 @@ class CloudDB:
             items = self._fetch_items(conn, order_id)
             if not items:
                 return {'error':'لا توجد منتجات في هذا الطلب','code':409}
-            updates = {str(x.get('Item_ID')): x for x in item_updates if x.get('Item_ID')}
+            updates = {str(x.get('Item_ID')): x for x in (item_updates or []) if x.get('Item_ID')}
             snapshot = self._snapshot(conn, order_id)
-            states=[]
             for item in items:
-                u = updates.get(str(item['Item_ID']), {})
+                iid = str(item['Item_ID']); u = updates.get(iid, {})
                 status = str(u.get('availability_status') or item.get('Availability_Status') or 'بانتظار التوفر').strip()
                 if status not in {'متوفر','غير متوفر','بانتظار التوفر'}:
                     return {'error': f"حالة توفر غير صحيحة للمنتج {item['Product_Name']}", 'code':400}
+                reopen = bool(u.get('reopen_customer') in (True,'true','True',1,'1','نعم'))
+                legacy_rejected = (not str(item.get('Customer_Decision') or '').strip()
+                    and current.get('Status') == STATUS_CANCELLED
+                    and current.get('Contact_Status') == CONTACT_REJECTED
+                    and item.get('Availability_Status') != 'بانتظار التوفر')
+                if legacy_rejected and not reopen:
+                    conn.execute("UPDATE order_items SET customer_decision='rejected' WHERE item_id=%s", (iid,))
+                elif reopen:
+                    conn.execute("UPDATE order_items SET customer_decision='' WHERE item_id=%s", (iid,))
                 if status == 'متوفر':
-                    normal_raw = str(u.get('available_price') or '').strip(); disc_raw = str(u.get('discounted_price') or '').strip()
+                    normal_raw = str(u.get('available_price') or item.get('Available_Price') or '').strip()
+                    disc_raw = str(u.get('discounted_price') or item.get('Discounted_Price') or '').strip()
                     try:
                         normal = float(normal_raw) if normal_raw else None; disc = float(disc_raw) if disc_raw else None
-                        if normal is not None and normal < 0 or disc is not None and disc < 0: raise ValueError
+                        if (normal is not None and normal < 0) or (disc is not None and disc < 0): raise ValueError
                         if normal is not None and disc is not None and disc > normal:
                             return {'error': f"سعر الخصم لا يمكن أن يكون أعلى من السعر العادي للمنتج {item['Product_Name']}", 'code':400}
                     except ValueError:
                         return {'error': f"السعر المدخل غير صحيح للمنتج {item['Product_Name']}", 'code':400}
-                    vals = (status, normal_raw, disc_raw, '', str(u.get('availability_note') or '').strip(), 'نعم' if u.get('price_confirmation_required') in (True,'true','True',1,'1','نعم') else '', d, item['Item_ID'])
-                    conn.execute('UPDATE order_items SET availability_status=%s,available_price=%s,discounted_price=%s,unavailable_reason=%s,availability_note=%s,price_confirmation_required=%s,available_at=%s WHERE item_id=%s', vals)
+                    conn.execute('UPDATE order_items SET availability_status=%s,available_price=%s,discounted_price=%s,unavailable_reason=%s,availability_note=%s,price_confirmation_required=%s,available_at=%s WHERE item_id=%s',
+                                 (status,normal_raw,disc_raw,'',str(u.get('availability_note') or item.get('Availability_Note') or '').strip(),
+                                  'نعم' if u.get('price_confirmation_required') in (True,'true','True',1,'1','نعم') else str(item.get('Price_Confirmation_Required') or ''),d,iid))
                 elif status == 'غير متوفر':
-                    reason = str(u.get('unavailable_reason') or '').strip()
+                    reason = str(u.get('unavailable_reason') or item.get('Unavailable_Reason') or '').strip()
                     if not reason:
                         return {'error': f"يجب اختيار سبب عدم التوفر للمنتج {item['Product_Name']}", 'code':400}
                     conn.execute('UPDATE order_items SET availability_status=%s,available_price=%s,discounted_price=%s,unavailable_reason=%s,availability_note=%s,price_confirmation_required=%s,available_at=%s WHERE item_id=%s',
-                                 (status,'','',reason,str(u.get('availability_note') or '').strip(),'','',item['Item_ID']))
+                                 (status,'','',reason,str(u.get('availability_note') or item.get('Availability_Note') or '').strip(),'','',iid))
                 else:
                     conn.execute('UPDATE order_items SET availability_status=%s,available_price=%s,discounted_price=%s,unavailable_reason=%s,availability_note=%s,price_confirmation_required=%s,available_at=%s WHERE item_id=%s',
-                                 (status,'','','','','','',item['Item_ID']))
-                states.append(status)
-            if all(x == 'متوفر' for x in states): new_status=STATUS_AVAILABLE
-            elif all(x == 'غير متوفر' for x in states): new_status=STATUS_UNAVAILABLE
-            elif any(x in ('متوفر','غير متوفر') for x in states): new_status=STATUS_PARTIAL
-            else: new_status=STATUS_PENDING
-            if new_status == STATUS_PENDING:
-                return {'error':'يجب تحديد حالة توفر منتج واحد على الأقل قبل الحفظ','code':400}
+                                 (status,'','','','','','',iid))
+            fresh = self._fetch_items(conn, order_id)
+            active = [i for i in fresh if not self._item_is_rejected(current, i)]
+            new_status = self._derive_workflow_status(current, fresh)
+            if new_status == STATUS_CANCELLED and any(i.get('Availability_Status') == 'بانتظار التوفر' for i in active):
+                new_status = STATUS_PENDING
+            actionable = [i for i in active if i.get('Availability_Status') in ('متوفر','غير متوفر') and str(i.get('Customer_Decision') or '') not in ('accepted','rejected')]
+            reset_contact = bool(actionable and current.get('Contact_Status') in (CONTACT_REJECTED,CONTACT_ACCEPTED,CONTACT_AWAITING))
             self._invalidate_undo(conn, order_id)
-            next_follow = today_str() if new_status in (STATUS_AVAILABLE, STATUS_PARTIAL) else ''
-            conn.execute('UPDATE orders SET status=%s,available_date=%s,next_followup_date=%s,updated_at=%s WHERE order_id=%s',
-                         (new_status, d if 'متوفر' in states else '', next_follow, now_str(), str(order_id)))
+            fields = {'Status': new_status, 'Available_Date': d if any(i.get('Availability_Status')=='متوفر' for i in active) else '', 'Next_Followup_Date': today_str() if any(i.get('Availability_Status')=='متوفر' for i in active) else ''}
+            if reset_contact:
+                fields.update({'Contact_Status': CONTACT_NOT_CONTACTED, 'Last_Contact_Date': ''})
+            cmap={'Status':'status','Available_Date':'available_date','Next_Followup_Date':'next_followup_date','Contact_Status':'contact_status','Last_Contact_Date':'last_contact_date'}
+            sets=[]; params=[]
+            for k,v in fields.items(): sets.append(f'{cmap[k]}=%s'); params.append(v)
+            sets.append('updated_at=%s'); params.append(now_str()); params.append(str(order_id))
+            conn.execute(f"UPDATE orders SET {', '.join(sets)} WHERE order_id=%s", params)
             note=[]
-            for i in self._fetch_items(conn, order_id):
-                if i['Availability_Status']=='متوفر':
-                    note.append(f"{i['Product_Name']}: متوفر" + (f" بسعر {i['Available_Price']}" if i['Available_Price'] else '') + (f" بعد الخصم {i['Discounted_Price']}" if i['Discounted_Price'] else ''))
-                elif i['Availability_Status']=='غير متوفر':
-                    note.append(f"{i['Product_Name']}: غير متوفر — {i['Unavailable_Reason']}")
+            for i in active:
+                st=i.get('Availability_Status')
+                if st=='متوفر': note.append(f"{i['Product_Name']}: متوفر")
+                elif st=='غير متوفر': note.append(f"{i['Product_Name']}: غير متوفر — {i['Unavailable_Reason']}")
+                else: note.append(f"{i['Product_Name']}: بانتظار التوفر")
             self._log(conn, order_id, 'تحديث توفر المنتجات', current['Status'], new_status, ' | '.join(note), user)
             self._add_undo(conn, order_id, 'تحديث توفر المنتجات', snapshot, user)
             return {'order': self._refresh_order_in_conn(conn, order_id)}
@@ -511,35 +556,48 @@ class CloudDB:
                             {'Status':STATUS_CONTACTED,'Contact_Status':CONTACT_AWAITING,'Last_Contact_Date':contact,'Next_Followup_Date':nxt},
                             f'تم التواصل، بانتظار رد العميل، المتابعة القادمة {nxt}',user)
 
-    def set_contact_status(self, order_id, contact_status, note='', user='موظف'):
+    def set_contact_status(self, order_id, contact_status, note='', user='موظف', rejected_item_ids=None):
         if contact_status not in ALL_CONTACT_STATUSES:
             return {'error':'حالة التواصل غير صحيحة','code':400}
+        rejected_item_ids = {str(x) for x in (rejected_item_ids or []) if x}
         with self._connect() as conn:
             current=self._fetch_order(conn, order_id)
-            if not current:
-                return {'error':'الطلب غير موجود','code':404}
-            snapshot=self._snapshot(conn, order_id)
+            if not current: return {'error':'الطلب غير موجود','code':404}
+            snapshot=self._snapshot(conn, order_id); items=self._fetch_items(conn, order_id)
             if contact_status == CONTACT_ACCEPTED:
-                if not any(i['Availability_Status']=='متوفر' for i in self._fetch_items(conn, order_id)):
+                if not any(i.get('Availability_Status')=='متوفر' and not self._item_is_rejected(current,i) for i in items):
                     return {'error':'لا يمكن تسجيل موافقة العميل لأن لا يوجد منتج متوفر في الطلب','code':409}
-            self._invalidate_undo(conn, order_id)
-            fields={'Contact_Status':contact_status}
-            if contact_status == CONTACT_AWAITING:
-                fields.update({'Last_Contact_Date':today_str(),'Next_Followup_Date':add_days(today_str(),2)})
-            elif contact_status == CONTACT_ACCEPTED:
-                fields.update({'Status':STATUS_CONTACTED,'Last_Contact_Date':today_str(),'Next_Followup_Date':''})
+                conn.execute("UPDATE order_items SET customer_decision='accepted' WHERE order_id=%s AND availability_status='متوفر' AND COALESCE(customer_decision,'')=''", (str(order_id),))
             elif contact_status == CONTACT_REJECTED:
-                fields.update({'Status':STATUS_CANCELLED,'Last_Contact_Date':today_str(),'Next_Followup_Date':''})
+                available_ids={str(i['Item_ID']) for i in items if i.get('Availability_Status')=='متوفر'}
+                if not rejected_item_ids: rejected_item_ids=available_ids
+                invalid=rejected_item_ids-available_ids
+                if invalid: return {'error':'يمكن تسجيل رفض العميل فقط للمنتجات المتوفرة حاليًا','code':400}
+                for iid in rejected_item_ids:
+                    conn.execute("UPDATE order_items SET customer_decision='rejected' WHERE item_id=%s AND order_id=%s", (iid,str(order_id)))
+            fresh=self._fetch_items(conn, order_id); temp=dict(current); temp['Items']=fresh
+            if contact_status == CONTACT_REJECTED:
+                active=[i for i in fresh if not self._item_is_rejected(temp,i)]
+                status=STATUS_CANCELLED if not active else self._derive_workflow_status(temp,fresh)
+                fields={'Contact_Status':contact_status,'Status':status,'Last_Contact_Date':today_str(),
+                        'Next_Followup_Date': today_str() if any(i.get('Availability_Status')=='متوفر' for i in active) else ''}
+            elif contact_status == CONTACT_AWAITING:
+                fields={'Contact_Status':contact_status,'Last_Contact_Date':today_str(),'Next_Followup_Date':add_days(today_str(),2)}
+            elif contact_status == CONTACT_ACCEPTED:
+                fields={'Contact_Status':contact_status,'Status':STATUS_CONTACTED,'Last_Contact_Date':today_str(),'Next_Followup_Date':''}
             elif contact_status == CONTACT_POSTPONED:
-                fields.update({'Status':STATUS_NOT_PICKED,'Next_Followup_Date':add_days(today_str(),1)})
-            col_map={'Contact_Status':'contact_status','Status':'status','Last_Contact_Date':'last_contact_date','Next_Followup_Date':'next_followup_date'}
+                fields={'Contact_Status':contact_status,'Status':STATUS_NOT_PICKED,'Next_Followup_Date':add_days(today_str(),1)}
+            else:
+                fields={'Contact_Status':contact_status}
+            self._invalidate_undo(conn,order_id)
+            cmap={'Contact_Status':'contact_status','Status':'status','Last_Contact_Date':'last_contact_date','Next_Followup_Date':'next_followup_date'}
             sets=[]; params=[]
-            for k,v in fields.items(): sets.append(f'{col_map[k]}=%s'); params.append(v)
+            for k,v in fields.items(): sets.append(f'{cmap[k]}=%s'); params.append(v)
             sets.append('updated_at=%s'); params.append(now_str()); params.append(str(order_id))
             conn.execute(f"UPDATE orders SET {', '.join(sets)} WHERE order_id=%s", params)
             self._log(conn,order_id,'تحديث حالة التواصل',current['Status'],fields.get('Status',current['Status']),note or contact_status,user)
             self._add_undo(conn,order_id,'تحديث حالة التواصل',snapshot,user)
-            return {'order':self._refresh_order_in_conn(conn,order_id)}
+            return {'order':self._refresh_order_in_conn(conn, order_id)}
 
     def mark_pickup(self, order_id, force=False, user='موظف'):
         order=self.get_order(order_id)
@@ -717,8 +775,8 @@ class CloudDB:
                 iid=str(r.get('Item_ID') or '').strip()
                 oid=str(r.get('Order_ID') or '').strip()
                 if not iid or not oid: continue
-                conn.execute('INSERT INTO order_items(item_id,order_id,product_name,quantity,image_path,availability_status,available_price,discounted_price,unavailable_reason,availability_note,price_confirmation_required,available_at,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
-                             (iid,oid,str(r.get('Product_Name') or ''),int(r.get('Quantity') or 1),str(r.get('Image_Path') or ''),str(r.get('Availability_Status') or 'بانتظار التوفر'),str(r.get('Available_Price') or ''),str(r.get('Discounted_Price') or ''),str(r.get('Unavailable_Reason') or ''),str(r.get('Availability_Note') or ''),str(r.get('Price_Confirmation_Required') or ''),str(r.get('Available_At') or ''),str(r.get('Created_At') or now_str())))
+                conn.execute('INSERT INTO order_items(item_id,order_id,product_name,quantity,image_path,availability_status,available_price,discounted_price,unavailable_reason,availability_note,price_confirmation_required,available_at,created_at,customer_decision) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+                             (iid,oid,str(r.get('Product_Name') or ''),int(r.get('Quantity') or 1),str(r.get('Image_Path') or ''),str(r.get('Availability_Status') or 'بانتظار التوفر'),str(r.get('Available_Price') or ''),str(r.get('Discounted_Price') or ''),str(r.get('Unavailable_Reason') or ''),str(r.get('Availability_Note') or ''),str(r.get('Price_Confirmation_Required') or ''),str(r.get('Available_At') or ''),str(r.get('Created_At') or now_str()),str(r.get('Customer_Decision') or '')))
             for r in logs:
                 conn.execute('INSERT INTO activity_log(log_id,order_id,action,old_status,new_status,note,created_at,user_name) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)',
                              (str(r.get('Log_ID') or uuid.uuid4().hex),str(r.get('Order_ID') or ''),str(r.get('Action') or ''),str(r.get('Old_Status') or ''),str(r.get('New_Status') or ''),str(r.get('Note') or ''),str(r.get('Created_At') or now_str()),str(r.get('User') or 'موظف')))

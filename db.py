@@ -47,7 +47,7 @@ ORDERS_HEADERS = [
     "Order_Date", "Available_Date", "Status", "Contact_Status", "Last_Contact_Date",
     "Next_Followup_Date", "Pickup_Date", "Notes", "Created_At", "Updated_At",
 ]
-ITEM_HEADERS = ["Item_ID", "Order_ID", "Product_Name", "Quantity", "Image_Path", "Availability_Status", "Available_Price", "Discounted_Price", "Unavailable_Reason", "Availability_Note", "Price_Confirmation_Required", "Available_At", "Created_At"]
+ITEM_HEADERS = ["Item_ID", "Order_ID", "Product_Name", "Quantity", "Image_Path", "Availability_Status", "Available_Price", "Discounted_Price", "Unavailable_Reason", "Availability_Note", "Price_Confirmation_Required", "Available_At", "Created_At", "Customer_Decision"]
 LOG_HEADERS = ["Log_ID", "Order_ID", "Action", "Old_Status", "New_Status", "Note", "Created_At", "User"]
 UNDO_HEADERS = ["Undo_ID", "Order_ID", "Action", "Snapshot_JSON", "Created_At", "Undone_At", "User"]
 SETTINGS_HEADERS = ["Key", "Value"]

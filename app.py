@@ -274,7 +274,7 @@ def api_contact(order_id):
 @app.post("/api/orders/<order_id>/contact-status")
 def api_contact_status(order_id):
     data=request.get_json(silent=True) or {}
-    return result_response(db.set_contact_status(order_id, str(data.get("contact_status") or ""), str(data.get("note") or "")))
+    return result_response(db.set_contact_status(order_id, str(data.get("contact_status") or ""), str(data.get("note") or ""), rejected_item_ids=data.get("rejected_item_ids") or []))
 
 @app.post("/api/orders/<order_id>/pickup")
 def api_pickup(order_id): return result_response(db.mark_pickup(order_id,bool((request.get_json(silent=True) or {}).get("force"))))
@@ -373,10 +373,16 @@ def whatsapp_customer_message(order):
     settings = db.get_settings()
     pharmacy = settings.get("Pharmacy_Name", "صيدلية عز الصحة")
     items = order.get("Items") or []
-    available = [i for i in items if i.get("Availability_Status") == "متوفر"]
-    unavailable = [i for i in items if i.get("Availability_Status") == "غير متوفر"]
+    legacy_rejected = (order.get("Status") == STATUS_CANCELLED
+                       and order.get("Contact_Status") == CONTACT_REJECTED
+                       and any(i.get("Availability_Status") == "بانتظار التوفر" for i in items))
+    eligible = [i for i in items
+                if str(i.get("Customer_Decision") or "").strip() != "rejected"
+                and not (legacy_rejected and i.get("Availability_Status") != "بانتظار التوفر")]
+    available = [i for i in eligible if i.get("Availability_Status") == "متوفر"]
+    unavailable = [i for i in eligible if i.get("Availability_Status") == "غير متوفر"]
     if not available and not unavailable:
-        available = items
+        available = eligible
 
     products_available = _format_available_items(available)
     products_unavailable = _format_unavailable_items(unavailable)
