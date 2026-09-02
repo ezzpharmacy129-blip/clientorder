@@ -1,0 +1,40 @@
+name: Repair availability action (one-time)
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: ${{ !contains(github.event.head_commit.message, 'restore availability action for unavailable orders') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Fix unavailable order availability action
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('static/app.js')
+          s = p.read_text(encoding='utf-8')
+          old = "((o.Items||[]).some(i=>i.Availability_Status==='بانتظار التوفر'))||['بانتظار التوفر','متوفر - يحتاج اتصال','متوفر جزئيًا - يحتاج اتصال'].includes(o.Status)"
+          new = "((o.Items||[]).some(i=>i.Availability_Status==='بانتظار التوفر'))||['بانتظار التوفر','متوفر - يحتاج اتصال','متوفر جزئيًا - يحتاج اتصال','غير متوفر - يحتاج اتصال'].includes(o.Status)"
+          count = s.count(old)
+          if count != 1:
+              raise SystemExit(f'Expected exactly one availability-action anchor, found {count}')
+          p.write_text(s.replace(old, new, 1), encoding='utf-8')
+          print('AVAILABILITY_ACTION_FIXED')
+      - name: Commit source fix and remove temporary workflow
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add static/app.js .github/workflows/repair-availability-action-main.yml
+          git rm .github/workflows/repair-availability-action-main.yml
+          git commit -m 'fix: restore availability action for unavailable orders'
+          git push
