@@ -152,7 +152,7 @@
     const footer = document.createElement('footer');
     footer.id = 'az-footer';
     footer.className = 'az-footer';
-    footer.innerHTML = `<span class="az-footer-mark">♥ صيدلية عز الصحة — رعاية من القلب</span><span class="az-footer-note">جميع الحقوق محفوظة • {{ app_version }}</span>`;
+    footer.innerHTML = `<span class="az-footer-mark">♥ صيدلية عز الصحة — رعاية من القلب</span><span class="az-footer-note">جميع الحقوق محفوظة</span>`;
     main.appendChild(footer);
   }
 
