@@ -3,12 +3,22 @@
   const CANCELLED_KEY = "cancelled";
   const CANCELLED_LABEL = "الطلبات الملغية";
 
-  // Keep the existing dashboard architecture and extend it with one first-class filter.
+  // Extend the existing dashboard without changing or deleting its existing data flow.
   const originalDashboardFilterLabel = dashboardFilterLabel;
   const originalDashboardFilterOrders = dashboardFilterOrders;
   const originalRenderDashboardCards = renderDashboardCards;
   const originalRenderDashboardResults = renderDashboardResults;
-  const originalCancelOrder = cancelOrder;
+  const STANDARD_RESULTS_HEADER = document.querySelector("#dashboard-results-panel table thead tr")?.innerHTML || "";
+  const CANCELLED_RESULTS_HEADER = `
+    <th>رقم الطلب</th>
+    <th>اسم العميل</th>
+    <th>رقم الجوال</th>
+    <th>المنتجات</th>
+    <th>سبب الإلغاء</th>
+    <th>تاريخ الطلب</th>
+    <th>الحالة</th>
+    <th>الإجراء</th>
+  `;
 
   if (!statCards.some(card => card[2] === CANCELLED_KEY)) {
     statCards.push(["cancelled", CANCELLED_LABEL, CANCELLED_KEY]);
@@ -33,6 +43,19 @@
     originalRenderDashboardCards({ ...(stats || {}), cancelled: cancelledCount });
   };
 
+  function setResultsHeader(cancelled) {
+    const header = document.querySelector("#dashboard-results-panel table thead tr");
+    if (!header) return;
+    header.innerHTML = cancelled ? CANCELLED_RESULTS_HEADER : STANDARD_RESULTS_HEADER;
+  }
+
+  function setContactFilterVisibility(cancelled) {
+    const filter = document.getElementById("dashboard-contact-filter");
+    if (!filter) return;
+    filter.style.display = cancelled ? "none" : "";
+    if (cancelled) filter.value = "";
+  }
+
   function cancellationReason(order) {
     if (order.Contact_Status === "العميل رفض") {
       return "العميل رفض الطلب";
@@ -55,12 +78,12 @@
 
     panel.classList.remove("hidden");
     document.getElementById("dashboard-results-title").textContent = CANCELLED_LABEL;
-
-    const contactFilter = document.getElementById("dashboard-contact-filter");
-    if (contactFilter) contactFilter.value = "";
+    setResultsHeader(true);
+    setContactFilterVisibility(true);
 
     const search = document.getElementById("dashboard-results-search").value.trim().toLowerCase();
-    let orders = dashboardFilterOrders(dashboardAllOrders, CANCELLED_KEY);
+    const baseOrders = dashboardFilterOrders(dashboardAllOrders, CANCELLED_KEY);
+    let orders = baseOrders;
 
     if (search) {
       orders = orders.filter(order => {
@@ -73,7 +96,7 @@
     }
 
     document.getElementById("dashboard-results-subtitle").textContent = orders.length
-      ? `يتم عرض ${orders.length} من أصل ${dashboardFilterOrders(dashboardAllOrders, CANCELLED_KEY).length} طلب ملغي.`
+      ? `يتم عرض ${orders.length} من أصل ${baseOrders.length} طلب ملغي.`
       : "لا توجد طلبات ملغية مطابقة حاليًا.";
 
     const body = document.getElementById("dashboard-results-body");
@@ -108,10 +131,12 @@
       renderCancelledResults();
       return;
     }
+    setResultsHeader(false);
+    setContactFilterVisibility(false);
     originalRenderDashboardResults();
   };
 
-  // Direct cancellation now records a human-readable reason in the existing activity log.
+  // Direct cancellation keeps the order and records the reason in the existing activity log.
   cancelOrder = function (id) {
     const reason = window.prompt(
       "سبب إلغاء الطلب (مثلاً: المنتج غير متوفر، العميل رفض، السعر غير مناسب):",
@@ -140,12 +165,4 @@
       }
     );
   };
-
-  // app.js registers its DOMContentLoaded handler before this file is loaded.
-  // This handler only refreshes the new card/filter after the initial dashboard load.
-  document.addEventListener("DOMContentLoaded", () => {
-    if (typeof window.dashboardStats === "object" && window.dashboardStats) {
-      renderDashboardCards(window.dashboardStats);
-    }
-  });
 })();
