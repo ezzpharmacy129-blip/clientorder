@@ -570,9 +570,18 @@ class CloudDB:
                 conn.execute("UPDATE order_items SET customer_decision='accepted' WHERE order_id=%s AND availability_status='متوفر' AND COALESCE(customer_decision,'')=''", (str(order_id),))
             elif contact_status == CONTACT_REJECTED:
                 available_ids={str(i['Item_ID']) for i in items if i.get('Availability_Status')=='متوفر'}
-                if not rejected_item_ids: rejected_item_ids=available_ids
+                if not rejected_item_ids:
+                    rejected_item_ids=available_ids
+                    # When the customer rejects because nothing is available, there
+                    # may be no available item to select. In that case the active
+                    # non-pending items are the rejected items for this order.
+                    if not rejected_item_ids:
+                        rejected_item_ids={str(i['Item_ID']) for i in items if i.get('Availability_Status')!='بانتظار التوفر' and not self._item_is_rejected(current,i)}
                 invalid=rejected_item_ids-available_ids
-                if invalid: return {'error':'يمكن تسجيل رفض العميل فقط للمنتجات المتوفرة حاليًا','code':400}
+                if invalid:
+                    unavailable_ids={str(i['Item_ID']) for i in items if i.get('Availability_Status')=='غير متوفر'}
+                    if not invalid.issubset(unavailable_ids):
+                        return {'error':'يمكن تسجيل رفض العميل فقط للمنتجات المتوفرة أو غير المتوفرة حاليًا','code':400}
                 for iid in rejected_item_ids:
                     conn.execute("UPDATE order_items SET customer_decision='rejected' WHERE item_id=%s AND order_id=%s", (iid,str(order_id)))
             fresh=self._fetch_items(conn, order_id); temp=dict(current); temp['Items']=fresh
