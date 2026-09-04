@@ -67,4 +67,7 @@ def on_starting(server):
     from ai_assistant import install_ai
     install_ai(app)
 
+    from ai_chat import install_ai_chat
+    install_ai_chat(app, db)
+
     server.log.info("Ezz Pharmacy production runtime initialized with PostgreSQL auth")
