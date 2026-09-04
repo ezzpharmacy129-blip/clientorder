@@ -64,4 +64,7 @@ def on_starting(server):
     from postrollback_export import install_postrollback_export
     install_postrollback_export(app)
 
+    from ai_assistant import install_ai
+    install_ai(app)
+
     server.log.info("Ezz Pharmacy production runtime initialized with PostgreSQL auth")
