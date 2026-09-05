@@ -53,3 +53,36 @@ def needs_rehash(encoded):
         return _PASSWORD_HASHER.check_needs_rehash(encoded)
     except (InvalidHash, ValueError):
         return True
+
+import secrets
+from flask import request, session, jsonify
+
+def _get_csrf_token():
+    token = str(session.get("csrf_token") or "")
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session["csrf_token"] = token
+    return token
+
+def install_csrf(app):
+    if getattr(app, "_ezz_csrf_installed", False):
+        return
+    app._ezz_csrf_installed = True
+
+    @app.context_processor
+    def csrf_context():
+        return {"csrf_token": _get_csrf_token}
+
+    @app.get("/api/auth/csrf")
+    def csrf_api():
+        return jsonify({"csrf_token": _get_csrf_token()})
+
+    @app.before_request
+    def csrf_protection():
+        if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
+            return None
+        supplied = request.headers.get("X-CSRF-Token") or request.form.get("csrf_token")
+        expected = str(session.get("csrf_token") or "")
+        if expected and supplied and hmac.compare_digest(expected, str(supplied)):
+            return None
+        return jsonify({"error": "رمز الحماية CSRF غير صالح أو مفقود"}), 403
