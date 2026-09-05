@@ -55,9 +55,6 @@ def on_starting(server):
     install_auth(app, db)
     _sync_admin_credentials(db)
 
-    from login_rate_limit import install as install_login_rate_limit
-    install_login_rate_limit(app)
-
     from auth_security_extensions import install_security_extensions
     install_security_extensions(app, db)
 
