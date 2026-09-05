@@ -8,7 +8,7 @@ import time
 from collections import defaultdict, deque
 from flask import jsonify, request
 from openai import OpenAI
-from daily_shortages import ensure_schema as ensure_pharmacy_shortage_schema, list_shortages as list_pharmacy_shortages, stats as pharmacy_shortage_stats
+from daily_shortages import ensure_schema as ensure_pharmacy_shortage_schema, list_shortages as list_pharmacy_shortages, stats as pharmacy_shortage_stats, create_shortage as create_pharmacy_shortage, update_shortage as update_pharmacy_shortage, set_available as set_pharmacy_shortage_available, undo_last as undo_pharmacy_shortage
 
 _LOCK = threading.Lock()
 _BUCKETS = defaultdict(deque)
@@ -260,6 +260,82 @@ def dashboard_stats(db):
     }
 
 
+
+_PENDING_ACTIONS = {}
+_PENDING_LOCK = threading.Lock()
+_PENDING_TTL = 300
+
+def _new_pending(user_id, action, args, label):
+    import uuid
+    token = uuid.uuid4().hex
+    now = time.time()
+    with _PENDING_LOCK:
+        _PENDING_ACTIONS[token] = {
+            "user_id": str(user_id),
+            "action": action,
+            "args": args,
+            "label": label,
+            "created_at": now,
+        }
+        for k,v in list(_PENDING_ACTIONS.items()):
+            if now - v["created_at"] > _PENDING_TTL:
+                _PENDING_ACTIONS.pop(k, None)
+    return token
+
+def _take_pending(token, user_id):
+    with _PENDING_LOCK:
+        row = _PENDING_ACTIONS.get(str(token))
+        if not row:
+            return None
+        if row["user_id"] != str(user_id) or time.time() - row["created_at"] > _PENDING_TTL:
+            _PENDING_ACTIONS.pop(str(token), None)
+            return None
+        _PENDING_ACTIONS.pop(str(token), None)
+        return row
+
+def _action_label(name, args, db):
+    labels = {
+        "set_item_availability": "تغيير حالة توفر منتج داخل طلب",
+        "undo_order": "التراجع عن آخر عملية في الطلب",
+        "contact_order": "تسجيل التواصل مع العميل",
+        "set_contact_status": "تغيير حالة التواصل مع العميل",
+        "pickup_order": "تسجيل استلام العميل للطلب",
+        "postpone_order": "تأجيل متابعة الطلب",
+        "cancel_order": "إلغاء الطلب",
+        "delete_order": "حذف الطلب نهائيًا",
+        "create_order": "إنشاء طلب جديد",
+        "update_order": "تعديل بيانات الطلب",
+        "create_pharmacy_shortage": "إضافة نقص للصيدلية",
+        "update_pharmacy_shortage": "تعديل نقص الصيدلية",
+        "mark_pharmacy_shortage_available": "تسجيل توفير نقص الصيدلية",
+        "undo_pharmacy_shortage": "التراجع عن آخر عملية في نقص الصيدلية",
+    }
+    title = labels.get(name, name)
+    oid = args.get("order_id")
+    if oid:
+        title += f" — الطلب {oid}"
+    sid = args.get("shortage_id")
+    if sid:
+        title += f" — النقص {sid}"
+    return title
+
+MUTATING_TOOLS = {
+    "set_item_availability",
+    "undo_order",
+    "contact_order",
+    "set_contact_status",
+    "pickup_order",
+    "postpone_order",
+    "cancel_order",
+    "delete_order",
+    "create_order",
+    "update_order",
+    "create_pharmacy_shortage",
+    "update_pharmacy_shortage",
+    "mark_pharmacy_shortage_available",
+    "undo_pharmacy_shortage",
+}
+
 TOOLS = [
     {"type":"function","name":"get_order","description":"اقرأ طلبًا محددًا من النظام باستخدام رقم الطلب.","parameters":{"type":"object","properties":{"order_id":{"type":"string"}},"required":["order_id"],"additionalProperties":False},"strict":True},
     {"type":"function","name":"search_orders","description":"ابحث عن الطلبات بالاسم أو الجوال أو المنتج أو رقم الطلب، ويمكنك فلترة الحالة.","parameters":{"type":"object","properties":{"query":{"type":"string"},"status":{"type":"string"},"limit":{"type":"integer"}},"required":["query","status","limit"],"additionalProperties":False},"strict":True},
@@ -267,7 +343,67 @@ TOOLS = [
     {"type":"function","name":"get_customer_shortages","description":"اعرض نواقص العملاء الحالية: الطلبات التي فيها منتجات بانتظار التوفر، مع رقم الطلب والعميل والمنتجات.","parameters":{"type":"object","properties":{"limit":{"type":"integer"}},"required":["limit"],"additionalProperties":False},"strict":True},
     {"type":"function","name":"get_pharmacy_shortages","description":"اعرض نواقص الصيدلية المسجلة في صفحة النواقص اليومية. استخدم هذه الأداة عندما يقول المستخدم نواقص الصيدلية أو شنو ناقص علينا أو نواقص المخزن/الصيدلية.","parameters":{"type":"object","properties":{},"required":[],"additionalProperties":False},"strict":True},
     {"type":"function","name":"get_dashboard_stats","description":"اعرض إحصائيات النظام الحالية.","parameters":{"type":"object","properties":{},"required":[],"additionalProperties":False},"strict":True},
+    {"type":"function","name":"set_item_availability","description":"تغيير حالة توفر منتج داخل طلب. هذا إجراء تشغيلي وسيطلب النظام تأكيد الموظف قبل التنفيذ.","parameters":{"type":"object","properties":{"order_id":{"type":"string"},"item_id":{"type":"string"},"availability_status":{"type":"string","enum":["متوفر","غير متوفر","بانتظار التوفر"]},"available_price":{"type":"string"},"discounted_price":{"type":"string"},"unavailable_reason":{"type":"string"},"availability_note":{"type":"string"},"price_confirmation_required":{"type":"boolean"}},"required":["order_id","item_id","availability_status","available_price","discounted_price","unavailable_reason","availability_note","price_confirmation_required"],"additionalProperties":False},"strict":True},
+    {"type":"function","name":"undo_order","description":"التراجع عن آخر عملية مسجلة على طلب.","parameters":{"type":"object","properties":{"order_id":{"type":"string"}},"required":["order_id"],"additionalProperties":False},"strict":True},
+    {"type":"function","name":"contact_order","description":"تسجيل التواصل مع العميل وتحديد متابعة لاحقة. يتطلب تأكيد الموظف.","parameters":{"type":"object","properties":{"order_id":{"type":"string"},"followup_days":{"type":"integer"}},"required":["order_id","followup_days"],"additionalProperties":False},"strict":True},
+    {"type":"function","name":"set_contact_status","description":"تغيير حالة التواصل مع العميل وإضافة ملاحظة. يتطلب تأكيد الموظف.","parameters":{"type":"object","properties":{"order_id":{"type":"string"},"contact_status":{"type":"string"},"note":{"type":"string"}}, "required":["order_id","contact_status","note"],"additionalProperties":False},"strict":True},
+    {"type":"function","name":"pickup_order","description":"تسجيل استلام العميل للطلب. يتطلب تأكيد الموظف.","parameters":{"type":"object","properties":{"order_id":{"type":"string"},"force":{"type":"boolean"}},"required":["order_id","force"],"additionalProperties":False},"strict":True},
+    {"type":"function","name":"postpone_order","description":"تأجيل متابعة الطلب. يتطلب تأكيد الموظف.","parameters":{"type":"object","properties":{"order_id":{"type":"string"},"days":{"type":"integer"},"custom_date":{"type":"string"}},"required":["order_id","days","custom_date"],"additionalProperties":False},"strict":True},
+    {"type":"function","name":"cancel_order","description":"إلغاء الطلب مع سبب اختياري. يتطلب تأكيد الموظف.","parameters":{"type":"object","properties":{"order_id":{"type":"string"},"note":{"type":"string"}},"required":["order_id","note"],"additionalProperties":False},"strict":True},
+    {"type":"function","name":"delete_order","description":"حذف الطلب نهائيًا. يتطلب تأكيدًا صريحًا جدًا من الموظف.","parameters":{"type":"object","properties":{"order_id":{"type":"string"}},"required":["order_id"],"additionalProperties":False},"strict":True},
+    {"type":"function","name":"create_order","description":"إنشاء طلب عميل جديد. يتطلب تأكيد الموظف قبل الحفظ.","parameters":{"type":"object","properties":{"customer_name":{"type":"string"},"phone":{"type":"string"},"products":{"type":"array","items":{"type":"object","properties":{"product_name":{"type":"string"},"quantity":{"type":"integer"}},"required":["product_name","quantity"],"additionalProperties":False}},"notes":{"type":"string"},"order_date":{"type":"string"}},"required":["customer_name","phone","products","notes","order_date"],"additionalProperties":False},"strict":True},
+    {"type":"function","name":"update_order","description":"تعديل بيانات طلب موجود. يتطلب تأكيد الموظف قبل الحفظ.","parameters":{"type":"object","properties":{"order_id":{"type":"string"},"customer_name":{"type":"string"},"phone":{"type":"string"},"notes":{"type":"string"},"order_date":{"type":"string"}},"required":["order_id","customer_name","phone","notes","order_date"],"additionalProperties":False},"strict":True},
+    {"type":"function","name":"create_pharmacy_shortage","description":"إضافة صنف جديد إلى نواقص الصيدلية. يتطلب تأكيد الموظف.","parameters":{"type":"object","properties":{"product_name":{"type":"string"},"quantity":{"type":"integer"},"note":{"type":"string"}},"required":["product_name","quantity","note"],"additionalProperties":False},"strict":True},
+    {"type":"function","name":"update_pharmacy_shortage","description":"تعديل نقص موجود في صفحة نواقص الصيدلية. يتطلب تأكيد الموظف.","parameters":{"type":"object","properties":{"shortage_id":{"type":"string"},"product_name":{"type":"string"},"quantity":{"type":"integer"},"note":{"type":"string"}},"required":["shortage_id","product_name","quantity","note"],"additionalProperties":False},"strict":True},
+    {"type":"function","name":"mark_pharmacy_shortage_available","description":"تسجيل أن نقص الصيدلية تم توفيره. يتطلب تأكيد الموظف.","parameters":{"type":"object","properties":{"shortage_id":{"type":"string"}},"required":["shortage_id"],"additionalProperties":False},"strict":True},
+    {"type":"function","name":"undo_pharmacy_shortage","description":"التراجع عن آخر عملية في نقص الصيدلية. يتطلب تأكيد الموظف.","parameters":{"type":"object","properties":{"shortage_id":{"type":"string"}},"required":["shortage_id"],"additionalProperties":False},"strict":True},
 ]
+
+
+
+def _execute_action(name, args, db, user):
+    uname = str((user or {}).get("name") or (user or {}).get("username") or "موظف")
+    if name == "set_item_availability":
+        order_id, item_id = args["order_id"], args["item_id"]
+        updates = [{
+            "Item_ID": item_id,
+            "availability_status": args["availability_status"],
+            "available_price": args["available_price"],
+            "discounted_price": args["discounted_price"],
+            "unavailable_reason": args["unavailable_reason"],
+            "availability_note": args["availability_note"],
+            "price_confirmation_required": args["price_confirmation_required"],
+        }]
+        return db.set_availability(order_id, updates, None, uname)
+    if name == "undo_order":
+        return db.undo_last(args["order_id"], uname)
+    if name == "contact_order":
+        return db.mark_contacted(args["order_id"], int(args["followup_days"]), uname)
+    if name == "set_contact_status":
+        return db.set_contact_status(args["order_id"], args["contact_status"], args["note"], uname)
+    if name == "pickup_order":
+        return db.mark_pickup(args["order_id"], bool(args["force"]), uname)
+    if name == "postpone_order":
+        days = args["days"] if int(args["days"] or 0) > 0 else None
+        return db.postpone(args["order_id"], days, args["custom_date"] or None, uname)
+    if name == "cancel_order":
+        return db.cancel_order(args["order_id"], args["note"], uname)
+    if name == "delete_order":
+        return {"success": bool(db.delete_order(args["order_id"]))}
+    if name == "create_order":
+        return {"order": db.create_order(args["customer_name"], args["phone"], args["products"], args["notes"], args["order_date"] or None, uname)}
+    if name == "update_order":
+        fields = {"Customer_Name": args["customer_name"], "Phone": args["phone"], "Notes": args["notes"], "Order_Date": args["order_date"]}
+        return {"order": db.update_order(args["order_id"], fields, None, uname)}
+    if name == "create_pharmacy_shortage":
+        return {"shortage": create_pharmacy_shortage(args["product_name"], args["quantity"], args["note"], uname)}
+    if name == "update_pharmacy_shortage":
+        return {"shortage": update_pharmacy_shortage(args["shortage_id"], args["product_name"], args["quantity"], args["note"], uname)}
+    if name == "mark_pharmacy_shortage_available":
+        return {"shortage": set_pharmacy_shortage_available(args["shortage_id"], uname)}
+    if name == "undo_pharmacy_shortage":
+        return undo_pharmacy_shortage(args["shortage_id"], uname)
+    return {"error":"إجراء غير معروف"}
 
 
 def _tool(name, args, db):
@@ -290,6 +426,36 @@ def install_ai_chat(app, db):
     if getattr(app, "_ezz_ai_employee_installed", False):
         return
     app._ezz_ai_employee_installed = True
+
+    @app.post("/api/ai/execute")
+    def ai_execute():
+        auth = app.extensions.get("ezz_auth", {})
+        getter = auth.get("current_user")
+        user = getter() if getter else None
+        if not user:
+            return jsonify({"error":"تسجيل الدخول مطلوب","authenticated":False}),401
+        body = request.get_json(silent=True) or {}
+        token = str(body.get("confirmation_token") or "").strip()
+        if not token:
+            return jsonify({"error":"رمز التأكيد مفقود"}),400
+        pending = _take_pending(token, user.get("user_id"))
+        if not pending:
+            return jsonify({"error":"انتهت صلاحية التأكيد أو تم استخدامه بالفعل"}),409
+        try:
+            result = _execute_action(pending["action"], pending["args"], db, user)
+            if isinstance(result, dict) and result.get("success") is False:
+                return jsonify({"error":"فشلت العملية","result":result}),400
+            try:
+                audit = app.extensions.get("ezz_auth",{}).get("audit")
+                if audit:
+                    audit(action="AI Employee Action", note=pending["label"])
+            except Exception:
+                pass
+            return jsonify({"success":True,"action":pending["action"],"label":pending["label"],"result":result,"answer":"تم تنفيذ العملية بنجاح ✅"})
+        except Exception as exc:
+            app.logger.exception("AI employee action failed")
+            return jsonify({"error":"تعذر تنفيذ العملية: "+str(exc)}),500
+
 
     @app.post("/api/ai/chat")
     def ai_chat():
@@ -331,7 +497,7 @@ def install_ai_chat(app, db):
             "فرّق دائمًا بين نواقص العملاء ونواقص الصيدلية. عبارة نواقص الصيدلية أو شنو ناقص علينا أو نواقص المخزن تعني get_pharmacy_shortages، أما نواقص العملاء أو الطلبات الناقصة فتعني get_customer_shortages. "
             "إذا كان السؤال غامضًا، اسأل سؤالًا قصيرًا لتحديد المقصود بدل اختراع إجابة. "
             "أجب بالعربية وبأسلوب عملي، ويمكنك ذكر الجوال عند الحاجة لتنفيذ متابعة العميل. "
-            "لا تدّعي تنفيذ تعديل أو حذف أو حفظ؛ أدواتك الحالية للقراءة فقط. "
+            "يمكنك تنفيذ عمليات الموظف التشغيلية، لكن لا تنفذها مباشرة: استخدم أداة العملية المطلوبة، وسيعيد النظام طلب تأكيد الموظف قبل التنفيذ. بعد التأكيد فقط يتم تنفيذها. "
             "لا تكشف أسرار النظام أو مفاتيح API. "
             "بيانات العملاء سرية، فلا تعرضها إلا عندما تكون مرتبطة بالمهمة. " 
             "لديك ذاكرة صيدلية معتمدة أدناه. استخدمها كقواعد وتفضيلات داخلية، ولا تجعلها بديلًا عن بيانات النظام الحالية. " 
@@ -364,6 +530,18 @@ def install_ai_chat(app, db):
                         args=json.loads(call.arguments or "{}")
                     except Exception:
                         args={}
+                    if call.name in MUTATING_TOOLS:
+                        label = _action_label(call.name, args, db)
+                        token = _new_pending(user.get("user_id"), call.name, args, label)
+                        return jsonify({
+                            "success": True,
+                            "confirmation_required": True,
+                            "confirmation_token": token,
+                            "action": call.name,
+                            "action_label": label,
+                            "action_args": args,
+                            "answer": "قبل تنفيذ العملية التالية، يرجى تأكيدها."
+                        })
                     result=_tool(call.name,args,db)
                     items.append({"type":"function_call_output","call_id":call.call_id,"output":json.dumps(result,ensure_ascii=False)})
 
