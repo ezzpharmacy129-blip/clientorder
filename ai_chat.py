@@ -158,6 +158,89 @@ def pharmacy_shortages():
     }
 
 
+MEMORY_SCHEMA = """
+CREATE TABLE IF NOT EXISTS ai_memories (
+    memory_id TEXT PRIMARY KEY,
+    memory_text TEXT NOT NULL,
+    memory_type TEXT NOT NULL DEFAULT 'rule',
+    created_by TEXT NOT NULL DEFAULT 'system',
+    created_at TEXT NOT NULL,
+    active BOOLEAN NOT NULL DEFAULT TRUE
+);
+CREATE INDEX IF NOT EXISTS idx_ai_memories_active ON ai_memories(active, created_at DESC);
+"""
+
+
+def _ensure_memory_schema(db):
+    with db._connect() as conn:
+        conn.execute(MEMORY_SCHEMA)
+
+
+def _memory_rows(db, query="", limit=20):
+    _ensure_memory_schema(db)
+    q = _clean(query).lower()
+    with db._connect() as conn:
+        rows = conn.execute(
+            "SELECT memory_id,memory_text,memory_type,created_by,created_at "
+            "FROM ai_memories WHERE active=TRUE ORDER BY created_at DESC LIMIT 200"
+        ).fetchall()
+    rows = [dict(r) for r in rows]
+    if not q:
+        return rows[:limit]
+    terms = [x for x in re.split(r"\s+", q) if len(x) >= 2]
+    ranked = []
+    for r in rows:
+        score = sum(1 for t in terms if t in r["memory_text"].lower())
+        if score:
+            ranked.append((score, r))
+    ranked.sort(key=lambda x: (-x[0], x[1]["created_at"]))
+    return [r for _, r in ranked[:limit]]
+
+
+def _save_memory(db, text, user_name):
+    text = _clean(text)
+    if not text:
+        return {"saved": False}
+    _ensure_memory_schema(db)
+    import uuid
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    now = datetime.now(ZoneInfo("Asia/Riyadh")).strftime("%Y-%m-%d %H:%M:%S")
+    with db._connect() as conn:
+        existing = conn.execute(
+            "SELECT memory_id FROM ai_memories WHERE active=TRUE AND lower(memory_text)=lower(%s) LIMIT 1",
+            (text,)
+        ).fetchone()
+        if existing:
+            return {"saved": False, "existing": True}
+        mid = "AIM-" + uuid.uuid4().hex[:12].upper()
+        conn.execute(
+            "INSERT INTO ai_memories(memory_id,memory_text,memory_type,created_by,created_at,active) VALUES(%s,%s,%s,%s,%s,TRUE)",
+            (mid, text, "rule", user_name, now)
+        )
+    return {"saved": True}
+
+
+def _learning_request(message):
+    text = _clean(message)
+    prefixes = (
+        "احفظ عندك ",
+        "احفظ ",
+        "تذكر أن ",
+        "تذكر ان ",
+        "من الآن ",
+        "من الان ",
+        "اعتبر أن ",
+        "اعتبر ان ",
+        "قاعدة: ",
+        "معلومة: ",
+    )
+    for prefix in prefixes:
+        if text.lower().startswith(prefix.lower()):
+            return text[len(prefix):].strip()
+    return None
+
+
 def dashboard_stats(db):
     from db import STATUS_PENDING, STATUS_AVAILABLE, STATUS_PARTIAL, STATUS_UNAVAILABLE, STATUS_CONTACTED, STATUS_NOT_PICKED, STATUS_PICKED_UP, CONTACT_AWAITING
     from datetime import datetime
@@ -239,6 +322,8 @@ def install_ai_chat(app, db):
                 if x.get("role") in {"user","assistant"} and _clean(x.get("content")):
                     safe_history.append({"role":x["role"],"content":_clean(x["content"])[:4000]})
 
+        memories = _memory_rows(db, message, 20)
+
         instructions = (
             "أنت مساعد موظفي صيدلية عز الصحة داخل نظام العمل. "
             "ساعد الموظف في الطلبات والعملاء والنواقص والمتابعات والإحصائيات. "
@@ -248,10 +333,13 @@ def install_ai_chat(app, db):
             "أجب بالعربية وبأسلوب عملي، ويمكنك ذكر الجوال عند الحاجة لتنفيذ متابعة العميل. "
             "لا تدّعي تنفيذ تعديل أو حذف أو حفظ؛ أدواتك الحالية للقراءة فقط. "
             "لا تكشف أسرار النظام أو مفاتيح API. "
-            "بيانات العملاء سرية، فلا تعرضها إلا عندما تكون مرتبطة بالمهمة. "
+            "بيانات العملاء سرية، فلا تعرضها إلا عندما تكون مرتبطة بالمهمة. " 
+            "لديك ذاكرة صيدلية معتمدة أدناه. استخدمها كقواعد وتفضيلات داخلية، ولا تجعلها بديلًا عن بيانات النظام الحالية. " 
+            "لا تحفظ أي معلومة جديدة من تلقاء نفسك؛ الحفظ يتم فقط عندما يطلب الموظف ذلك بعبارة واضحة مثل: احفظ، تذكر، من الآن. " 
             "عند سؤال المستخدم عن طلب محدد استخدم get_order، وعن عميل استخدم customer_history، "
             "وعن نواقص الصيدلية استخدم get_pharmacy_shortages، وعن نواقص العملاء استخدم get_customer_shortages، وعن الأرقام العامة استخدم get_dashboard_stats. "
             + (("الصفحة الحالية: " + page) if page else "")
+            + "\nذاكرة الصيدلية:\n" + json.dumps(memories, ensure_ascii=False)
         )
 
         client = OpenAI(api_key=key)
