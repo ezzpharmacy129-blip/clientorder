@@ -13,6 +13,7 @@ from functools import wraps
 from zoneinfo import ZoneInfo
 from flask import request, session, redirect, jsonify, url_for, render_template_string
 from csrf_protection import install_csrf
+from login_rate_limit import is_limited as login_rate_limited, record_failure as record_login_failure, clear as clear_login_attempts
 
 TZ = ZoneInfo("Asia/Riyadh")
 
@@ -203,16 +204,56 @@ def install_auth(app, db):
     def login():
         if request.method == "GET":
             return redirect(url_for("index")) if current_user() else login_page()
+
         username = str(request.form.get("username") or "").strip()
         password = str(request.form.get("password") or "")
+        remote_addr = request.remote_addr or "unknown"
+
+        limited, retry_after = login_rate_limited(remote_addr, username)
+        if limited:
+            response = jsonify({
+                "error": "تم تجاوز عدد محاولات تسجيل الدخول. حاول مرة أخرى لاحقًا.",
+                "code": "login_rate_limited",
+                "retry_after": retry_after,
+            })
+            response.status_code = 429
+            response.headers["Retry-After"] = str(retry_after)
+            audit(
+                action="Rate Limited Login",
+                note=f"تم حظر محاولات الدخول مؤقتًا للمستخدم: {username or 'غير معروف'}",
+                actor={"name": username or "غير معروف"},
+            )
+            return response
+
         user = get_user(username=username)
         if user and bool(user.get("active")) and verify_password(password, user.get("password_hash", "")):
-            session.clear(); session.permanent = True
-            session["user_id"] = user["user_id"]; session["username"] = user["username"]; session["role"] = user["role"]
-            set_last_login(user["user_id"]); audit(action="Login", note="تسجيل دخول ناجح", actor=user)
+            clear_login_attempts(remote_addr, username)
+            session.clear()
+            session.permanent = True
+            session["user_id"] = user["user_id"]
+            session["username"] = user["username"]
+            session["role"] = user["role"]
+            set_last_login(user["user_id"])
+            audit(action="Login", note="تسجيل دخول ناجح", actor=user)
             nxt = request.args.get("next") or url_for("index")
             return redirect(nxt if str(nxt).startswith("/") else url_for("index"))
-        audit(action="Failed Login", note=f"محاولة دخول فاشلة باسم المستخدم: {username or 'غير معروف'}", actor={"name": username or "غير معروف"})
+
+        count, retry_after = record_login_failure(remote_addr, username)
+        audit(
+            action="Failed Login",
+            note=f"محاولة دخول فاشلة باسم المستخدم: {username or 'غير معروف'}",
+            actor={"name": username or "غير معروف"},
+        )
+        if count >= 5:
+            response = jsonify({
+                "error": "تم تجاوز عدد محاولات تسجيل الدخول. حاول مرة أخرى لاحقًا.",
+                "code": "login_rate_limited",
+                "retry_after": retry_after,
+            })
+            response.status_code = 429
+            response.headers["Retry-After"] = str(max(1, retry_after))
+            return response
+
         return login_page("اسم المستخدم أو كلمة المرور غير صحيحة."), 401
 
     @app.route("/logout", methods=["GET", "POST"], endpoint="ezz_logout")
