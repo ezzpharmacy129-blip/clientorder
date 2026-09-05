@@ -68,3 +68,14 @@ def install(app):
             return response
 
         return None
+
+    @app.after_request
+    def _record_login_result(response):
+        if request.path == "/login" and request.method == "POST":
+            remote = request.remote_addr or "unknown"
+            username = request.form.get("username") or ""
+            if response.status_code == 401:
+                record_failure(remote, username)
+            elif response.status_code in (302, 303, 307, 308):
+                clear(remote, username)
+        return response
