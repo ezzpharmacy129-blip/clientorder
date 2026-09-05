@@ -696,6 +696,20 @@ def server_error(e):
         return jsonify({"error":"حدث خطأ داخلي في الخادم"}), 500
     return Response("حدث خطأ داخلي في الخادم", status=500, mimetype="text/plain; charset=utf-8")
 
+# Authentication/security is initialized for every runtime path.
+# CloudDB -> PostgreSQL users/auth; local ExcelDB -> SQLite users/auth.
+if not getattr(app, "_ezz_auth_installed", False):
+    if getattr(db.__class__, "__module__", "") == "cloud_db":
+        from auth_pg import install_auth
+    else:
+        from auth_bootstrap import install_auth
+    install_auth(app, db)
+
+if not getattr(app, "_ezz_security_extensions_installed", False):
+    from auth_security_extensions_v2 import install_security_extensions as install_auth_security
+    install_auth_security(app, db)
+    app._ezz_security_extensions_installed = True
+
 if __name__ == "__main__":
     def open_browser():
         try:webbrowser.open("http://127.0.0.1:5000")
