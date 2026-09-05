@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Database-backed authentication layer for the existing Excel-backed app."""
-import os, sqlite3, uuid, html
+import os, sqlite3, secrets, uuid, html
 from datetime import datetime, timedelta
 from functools import wraps
 from zoneinfo import ZoneInfo
