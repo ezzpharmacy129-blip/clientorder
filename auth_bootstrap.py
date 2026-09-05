@@ -1,31 +1,15 @@
 # -*- coding: utf-8 -*-
 """Database-backed authentication layer for the existing Excel-backed app."""
-import os, sqlite3, secrets, hashlib, hmac, base64, uuid, html
+import os, sqlite3, uuid, html
 from datetime import datetime, timedelta
 from functools import wraps
 from zoneinfo import ZoneInfo
 from flask import request, session, redirect, jsonify, url_for, render_template_string
+from auth.security import hash_password, verify_password, needs_rehash
 
 TZ = ZoneInfo("Asia/Riyadh")
 
 def now_str(): return datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
-
-def hash_password(password):
-    password = str(password or "")
-    if not password: raise ValueError("كلمة المرور مطلوبة")
-    iterations = 310000; salt = secrets.token_bytes(16)
-    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, iterations)
-    enc=lambda b: base64.urlsafe_b64encode(b).decode().rstrip("=")
-    return f"pbkdf2_sha256${iterations}${enc(salt)}${enc(digest)}"
-
-def verify_password(password, encoded):
-    try:
-        method, it, salt, digest = str(encoded).split("$",3)
-        if method != "pbkdf2_sha256": return False
-        dec=lambda s: base64.urlsafe_b64decode(s+"="*(-len(s)%4))
-        actual=hashlib.pbkdf2_hmac("sha256",str(password).encode(),dec(salt),int(it))
-        return hmac.compare_digest(actual,dec(digest))
-    except Exception: return False
 
 def install_auth(app, db):
     if getattr(app,"_ezz_auth_installed",False): return
@@ -105,6 +89,9 @@ def install_auth(app, db):
         if request.method=="GET": return redirect(url_for("index")) if current_user() else login_page()
         username=str(request.form.get("username") or "").strip(); password=str(request.form.get("password") or ""); u=get_user(username=username)
         if u and u["active"] and verify_password(password,u["password_hash"]):
+            if needs_rehash(u["password_hash"]):
+                with conn() as c2:
+                    c2.execute("UPDATE users SET password_hash=? WHERE user_id=?", (hash_password(password), u["user_id"]))
             session.clear(); session.permanent=True; session["user_id"]=u["user_id"]; session["username"]=u["username"]; session["role"]=u["role"]; audit(action="Login",note="تسجيل دخول ناجح",actor=u)
             nxt=request.args.get("next") or url_for("index"); return redirect(nxt if str(nxt).startswith("/") else url_for("index"))
         audit(action="Failed Login",note=f"محاولة دخول فاشلة باسم المستخدم: {username or 'غير معروف'}",actor={"name":username or "غير معروف"}); return login_page("اسم المستخدم أو كلمة المرور غير صحيحة."),401
