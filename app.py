@@ -726,6 +726,14 @@ if not getattr(app, "_ezz_security_extensions_installed", False):
     from auth.policy import install_security_extensions as install_auth_security
     install_auth_security(app, db)
     app._ezz_security_extensions_installed = True
+if not getattr(app, "_ezz_runtime_extensions_installed", False):
+    from data_export import install_data_export
+    install_data_export(app, db)
+    from ai_assistant import install_ai
+    install_ai(app)
+    from ai_chat import install_ai_chat
+    install_ai_chat(app, db)
+    app._ezz_runtime_extensions_installed = True
 
 if __name__ == "__main__":
     def open_browser():
