@@ -56,11 +56,8 @@ def install_auth(app, db):
             if au and ap:
                 conn.execute("""INSERT INTO users(user_id,username,name,password_hash,role,active,created_at,last_login)
                     VALUES(%s,%s,%s,%s,'admin',TRUE,%s,NULL)
-                    ON CONFLICT(username) DO UPDATE SET
-                        name=EXCLUDED.name,
-                        password_hash=EXCLUDED.password_hash,
-                        role='admin',
-                        active=TRUE""", (str(uuid.uuid4()), au, au, hash_password(ap), now_str()))
+                    ON CONFLICT(username) DO NOTHING""",
+                    (str(uuid.uuid4()), au, au, hash_password(ap), now_str()))
 
     def migrate_legacy_sqlite():
         if not os.path.exists(legacy_users_db):
