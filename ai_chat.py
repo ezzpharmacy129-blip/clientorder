@@ -8,6 +8,7 @@ import time
 from collections import defaultdict, deque
 from flask import jsonify, request
 from openai import OpenAI
+from daily_shortages import ensure_schema as ensure_pharmacy_shortage_schema, list_shortages as list_pharmacy_shortages, stats as pharmacy_shortage_stats
 
 _LOCK = threading.Lock()
 _BUCKETS = defaultdict(deque)
@@ -123,6 +124,40 @@ def shortages(db, limit=100):
     return {"عدد_طلبات_النواقص": len(out), "النواقص": out[:max(1, min(int(limit or 100), 200))]}
 
 
+def pharmacy_shortages():
+    ensure_pharmacy_shortage_schema()
+    rows = list_pharmacy_shortages()
+    stats = pharmacy_shortage_stats()
+    pending = [r for r in rows if r.get("status") == "pending"]
+    available = [r for r in rows if r.get("status") == "available"]
+    return {
+        "المصدر": "نواقص الصيدلية",
+        "إجمالي_السجلات": int(stats.get("total", 0)),
+        "بانتظار_التوفير": int(stats.get("pending", 0)),
+        "تم_التوفير": int(stats.get("available", 0)),
+        "الأصناف_الناقصة_حاليًا": [
+            {
+                "رقم_النقص": r.get("shortage_id"),
+                "المنتج": r.get("product_name"),
+                "الكمية": r.get("quantity"),
+                "الملاحظة": r.get("note"),
+                "أضيف_بواسطة": r.get("created_by"),
+                "تاريخ_الإضافة": r.get("created_at")
+            }
+            for r in pending
+        ],
+        "آخر_الأصناف_التي_تم_توفيرها": [
+            {
+                "رقم_النقص": r.get("shortage_id"),
+                "المنتج": r.get("product_name"),
+                "الكمية": r.get("quantity"),
+                "تاريخ_التوفير": r.get("resolved_at")
+            }
+            for r in available[:30]
+        ]
+    }
+
+
 def dashboard_stats(db):
     from db import STATUS_PENDING, STATUS_AVAILABLE, STATUS_PARTIAL, STATUS_UNAVAILABLE, STATUS_CONTACTED, STATUS_NOT_PICKED, STATUS_PICKED_UP, CONTACT_AWAITING
     from datetime import datetime
@@ -146,7 +181,8 @@ TOOLS = [
     {"type":"function","name":"get_order","description":"اقرأ طلبًا محددًا من النظام باستخدام رقم الطلب.","parameters":{"type":"object","properties":{"order_id":{"type":"string"}},"required":["order_id"],"additionalProperties":False},"strict":True},
     {"type":"function","name":"search_orders","description":"ابحث عن الطلبات بالاسم أو الجوال أو المنتج أو رقم الطلب، ويمكنك فلترة الحالة.","parameters":{"type":"object","properties":{"query":{"type":"string"},"status":{"type":"string"},"limit":{"type":"integer"}},"required":["query","status","limit"],"additionalProperties":False},"strict":True},
     {"type":"function","name":"customer_history","description":"اعرض تاريخ طلبات عميل بالاسم أو الجوال.","parameters":{"type":"object","properties":{"customer_name":{"type":"string"},"phone":{"type":"string"},"limit":{"type":"integer"}},"required":["customer_name","phone","limit"],"additionalProperties":False},"strict":True},
-    {"type":"function","name":"get_shortages","description":"اعرض نواقص العملاء الحالية مع أرقام الطلبات وأسماء العملاء والمنتجات.","parameters":{"type":"object","properties":{"limit":{"type":"integer"}},"required":["limit"],"additionalProperties":False},"strict":True},
+    {"type":"function","name":"get_customer_shortages","description":"اعرض نواقص العملاء الحالية: الطلبات التي فيها منتجات بانتظار التوفر، مع رقم الطلب والعميل والمنتجات.","parameters":{"type":"object","properties":{"limit":{"type":"integer"}},"required":["limit"],"additionalProperties":False},"strict":True},
+    {"type":"function","name":"get_pharmacy_shortages","description":"اعرض نواقص الصيدلية المسجلة في صفحة النواقص اليومية. استخدم هذه الأداة عندما يقول المستخدم نواقص الصيدلية أو شنو ناقص علينا أو نواقص المخزن/الصيدلية.","parameters":{"type":"object","properties":{},"required":[],"additionalProperties":False},"strict":True},
     {"type":"function","name":"get_dashboard_stats","description":"اعرض إحصائيات النظام الحالية.","parameters":{"type":"object","properties":{},"required":[],"additionalProperties":False},"strict":True},
 ]
 
@@ -158,8 +194,10 @@ def _tool(name, args, db):
         return search_orders(db, args.get("query"), args.get("status"), args.get("limit"))
     if name == "customer_history":
         return customer_history(db, args.get("customer_name"), args.get("phone"), args.get("limit"))
-    if name == "get_shortages":
+    if name == "get_customer_shortages":
         return shortages(db, args.get("limit"))
+    if name == "get_pharmacy_shortages":
+        return pharmacy_shortages()
     if name == "get_dashboard_stats":
         return dashboard_stats(db)
     return {"error":"أداة غير معروفة"}
@@ -205,13 +243,14 @@ def install_ai_chat(app, db):
             "أنت مساعد موظفي صيدلية عز الصحة داخل نظام العمل. "
             "ساعد الموظف في الطلبات والعملاء والنواقص والمتابعات والإحصائيات. "
             "استخدم أدوات القراءة المتاحة للحصول على البيانات الحالية بدل التخمين. "
+            "فرّق دائمًا بين نواقص العملاء ونواقص الصيدلية. عبارة نواقص الصيدلية أو شنو ناقص علينا أو نواقص المخزن تعني get_pharmacy_shortages، أما نواقص العملاء أو الطلبات الناقصة فتعني get_customer_shortages. "
             "إذا كان السؤال غامضًا، اسأل سؤالًا قصيرًا لتحديد المقصود بدل اختراع إجابة. "
             "أجب بالعربية وبأسلوب عملي، ويمكنك ذكر الجوال عند الحاجة لتنفيذ متابعة العميل. "
             "لا تدّعي تنفيذ تعديل أو حذف أو حفظ؛ أدواتك الحالية للقراءة فقط. "
             "لا تكشف أسرار النظام أو مفاتيح API. "
             "بيانات العملاء سرية، فلا تعرضها إلا عندما تكون مرتبطة بالمهمة. "
             "عند سؤال المستخدم عن طلب محدد استخدم get_order، وعن عميل استخدم customer_history، "
-            "وعن النواقص استخدم get_shortages، وعن الأرقام العامة استخدم get_dashboard_stats. "
+            "وعن نواقص الصيدلية استخدم get_pharmacy_shortages، وعن نواقص العملاء استخدم get_customer_shortages، وعن الأرقام العامة استخدم get_dashboard_stats. "
             + (("الصفحة الحالية: " + page) if page else "")
         )
 
