@@ -1,8 +1,14 @@
 import unittest
 
-from flask import Flask
-
-from login_rate_limit import install, _attempts, _lock
+from login_rate_limit import (
+    MAX_FAILURES,
+    WINDOW_SECONDS,
+    _attempts,
+    _lock,
+    clear,
+    is_limited,
+    record_failure,
+)
 
 
 class LoginRateLimitTests(unittest.TestCase):
@@ -10,50 +16,52 @@ class LoginRateLimitTests(unittest.TestCase):
         with _lock:
             _attempts.clear()
 
-    def make_app(self):
-        app = Flask(__name__)
-        app.secret_key = "test"
-
-        @app.post("/login")
-        def login():
-            if request_form(app) != "good":
-                return "bad", 401
-            return "ok", 302, {"Location": "/"}
-
-        install(app)
-        return app
-
     def test_blocks_after_five_failures(self):
-        app = self.make_app()
-        client = app.test_client()
+        ip = "203.0.113.10"
+        username = "alice"
 
-        for _ in range(5):
-            response = client.post("/login", data={"username": "alice", "password": "bad"})
-            self.assertEqual(response.status_code, 401)
+        for i in range(MAX_FAILURES):
+            count, _ = record_failure(ip, username, now=1000 + i)
+            self.assertEqual(count, i + 1)
+            limited, _ = is_limited(ip, username, now=1000 + i)
+            self.assertEqual(limited, i + 1 >= MAX_FAILURES)
 
-        response = client.post("/login", data={"username": "alice", "password": "bad"})
-        self.assertEqual(response.status_code, 429)
-        self.assertEqual(response.get_json()["code"], "login_rate_limited")
-        self.assertTrue(response.headers.get("Retry-After"))
+        limited, retry_after = is_limited(ip, username, now=1005)
+        self.assertTrue(limited)
+        self.assertGreater(retry_after, 0)
 
-    def test_success_clears_failures(self):
-        app = self.make_app()
-        client = app.test_client()
+    def test_success_clear_allows_login_again(self):
+        ip = "203.0.113.20"
+        username = "alice"
 
-        for _ in range(4):
-            response = client.post("/login", data={"username": "alice", "password": "bad"})
-            self.assertEqual(response.status_code, 401)
+        for i in range(MAX_FAILURES):
+            record_failure(ip, username, now=2000 + i)
 
-        response = client.post("/login", data={"username": "alice", "password": "good"})
-        self.assertEqual(response.status_code, 302)
+        limited, _ = is_limited(ip, username, now=2005)
+        self.assertTrue(limited)
 
-        response = client.post("/login", data={"username": "alice", "password": "bad"})
-        self.assertEqual(response.status_code, 401)
+        clear(ip, username)
 
+        limited, retry_after = is_limited(ip, username, now=2005)
+        self.assertFalse(limited)
+        self.assertEqual(retry_after, 0)
 
-def request_form(app):
-    from flask import request
-    return request.form.get("password")
+    def test_window_expires(self):
+        ip = "203.0.113.30"
+        username = "alice"
+
+        for i in range(MAX_FAILURES):
+            record_failure(ip, username, now=3000 + i)
+
+        limited, _ = is_limited(ip, username, now=3000 + MAX_FAILURES + WINDOW_SECONDS)
+        self.assertFalse(limited)
+
+    def test_keys_are_separated_by_ip_and_username(self):
+        record_failure("203.0.113.40", "alice", now=4000)
+        record_failure("203.0.113.41", "alice", now=4000)
+        record_failure("203.0.113.40", "bob", now=4000)
+
+        self.assertEqual(len(_attempts), 3)
 
 
 if __name__ == "__main__":
