@@ -90,13 +90,7 @@ APP_VERSION = "1.3.1 Cloud"
 
 @app.route("/")
 def index():
-    csrf_provider = (app.extensions.get("ezz_csrf") or {}).get("token")
-    return render_template(
-        "index.html",
-        settings=db.get_settings(),
-        app_version=APP_VERSION,
-        csrf_token=csrf_provider if callable(csrf_provider) else (lambda: ""),
-    )
+    return render_template("index.html", settings=db.get_settings(), app_version=APP_VERSION)
 
 
 @app.get("/api/system/info")
