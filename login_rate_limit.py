@@ -39,3 +39,32 @@ def record_failure(remote_addr, username, now=None):
 def clear(remote_addr, username):
     with _lock:
         _attempts.pop(key(remote_addr, username), None)
+
+
+def install(app):
+    if getattr(app, "_ezz_login_rate_limit_installed", False):
+        return
+    app._ezz_login_rate_limit_installed = True
+
+    from flask import jsonify, request
+
+    @app.before_request
+    def _login_throttle():
+        if request.path != "/login" or request.method != "POST":
+            return None
+
+        remote = request.remote_addr or "unknown"
+        username = request.form.get("username") or ""
+
+        limited, retry_after = is_limited(remote, username)
+        if limited:
+            response = jsonify({
+                "error": "تم تجاوز عدد محاولات تسجيل الدخول. حاول مرة أخرى لاحقًا.",
+                "code": "login_rate_limited",
+                "retry_after": retry_after,
+            })
+            response.status_code = 429
+            response.headers["Retry-After"] = str(retry_after)
+            return response
+
+        return None
