@@ -454,7 +454,7 @@ def install_ai_chat(app, db):
             return jsonify({"success":True,"action":pending["action"],"label":pending["label"],"result":result,"answer":"تم تنفيذ العملية بنجاح ✅"})
         except Exception as exc:
             app.logger.exception("AI employee action failed")
-            return jsonify({"error":"تعذر تنفيذ العملية: "+str(exc)}),500
+            return jsonify({"error":"تعذر تنفيذ العملية"}),500
 
 
     @app.post("/api/ai/chat")
@@ -548,4 +548,4 @@ def install_ai_chat(app, db):
             return jsonify({"error":"تعذر إكمال الإجابة ضمن عدد الخطوات المسموح."}),500
         except Exception as exc:
             app.logger.exception("AI employee assistant failed")
-            return jsonify({"error":"تعذر تنفيذ المساعد: "+str(exc)}),500
+            return jsonify({"error":"تعذر تنفيذ المساعد"}),500
