@@ -13,7 +13,7 @@
     yes.onclick=async()=>{
       yes.disabled=true;no.disabled=true;text.textContent="جاري تنفيذ العملية...";
       try{
-        const r=await fetch("/api/ai/execute",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({confirmation_token:d.confirmation_token})});
+        const r=await fetch("/api/ai/execute",{method:"POST",headers:{"Content-Type":"application/json","X-CSRF-Token":document.querySelector('meta[name="csrf-token"]')?.content||""},credentials:"same-origin",body:JSON.stringify({confirmation_token:d.confirmation_token})});
         const x=await r.json();if(!r.ok)throw new Error(x.error||"تعذر تنفيذ العملية");
         text.textContent=x.answer||"تم تنفيذ العملية بنجاح ✅";
       }catch(e){text.textContent=e.message}
