@@ -1,4 +1,5 @@
 name: Validate application
+# Keep CI aligned with the consolidated runtime and auth package.
 
 on:
   push:
