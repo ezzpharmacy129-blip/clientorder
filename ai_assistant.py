@@ -199,6 +199,6 @@ cp.onclick=()=>navigator.clipboard?.writeText(r.textContent||'').then(()=>{st.te
             return jsonify({"success": True, "result": result, "filename": filename or None})
         except Exception as exc:
             app.logger.exception("OpenAI analysis failed")
-            return jsonify({"error": "تعذر تنفيذ تحليل الذكاء الاصطناعي: "+str(exc)}), 500
+            return jsonify({"error": "تعذر تنفيذ تحليل الذكاء الاصطناعي"}), 500
 
 
