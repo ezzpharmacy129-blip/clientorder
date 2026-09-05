@@ -2,42 +2,18 @@
 """PostgreSQL-native authentication, users and audit for Render production."""
 import os
 import sqlite3
-import secrets
-import hashlib
-import hmac
-import base64
 import uuid
 import html
 from datetime import datetime, timedelta
 from functools import wraps
 from zoneinfo import ZoneInfo
 from flask import request, session, redirect, jsonify, url_for, render_template_string
+from auth.security import hash_password, verify_password, needs_rehash, install_csrf
 
 TZ = ZoneInfo("Asia/Riyadh")
 
 def now_str():
     return datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
-
-def hash_password(password):
-    password = str(password or "")
-    if not password:
-        raise ValueError("كلمة المرور مطلوبة")
-    iterations = 310000
-    salt = secrets.token_bytes(16)
-    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, iterations)
-    enc = lambda b: base64.urlsafe_b64encode(b).decode().rstrip("=")
-    return f"pbkdf2_sha256${iterations}${enc(salt)}${enc(digest)}"
-
-def verify_password(password, encoded):
-    try:
-        method, it, salt, digest = str(encoded).split("$", 3)
-        if method != "pbkdf2_sha256":
-            return False
-        dec = lambda s: base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
-        actual = hashlib.pbkdf2_hmac("sha256", str(password).encode(), dec(salt), int(it))
-        return hmac.compare_digest(actual, dec(digest))
-    except Exception:
-        return False
 
 def install_auth(app, db):
     if getattr(app, "_ezz_auth_installed", False):
@@ -56,6 +32,7 @@ def install_auth(app, db):
         SESSION_COOKIE_SECURE=True,
         PERMANENT_SESSION_LIFETIME=timedelta(hours=12),
     )
+    install_csrf(app)
 
     root = os.path.abspath(getattr(db, "SHARED_ROOT", os.path.join(os.path.expanduser("~"), ".ezz_pharmacy_fresh")))
     os.makedirs(root, exist_ok=True)
@@ -79,11 +56,8 @@ def install_auth(app, db):
             if au and ap:
                 conn.execute("""INSERT INTO users(user_id,username,name,password_hash,role,active,created_at,last_login)
                     VALUES(%s,%s,%s,%s,'admin',TRUE,%s,NULL)
-                    ON CONFLICT(username) DO UPDATE SET
-                        name=EXCLUDED.name,
-                        password_hash=EXCLUDED.password_hash,
-                        role='admin',
-                        active=TRUE""", (str(uuid.uuid4()), au, au, hash_password(ap), now_str()))
+                    ON CONFLICT(username) DO NOTHING""",
+                    (str(uuid.uuid4()), au, au, hash_password(ap), now_str()))
 
     def migrate_legacy_sqlite():
         if not os.path.exists(legacy_users_db):
@@ -205,6 +179,11 @@ def install_auth(app, db):
         password = str(request.form.get("password") or "")
         user = get_user(username=username)
         if user and bool(user.get("active")) and verify_password(password, user.get("password_hash", "")):
+            if needs_rehash(user.get("password_hash", "")):
+                new_hash = hash_password(password)
+                with db._connect() as conn:
+                    conn.execute("UPDATE users SET password_hash=%s WHERE user_id=%s", (new_hash, user["user_id"]))
+                user["password_hash"] = new_hash
             session.clear(); session.permanent = True
             session["user_id"] = user["user_id"]; session["username"] = user["username"]; session["role"] = user["role"]
             set_last_login(user["user_id"]); audit(action="Login", note="تسجيل دخول ناجح", actor=user)
@@ -292,7 +271,7 @@ def install_auth(app, db):
     @admin_only
     def admin_users():
         rows = list_users()
-        body = "<div class='admin-actions'><a href='/admin'>لوحة الإدارة</a><a href='/admin/audit'>Audit Log</a><a href='/'>العودة للنظام</a></div><div class='panel'><h2>إضافة مستخدم</h2><form id='add-user' class='form-grid'><input name='name' placeholder='الاسم' required><input name='username' placeholder='Username' required><input name='password' type='password' placeholder='كلمة المرور' minlength='8' required><select name='role'><option value='employee'>employee</option><option value='admin'>admin</option></select><button>إضافة مستخدم</button></form></div><div class='panel'><h2>المستخدمون</h2><table><tr><th>الاسم</th><th>Username</th><th>الدور</th><th>الحالة</th><th>آخر دخول</th><th>الإجراءات</th></tr>"
+        body = "<div class='admin-actions'><a href='/admin'>لوحة الإدارة</a><a href='/admin/audit'>Audit Log</a><a href='/'>العودة للنظام</a></div><div class='panel'><h2>إضافة مستخدم</h2><form id='add-user' class='form-grid'><input type='hidden' name='csrf_token' value='{{ csrf_token() }}'><input name='name' placeholder='الاسم' required><input name='username' placeholder='Username' required><input name='password' type='password' placeholder='كلمة المرور' minlength='8' required><select name='role'><option value='employee'>employee</option><option value='admin'>admin</option></select><button>إضافة مستخدم</button></form></div><div class='panel'><h2>المستخدمون</h2><table><tr><th>الاسم</th><th>Username</th><th>الدور</th><th>الحالة</th><th>آخر دخول</th><th>الإجراءات</th></tr>"
         for r in rows:
             body += f"<tr><td>{esc(r['name'])}</td><td>{esc(r['username'])}</td><td>{esc(r['role'])}</td><td>{'نشط' if r['active'] else 'معطل'}</td><td>{esc(r.get('last_login') or '—')}</td><td><button onclick=\"toggleUser('{r['user_id']}')\">{'تعطيل' if r['active'] else 'تفعيل'}</button> <button onclick=\"changePassword('{r['user_id']}')\">تغيير كلمة المرور</button></td></tr>"
         body += "</table></div><script>async function j(u,b){let r=await fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})});let d=await r.json();if(!r.ok)throw Error(d.error||'حدث خطأ');return d}document.getElementById('add-user').onsubmit=async e=>{e.preventDefault();let f=e.target;try{await j('/api/admin/users',{name:f.name.value,username:f.username.value,password:f.password.value,role:f.role.value});location.reload()}catch(x){alert(x.message)}};async function toggleUser(id){try{await j('/api/admin/users/'+id+'/toggle')}catch(x){alert(x.message)}location.reload()}async function changePassword(id){let p=prompt('كلمة المرور الجديدة');if(!p)return;try{await j('/api/admin/users/'+id+'/password',{password:p});alert('تم تغيير كلمة المرور')}catch(x){alert(x.message)}}</script>"
@@ -335,7 +314,7 @@ def esc(v):
 
 def login_page(error=""):
     e = f"<div class='error'>{esc(error)}</div>" if error else ""
-    return render_template_string("""<!doctype html><html lang='ar' dir='rtl'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>تسجيل الدخول - صيدلية عز الصحة</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f5fafb;font-family:Tahoma,Arial,sans-serif;color:#17324d}.card{width:min(420px,92vw);background:#fff;border:1px solid #d9e7ea;border-radius:22px;padding:30px;box-shadow:0 18px 60px rgba(18,63,122,.14)}h1{text-align:center;color:#123f7a;font-size:23px}.field{margin-bottom:14px}.field label{display:block;font-weight:700;margin-bottom:7px}.field input{width:100%;padding:13px;box-sizing:border-box;border:1px solid #d9e7ea;border-radius:11px;font-size:16px}.submit{width:100%;border:0;border-radius:11px;padding:13px;background:#0b8f9b;color:#fff;font-weight:800;font-size:16px}.error{background:#fff0f0;color:#a62b2b;border:1px solid #f0c8c8;padding:10px;border-radius:10px;margin-bottom:12px}</style></head><body><div class='card'><h1>صيدلية عز الصحة</h1><p style='text-align:center'>تسجيل الدخول إلى نظام متابعة الطلبات</p>__ERROR__<form method='post'><div class='field'><label>اسم المستخدم</label><input name='username' autocomplete='username' required autofocus></div><div class='field'><label>كلمة المرور</label><input type='password' name='password' autocomplete='current-password' required></div><button class='submit'>تسجيل الدخول</button></form></div></body></html>""".replace("__ERROR__", e))
+    return render_template_string("""<!doctype html><html lang='ar' dir='rtl'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>تسجيل الدخول - صيدلية عز الصحة</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f5fafb;font-family:Tahoma,Arial,sans-serif;color:#17324d}.card{width:min(420px,92vw);background:#fff;border:1px solid #d9e7ea;border-radius:22px;padding:30px;box-shadow:0 18px 60px rgba(18,63,122,.14)}h1{text-align:center;color:#123f7a;font-size:23px}.field{margin-bottom:14px}.field label{display:block;font-weight:700;margin-bottom:7px}.field input{width:100%;padding:13px;box-sizing:border-box;border:1px solid #d9e7ea;border-radius:11px;font-size:16px}.submit{width:100%;border:0;border-radius:11px;padding:13px;background:#0b8f9b;color:#fff;font-weight:800;font-size:16px}.error{background:#fff0f0;color:#a62b2b;border:1px solid #f0c8c8;padding:10px;border-radius:10px;margin-bottom:12px}</style></head><body><div class='card'><h1>صيدلية عز الصحة</h1><p style='text-align:center'>تسجيل الدخول إلى نظام متابعة الطلبات</p>__ERROR__<form method='post'><input type='hidden' name='csrf_token' value='{{ csrf_token() }}'><div class='field'><label>اسم المستخدم</label><input name='username' autocomplete='username' required autofocus></div><div class='field'><label>كلمة المرور</label><input type='password' name='password' autocomplete='current-password' required></div><button class='submit'>تسجيل الدخول</button></form></div></body></html>""".replace("__ERROR__", e))
 
 def admin_html(title, body):
     return render_template_string("""<!doctype html><html lang='ar' dir='rtl'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>{{title}} - صيدلية عز الصحة</title><style>:root{--primary:#0b8f9b;--navy:#123f7a;--border:#d9e7ea;--bg:#f5fafb}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:#17324d;font-family:Tahoma,Arial,sans-serif}.wrap{max-width:1200px;margin:auto;padding:22px}.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}.top a,.admin-actions a{display:inline-block;text-decoration:none;color:var(--navy);background:#fff;border:1px solid var(--border);padding:9px 12px;border-radius:9px;font-weight:700}.admin-card,.panel{background:#fff;border:1px solid var(--border);border-radius:14px;padding:18px;margin-bottom:16px}.admin-card strong{display:block;font-size:30px;color:var(--navy)}.admin-card span{color:#6c7f8a;font-size:13px}.admin-actions{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 18px}.form-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.form-grid input,.form-grid select{padding:10px;border:1px solid var(--border);border-radius:9px}.form-grid button{border:0;border-radius:9px;background:var(--primary);color:#fff;font-weight:700;padding:10px 14px}.panel{overflow:auto}table{width:100%;border-collapse:collapse;min-width:760px}th,td{border-bottom:1px solid var(--border);padding:10px;text-align:right}th{background:#f4fafb;color:var(--navy);font-size:12px}.panel button{border:1px solid var(--primary);background:#fff;color:var(--navy);border-radius:8px;padding:6px 9px}.panel button:hover{background:#eaf8f9}@media(max-width:760px){.form-grid{grid-template-columns:1fr}}</style></head><body><div class='wrap'><div class='top'><h1>{{title}}</h1><a href='/logout'>🚪 تسجيل الخروج</a></div>__BODY__</div></body></html>""".replace("__BODY__", body), title=title)

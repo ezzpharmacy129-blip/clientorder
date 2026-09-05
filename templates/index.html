@@ -65,6 +65,19 @@
   </div>
 </div>
 
+<script>
+window.__csrfToken = {{ csrf_token()|tojson }};
+(function () {
+  const originalFetch = window.fetch.bind(window);
+  window.fetch = function (input, init) {
+    init = init || {};
+    const headers = new Headers(init.headers || {});
+    if (window.__csrfToken) headers.set("X-CSRF-Token", window.__csrfToken);
+    init.headers = headers;
+    return originalFetch(input, init);
+  };
+})();
+</script>
 <script src="{{ url_for('static', filename='app.js') }}?v=20260829-clean"></script>
 <script src="{{ url_for('static', filename='cancelled_orders.js') }}?v=20260902-cancelled-orders"></script>
 <script src="{{ url_for('static', filename='daily_shortages.js') }}?v=20260830-daily-shortages"></script>

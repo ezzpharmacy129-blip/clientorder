@@ -1,4 +1,4 @@
-import re
+"""Central authorization and audit policy for authenticated application routes."""
 from flask import request, jsonify
 
 
@@ -36,12 +36,21 @@ def install_security_extensions(app, db):
 
     @app.before_request
     def admin_data_protection():
-        if request.path in ("/api/data/reset", "/api/backups/restore"):
-            user = current_user()
-            if not user:
-                return jsonify({"error":"تسجيل الدخول مطلوب","authenticated":False}), 401
-            if user.get("role") != "admin":
-                return jsonify({"error":"غير مصرح لك بهذا الإجراء"}), 403
+        admin_only_routes = {
+            ("POST", "/api/data/reset"),
+            ("GET", "/api/backups"),
+            ("POST", "/api/backups"),
+            ("POST", "/api/backups/restore"),
+            ("GET", "/api/data/export-xlsx"),
+            ("GET", "/api/data/export-postrollback"),
+        }
+        if (request.method, request.path) not in admin_only_routes:
+            return None
+        user = current_user()
+        if not user:
+            return jsonify({"error":"تسجيل الدخول مطلوب","authenticated":False}), 401
+        if user.get("role") != "admin":
+            return jsonify({"error":"صلاحية المدير مطلوبة"}), 403
         return None
 
     @app.get("/api/admin/audit")
