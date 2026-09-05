@@ -103,7 +103,7 @@ def health():
         info = db.storage_info()
         return jsonify({"ok": True, "app_version": APP_VERSION, "storage": info})
     except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 503
+        return jsonify({"ok": False, "error": "تعذر فحص حالة النظام"}), 503
 
 
 @app.get("/api/message-templates")
@@ -141,7 +141,8 @@ def api_reset_all_data():
     try:
         return jsonify(db.reset_all_data())
     except Exception as e:
-        return jsonify({"error":f"تعذر مسح البيانات: {e}"}),500
+        app.logger.exception("Data reset failed")
+        return jsonify({"error":"تعذر مسح البيانات"}),500
 
 @app.route("/uploads/<path:filename>")
 def uploaded_file(filename):
@@ -190,7 +191,8 @@ def api_create_order():
     try:
         order=db.create_order(data["customer_name"].strip(), clean_phone(data["phone"]), products, str(data.get("notes") or "").strip(), str(data.get("order_date") or "").strip() or None)
     except Exception as e:
-        return jsonify({"error":f"تعذر حفظ الطلب: {e}"}),500
+        app.logger.exception("Order creation failed")
+        return jsonify({"error":"تعذر حفظ الطلب"}),500
     return jsonify({"order":order}),201
 
 @app.route("/api/orders/<order_id>", methods=["PUT"])
@@ -207,7 +209,9 @@ def api_update_order(order_id):
     if products is not None and "products" not in data: products=[{"product_name":data.get("product_name"),"quantity":data.get("quantity")}]
     try: order=db.update_order(order_id,fields,products)
     except ValueError as e:return jsonify({"error":str(e)}),400
-    except Exception as e:return jsonify({"error":f"تعذر تعديل الطلب: {e}"}),500
+    except Exception as e:
+        app.logger.exception("Order update failed")
+        return jsonify({"error":"تعذر تعديل الطلب"}),500
     if order is None:return jsonify({"error":"الطلب غير موجود"}),404
     return jsonify({"order":order})
 
@@ -216,7 +220,8 @@ def api_delete_order(order_id):
     try:
         ok=db.delete_order(order_id)
     except Exception as e:
-        return jsonify({"error":f"تعذر حذف الطلب: {e}"}),500
+        app.logger.exception("Order deletion failed")
+        return jsonify({"error":"تعذر حذف الطلب"}),500
     if not ok:return jsonify({"error":"الطلب غير موجود"}),404
     return jsonify({"success":True})
 
@@ -231,7 +236,8 @@ def api_upload_item_image(order_id, item_id):
     except ValueError as e:
         return jsonify({"error":str(e)}),400
     except Exception as e:
-        return jsonify({"error":f"تعذر حفظ الصورة: {e}"}),500
+        app.logger.exception("Item image save failed")
+        return jsonify({"error":"تعذر حفظ الصورة"}),500
     if rel is None:
         return jsonify({"error":"المنتج غير موجود داخل الطلب"}),404
     return jsonify({"success":True,"path":rel,"url":f"/uploads/{rel}"})
@@ -241,7 +247,8 @@ def api_delete_item_image(order_id, item_id):
     try:
         ok=db.delete_item_image(order_id,item_id)
     except Exception as e:
-        return jsonify({"error":f"تعذر حذف الصورة: {e}"}),500
+        app.logger.exception("Item image delete failed")
+        return jsonify({"error":"تعذر حذف الصورة"}),500
     if not ok:return jsonify({"error":"المنتج غير موجود"}),404
     return jsonify({"success":True})
 
@@ -531,7 +538,8 @@ def api_pharmacy_shortages():
         ensure_pharmacy_shortage_schema()
         return jsonify({"shortages": list_pharmacy_shortages(), "stats": pharmacy_shortage_stats()})
     except Exception as e:
-        return jsonify({"error":f"تعذر قراءة نواقص الصيدلية: {e}"}),500
+        app.logger.exception("Pharmacy shortages read failed")
+        return jsonify({"error":"تعذر قراءة نواقص الصيدلية"}),500
 
 @app.post("/api/pharmacy-shortages")
 def api_create_pharmacy_shortage():
@@ -545,7 +553,8 @@ def api_create_pharmacy_shortage():
     except ValueError as e:
         return jsonify({"error":str(e)}),400
     except Exception as e:
-        return jsonify({"error":f"تعذر إضافة نقص الصيدلية: {e}"}),500
+        app.logger.exception("Pharmacy shortage create failed")
+        return jsonify({"error":"تعذر إضافة نقص الصيدلية"}),500
 
 @app.put("/api/pharmacy-shortages/<shortage_id>")
 def api_update_pharmacy_shortage(shortage_id):
@@ -560,7 +569,8 @@ def api_update_pharmacy_shortage(shortage_id):
     except (ValueError, TypeError):
         return jsonify({"error":"اسم المنتج مطلوب والكمية يجب أن تكون رقمًا صحيحًا أكبر من صفر"}),400
     except Exception as e:
-        return jsonify({"error":f"تعذر تعديل النقص: {e}"}),500
+        app.logger.exception("Pharmacy shortage update failed")
+        return jsonify({"error":"تعذر تعديل النقص"}),500
 
 @app.post("/api/pharmacy-shortages/<shortage_id>/available")
 def api_pharmacy_shortage_available(shortage_id):
@@ -572,7 +582,8 @@ def api_pharmacy_shortage_available(shortage_id):
         if row is None: return jsonify({"error":"النقص غير موجود"}),404
         return jsonify({"shortage":row})
     except Exception as e:
-        return jsonify({"error":f"تعذر تغيير حالة النقص: {e}"}),500
+        app.logger.exception("Pharmacy shortage availability failed")
+        return jsonify({"error":"تعذر تغيير حالة النقص"}),500
 
 @app.post("/api/pharmacy-shortages/<shortage_id>/undo")
 def api_pharmacy_shortage_undo(shortage_id):
@@ -582,7 +593,8 @@ def api_pharmacy_shortage_undo(shortage_id):
         ensure_pharmacy_shortage_schema()
         return result_response(undo_pharmacy_shortage(shortage_id, _daily_shortage_actor()))
     except Exception as e:
-        return jsonify({"error":f"تعذر التراجع عن النقص: {e}"}),500
+        app.logger.exception("Pharmacy shortage undo failed")
+        return jsonify({"error":"تعذر التراجع عن النقص"}),500
 
 @app.get("/api/pharmacy-shortages/whatsapp")
 def api_pharmacy_shortages_whatsapp():
@@ -643,7 +655,8 @@ def api_import_data():
     except ValueError as e:
         return jsonify({"error":str(e)}),400
     except Exception as e:
-        return jsonify({"error":f"تعذر استيراد البيانات: {e}"}),500
+        app.logger.exception("Data import failed")
+        return jsonify({"error":"تعذر استيراد البيانات"}),500
     finally:
         if temp_path:
             try: os.remove(temp_path)
@@ -656,7 +669,9 @@ def api_backups(): return jsonify({"backups":db.list_backups()})
 @app.post("/api/backups")
 def api_backup():
     try: name=db.create_manual_backup()
-    except Exception as e:return jsonify({"error":f"تعذر إنشاء النسخة: {e}"}),500
+    except Exception as e:
+        app.logger.exception("Backup creation failed")
+        return jsonify({"error":"تعذر إنشاء النسخة"}),500
     return (jsonify({"success":True,"filename":name}),200) if name else (jsonify({"error":"تعذر إنشاء النسخة"}),500)
 
 @app.post("/api/backups/restore")
@@ -665,7 +680,9 @@ def api_restore():
     if not fn:return jsonify({"error":"يرجى تحديد النسخة"}),400
     try: ok=db.restore_backup(fn)
     except ValueError as e:return jsonify({"error":str(e)}),400
-    except Exception as e:return jsonify({"error":f"تعذر الاستعادة: {e}"}),500
+    except Exception as e:
+        app.logger.exception("Backup restore failed")
+        return jsonify({"error":"تعذر الاستعادة"}),500
     return (jsonify({"success":True}),200) if ok else (jsonify({"error":"النسخة غير موجودة"}),404)
 
 
