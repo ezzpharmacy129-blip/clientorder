@@ -9,6 +9,7 @@
 | auth_entry.py | حذف | مجرد compatibility shim يستورد `app.app` ولا يحتوي منطقًا مطلوبًا بعد توحيد نقطة التشغيل. |
 | auth_security_extensions.py | حذف | نُقل المنطق إلى `auth/policy.py`. |
 | auth_security_extensions_v2.py | حذف | لا يوجد مسار runtime يفعّله. كان يفرض سياسة أضيق على الموظف وقد يغيّر سلوك التشغيل الحالي؛ لم يتم تفعيله تلقائيًا. |
+| app_core.py | حذف | مجرد placeholder من سطرين؛ لا يحتوي تنفيذًا ويكرر اسمًا يوحي بوجود طبقة core غير موجودة. |
 
 ## Fix / Patch
 
