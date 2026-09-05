@@ -25,6 +25,18 @@ def make_app():
 
 
 class CSRFProtectionTests(unittest.TestCase):
+    def test_context_processor_exposes_session_csrf_token(self):
+        from flask import render_template_string
+        app = make_app()
+        client = app.test_client()
+        with client.session_transaction():
+            response = client.get("/api/read")
+        with app.test_request_context("/"):
+            rendered = render_template_string('<meta name="csrf-token" content="{{ csrf_token() }}">')
+        token = rendered.split('content="', 1)[1].split('"', 1)[0]
+        self.assertTrue(token)
+        self.assertEqual(len(token), 43)
+
     def test_safe_get_does_not_require_csrf(self):
         client = make_app().test_client()
         response = client.get("/api/read")
