@@ -81,6 +81,9 @@ def install_csrf(app):
     def csrf_protection():
         if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
             return None
+        # Keep unauthenticated API calls returning their normal 401 response.
+        if request.path != "/login" and not session.get("user_id"):
+            return None
         supplied = request.headers.get("X-CSRF-Token") or request.form.get("csrf_token")
         expected = str(session.get("csrf_token") or "")
         if expected and supplied and hmac.compare_digest(expected, str(supplied)):
