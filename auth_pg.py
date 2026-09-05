@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from functools import wraps
 from zoneinfo import ZoneInfo
 from flask import request, session, redirect, jsonify, url_for, render_template_string
-from auth.security import hash_password, verify_password, needs_rehash
+from auth.security import hash_password, verify_password, needs_rehash, install_csrf
 
 TZ = ZoneInfo("Asia/Riyadh")
 
@@ -32,6 +32,7 @@ def install_auth(app, db):
         SESSION_COOKIE_SECURE=True,
         PERMANENT_SESSION_LIFETIME=timedelta(hours=12),
     )
+    install_csrf(app)
 
     root = os.path.abspath(getattr(db, "SHARED_ROOT", os.path.join(os.path.expanduser("~"), ".ezz_pharmacy_fresh")))
     os.makedirs(root, exist_ok=True)
