@@ -55,6 +55,9 @@ def on_starting(server):
     install_auth(app, db)
     _sync_admin_credentials(db)
 
+    from authorization_policy import install_authorization
+    install_authorization(app)
+
     from auth_security_extensions import install_security_extensions
     install_security_extensions(app, db)
 
