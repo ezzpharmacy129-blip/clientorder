@@ -1,0 +1,12 @@
+# Python bytecode and caches
+__pycache__/
+*.pyc
+*.pyo
+
+# Local environment and secrets
+.env
+.venv/
+venv/
+
+# Local runtime data
+.ezz_pharmacy_fresh/
