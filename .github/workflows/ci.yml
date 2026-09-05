@@ -27,6 +27,8 @@ jobs:
         run: node --check static/app.js
       - name: Run CSRF protection tests
         run: python -m unittest -v tests/test_csrf_protection.py
+      - name: Run login rate limit tests
+        run: python -m unittest -v tests/test_login_rate_limit.py
       - name: Verify users dashboard core integration
         run: |
           python - <<'PY'
