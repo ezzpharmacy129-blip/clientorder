@@ -706,7 +706,7 @@ if not getattr(app, "_ezz_auth_installed", False):
     install_auth(app, db)
 
 if not getattr(app, "_ezz_security_extensions_installed", False):
-    from auth_security_extensions_v2 import install_security_extensions as install_auth_security
+    from auth_security_extensions import install_security_extensions as install_auth_security
     install_auth_security(app, db)
     app._ezz_security_extensions_installed = True
 
