@@ -65,7 +65,7 @@
 
 - `DATABASE_URL`: اختيار CloudDB.
 - `SECRET_KEY`: مفتاح جلسات Flask.
-- `ADMIN_USERNAME` و`ADMIN_PASSWORD`: إنشاء/تحديث حساب المدير الأول.
+- `ADMIN_USERNAME` و`ADMIN_PASSWORD`: bootstrap لإنشاء حساب المدير الأول فقط؛ تغيير كلمة المرور من النظام يبقى محفوظًا بعد ذلك.
 - `OPENAI_API_KEY` و`OPENAI_MODEL`: خدمات المساعد، عند استخدامها.
 
 ## الترقية والترحيل
