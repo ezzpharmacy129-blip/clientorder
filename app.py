@@ -503,12 +503,48 @@ def api_whatsapp_shortages_grouped():
 # Customer Shortages
 # ---------------------------------------------------------------------------
 
+def _customer_shortage_items(order):
+    """
+    Single source of truth for customer shortages.
+
+    Priority:
+    1) Item-level availability_status == "بانتظار التوفير".
+    2) For legacy/inconsistent orders whose order status is still pending,
+       fall back to all non-rejected items.
+    """
+    items = list(order.get("Items") or [])
+
+    active_items = [
+        item for item in items
+        if str(item.get("Customer_Decision") or "").strip().lower() != "rejected"
+    ]
+
+    pending_items = [
+        item for item in active_items
+        if str(item.get("Availability_Status") or "").strip() == "بانتظار التوفير"
+    ]
+
+    if pending_items:
+        return pending_items
+
+    if str(order.get("Status") or "").strip() == STATUS_PENDING:
+        return active_items
+
+    # Legacy order records can have no item rows at all.
+    if not items and str(order.get("Status") or "").strip() == STATUS_PENDING:
+        return [{
+            "Item_ID": "",
+            "Product_Name": order.get("Product_Name") or "",
+            "Quantity": order.get("Quantity") or 1,
+            "Availability_Status": STATUS_PENDING,
+            "Customer_Decision": "",
+        }]
+
+    return []
+
+
 @app.get("/api/customer-shortages")
 def api_customer_shortages():
-    """
-    Return customer shortage line-items as a dedicated read model.
-    This endpoint intentionally does not reuse the WhatsApp formatter.
-    """
     denied = _daily_shortage_auth()
     if denied:
         return denied
@@ -516,51 +552,28 @@ def api_customer_shortages():
     try:
         rows = []
         for order in db.get_all_orders():
-            items = order.get("Items") or []
+            shortage_items = _customer_shortage_items(order)
 
-            # Prefer item-level availability; this is the source of truth.
-            pending_items = [
-                item for item in items
-                if str(item.get("Availability_Status") or "").strip() == "بانتظار التوفير"
-                and str(item.get("Customer_Decision") or "").strip().lower() != "rejected"
-            ]
-
-            if pending_items:
-                for item in pending_items:
-                    rows.append({
-                        "type": "customer",
-                        "order_id": order.get("Order_ID") or "",
-                        "customer_name": order.get("Customer_Name") or "",
-                        "phone": order.get("Phone") or "",
-                        "product_name": item.get("Product_Name") or "",
-                        "quantity": item.get("Quantity") or 1,
-                        "order_date": order.get("Order_Date") or order.get("Created_At") or "",
-                        "status": "بانتظار التوفير",
-                    })
-                continue
-
-            # Legacy orders may have no order_items rows but still carry a pending order.
-            if (
-                not items
-                and str(order.get("Status") or "").strip() == STATUS_PENDING
-                and str(order.get("Customer_Decision") or "").strip().lower() != "rejected"
-            ):
+            for item in shortage_items:
                 rows.append({
                     "type": "customer",
                     "order_id": order.get("Order_ID") or "",
                     "customer_name": order.get("Customer_Name") or "",
                     "phone": order.get("Phone") or "",
-                    "product_name": order.get("Product_Name") or "",
-                    "quantity": order.get("Quantity") or 1,
+                    "product_name": item.get("Product_Name") or order.get("Product_Name") or "",
+                    "quantity": item.get("Quantity") or order.get("Quantity") or 1,
                     "order_date": order.get("Order_Date") or order.get("Created_At") or "",
                     "status": "بانتظار التوفير",
                 })
 
         rows.sort(key=lambda row: str(row.get("order_date") or ""), reverse=True)
-        return jsonify({"shortages": rows, "count": len(rows)})
+        return jsonify({
+            "shortages": rows,
+            "count": len(rows),
+            "order_count": len({row["order_id"] for row in rows if row.get("order_id")})
+        })
     except Exception as e:
         return jsonify({"error": f"تعذر قراءة نواقص العملاء: {e}"}), 500
-
 
 def _daily_shortage_actor():
     provider = getattr(db, "_auth_user_provider", None)
@@ -655,20 +668,24 @@ def api_pharmacy_shortages_whatsapp():
         return jsonify({"error":"نوع الإرسال غير صحيح"}),400
     ensure_pharmacy_shortage_schema()
     customer_lines=[]
+    customer_item_count=0
+    customer_order_count=0
     for order in db.get_all_orders():
-        pending_items=[i for i in (order.get("Items") or []) if i.get("Availability_Status")=="بانتظار التوفر"]
-        if pending_items:
-            customer_lines.append(f"• {order.get('Customer_Name','')} — {order.get('Order_ID','')}")
-            order_note = str(order.get("Notes") or "").strip()
-            if order_note:
-                customer_lines.append(f"  📝 الملاحظة: {order_note}")
-            for item in pending_items:
-                customer_lines.append(f"  - {item.get('Product_Name','')} × {item.get('Quantity') or 1}")
-        elif order.get("Status")==STATUS_PENDING:
-            customer_lines.append(f"• {order.get('Customer_Name','')} — {order.get('Order_ID','')} — {order.get('Product_Name','')}")
-            order_note = str(order.get("Notes") or "").strip()
-            if order_note:
-                customer_lines.append(f"  📝 الملاحظة: {order_note}")
+        shortage_items = _customer_shortage_items(order)
+        if not shortage_items:
+            continue
+
+        customer_order_count += 1
+        customer_lines.append(f"• {order.get('Customer_Name','')} — {order.get('Order_ID','')}")
+        order_note = str(order.get("Notes") or "").strip()
+        if order_note:
+            customer_lines.append(f"  📝 الملاحظة: {order_note}")
+
+        for item in shortage_items:
+            customer_item_count += 1
+            customer_lines.append(
+                f"  - {item.get('Product_Name') or order.get('Product_Name','')} × {item.get('Quantity') or order.get('Quantity') or 1}"
+            )
     pharmacy_rows=[r for r in list_pharmacy_shortages() if r.get("status")=="pending"]
     pharmacy_lines=[]
     for r in pharmacy_rows:
@@ -683,7 +700,7 @@ def api_pharmacy_shortages_whatsapp():
     if kind in {"pharmacy","all"}:
         sections.append("نواقص الصيدلية:\n" + ("\n".join(pharmacy_lines) if pharmacy_lines else "لا توجد نواقص صيدلية حاليًا ✅"))
     message="النواقص اليومية\n\n" + "\n\n".join(sections)
-    return jsonify({"message":message,"customer_count":len(customer_lines),"pharmacy_count":len(pharmacy_rows)})
+    return jsonify({"message":message,"customer_count":customer_order_count,"customer_item_count":customer_item_count,"pharmacy_count":len(pharmacy_rows)})
 
 
 @app.post("/api/import-data")
