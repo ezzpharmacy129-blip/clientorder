@@ -525,6 +525,7 @@ def api_dashboard():
     return jsonify({
         **stats,
         "orders": dashboard_orders,
+        "dashboard_filters": dashboard_filters,
         "action_center": action_center,
         "followups": followups,
         "updated_at": datetime.now(ZoneInfo("Asia/Riyadh")).strftime("%Y-%m-%d %H:%M:%S"),
