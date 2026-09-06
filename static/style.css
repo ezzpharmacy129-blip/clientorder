@@ -126,111 +126,51 @@ input,select,textarea{min-height:42px;padding:10px var(--space-3);color:var(--te
 @media(max-width:720px) and (max-height:600px){.modal-overlay{align-items:flex-start;padding:var(--space-2)}.modal{max-height:calc(100dvh - 16px)}}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}
 @media print{.app-header,.main-nav,.btn,.toast-container,.modal-overlay{display:none!important}body{background:#fff;color:#000}.app-main{max-width:none;padding:0}.panel,.stat-card{box-shadow:none;break-inside:avoid}}
-/* EZZ_CORE_SHORTAGES_NAVIGATION_V2 */
-.daily-shortages-panel{padding:18px}
-.daily-shortages-header{align-items:center;margin-bottom:10px}
-.daily-shortages-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
-.shortages-view-tabs{
-  display:flex;
-  align-items:center;
-  gap:8px;
-  margin:0 0 12px;
-  padding:4px;
-  background:var(--surface-soft);
-  border:1px solid var(--border);
-  border-radius:12px;
-  width:max-content;
-  max-width:100%;
-}
-.shortages-view-tab{
-  appearance:none;
-  border:1px solid transparent;
-  background:transparent;
-  color:var(--muted);
-  min-height:38px;
-  padding:8px 16px;
-  border-radius:9px;
-  cursor:pointer;
-  font:inherit;
-  font-size:13px;
-  font-weight:800;
-  white-space:nowrap;
-  transition:background .16s ease,color .16s ease,box-shadow .16s ease,border-color .16s ease;
-}
-.shortages-view-tab:hover{color:var(--primary-dark);background:#fff}
-.shortages-view-tab.active{
-  background:var(--primary);
-  color:#fff;
-  border-color:var(--primary);
-  box-shadow:0 4px 12px rgba(21,63,122,.12);
-}
-.shortages-view-tab:focus-visible{
-  outline:2px solid var(--primary);
-  outline-offset:2px;
-}
-.shortages-limit-control{
-  display:flex;
-  align-items:center;
-  gap:6px;
-  color:var(--muted);
-  font-size:12px;
-  font-weight:750;
-}
-.shortages-limit-control select{padding:7px 9px;font-size:12px}
-.daily-shortages-summary{
-  display:flex;
-  align-items:center;
-  min-height:34px;
-  padding:7px 10px;
-  margin-bottom:8px;
-  border:1px solid var(--border);
-  border-radius:10px;
-  background:var(--surface-soft);
-  color:var(--primary-dark);
-  font-size:12px;
-  font-weight:800;
-}
-.daily-shortages-table-wrap{
-  max-height:calc(100vh - 255px);
-  min-height:230px;
-  overflow:auto;
-  border:1px solid var(--border);
-  border-radius:12px;
-  -webkit-overflow-scrolling:touch;
-}
+/* EZZ_CORE_SHORTAGES_NAVIGATION_V3 */
+.daily-shortages-panel{padding:22px;overflow:hidden}
+.daily-shortages-top{display:flex;align-items:flex-start;justify-content:space-between;gap:22px;padding-bottom:18px;border-bottom:1px solid var(--border)}
+.daily-shortages-heading{min-width:0}
+.daily-shortages-kicker{display:inline-flex;align-items:center;gap:6px;color:var(--primary-dark);font-size:11px;font-weight:800;margin-bottom:5px}
+.daily-shortages-heading h2{margin:0;color:var(--navy);font-size:21px;line-height:1.25}
+.daily-shortages-heading .panel-subtitle{margin-top:5px;margin-bottom:0}
+.daily-shortages-toolbar{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+.shortages-limit-control{display:flex;align-items:center;gap:5px;color:var(--muted);font-size:12px;font-weight:800}
+.shortages-limit-control select{min-width:68px;padding:7px 9px;font-size:12px}
+.shortages-limit-control span{color:var(--muted)}
+.shortages-overview{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:14px 0 10px;padding:10px 12px;background:var(--surface-soft);border:1px solid var(--border);border-radius:14px}
+.shortages-overview-copy{display:flex;align-items:baseline;gap:8px;min-width:0}
+.shortages-overview-title{font-size:13px;font-weight:850;color:var(--navy)}
+.shortages-overview-note{font-size:11px;color:var(--muted)}
+.shortages-view-tabs{display:inline-flex;align-items:center;gap:4px;margin:0;padding:4px;background:#fff;border:1px solid var(--border);border-radius:11px;width:auto;max-width:100%}
+.shortages-view-tab{appearance:none;display:inline-flex;align-items:center;justify-content:center;gap:8px;border:1px solid transparent;background:transparent;color:var(--muted);min-height:36px;padding:7px 13px;border-radius:8px;cursor:pointer;font:inherit;font-size:12px;font-weight:800;white-space:nowrap;transition:background .16s ease,color .16s ease,border-color .16s ease,box-shadow .16s ease}
+.shortages-view-tab strong{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;padding:0 6px;border-radius:999px;background:var(--surface-soft);color:var(--primary-dark);font-size:10px}
+.shortages-view-tab:hover{color:var(--primary-dark);background:var(--surface-soft)}
+.shortages-view-tab.active{background:var(--primary);color:#fff;border-color:var(--primary);box-shadow:0 4px 12px rgba(21,63,122,.12)}
+.shortages-view-tab.active strong{background:rgba(255,255,255,.18);color:#fff}
+.shortages-view-tab:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
+.daily-shortages-summary{display:flex;align-items:center;min-height:34px;padding:7px 10px;margin-bottom:10px;border:0;border-radius:10px;background:transparent;color:var(--primary-dark);font-size:12px;font-weight:800}
+.daily-shortages-table-card{border:1px solid var(--border);border-radius:14px;overflow:hidden;background:#fff}
+.daily-shortages-table-wrap{max-height:calc(100vh - 285px);min-height:250px;overflow:auto;-webkit-overflow-scrolling:touch}
 .daily-shortages-table{min-width:960px}
-.daily-shortages-table th,.daily-shortages-table td{padding:8px 9px;vertical-align:middle}
+.daily-shortages-table th,.daily-shortages-table td{padding:9px 10px;vertical-align:middle}
 .daily-shortages-table th{position:sticky;top:0;z-index:2}
 .daily-shortages-table td{font-size:12px}
 .daily-shortages-table .status-badge{min-height:24px;padding:3px 8px;font-size:10px}
-.shortage-type{
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  padding:4px 8px;
-  border-radius:var(--radius-pill);
-  font-size:10px;
-  font-weight:800;
-  white-space:nowrap;
-}
+.shortage-type{display:inline-flex;align-items:center;justify-content:center;padding:4px 8px;border-radius:var(--radius-pill);font-size:10px;font-weight:800;white-space:nowrap}
 .shortage-type-pharmacy{background:var(--success-bg);color:var(--success)}
 .shortage-type-customer{background:var(--info-bg);color:var(--info)}
-.daily-shortage-note{
-  margin-top:2px;
-  max-width:220px;
-  overflow:hidden;
-  text-overflow:ellipsis;
-  white-space:nowrap;
-  color:var(--muted);
-  font-size:10px
-}
+.daily-shortage-note{margin-top:2px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:10px}
 .daily-shortage-actions{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
 .daily-shortages-table tr:hover td{background:#f7fcfd}
-@media(max-width:720px){
-  .daily-shortages-panel{padding:12px}
+@media(max-width:820px){
+  .daily-shortages-top{flex-direction:column;gap:14px}
+  .daily-shortages-toolbar{justify-content:flex-start}
+  .shortages-overview{align-items:flex-start;flex-direction:column}
   .shortages-view-tabs{width:100%}
-  .shortages-view-tab{flex:1 1 0;text-align:center;padding-inline:10px}
-  .daily-shortages-actions{width:100%;justify-content:flex-start}
-  .shortages-limit-control{margin-right:auto}
-  .daily-shortages-table-wrap{max-height:calc(100vh - 315px);min-height:200px}
+  .shortages-view-tab{flex:1 1 0}
+}
+@media(max-width:720px){
+  .daily-shortages-panel{padding:14px}
+  .daily-shortages-toolbar{width:100%}
+  .daily-shortages-table-wrap{max-height:calc(100vh - 325px);min-height:210px}
 }
