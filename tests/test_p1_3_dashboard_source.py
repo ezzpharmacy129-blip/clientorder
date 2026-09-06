@@ -1,4 +1,4 @@
-# CI trigger: validate the latest Dashboard source-of-truth commit.
+# CI trigger: validate the final Dashboard source-of-truth verification commit.
 import unittest
 from pathlib import Path
 
