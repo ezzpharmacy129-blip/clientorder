@@ -201,6 +201,13 @@
 
     const rows = pageRows();
 
+    const pharmacyCount = document.getElementById("pharmacy-shortages-tab-count");
+    const customerCount = document.getElementById("customer-shortages-tab-count");
+    const allCount = document.getElementById("all-shortages-tab-count");
+    if (pharmacyCount) pharmacyCount.textContent = state.pharmacyRows.length;
+    if (customerCount) customerCount.textContent = state.customerRows.length;
+    if (allCount) allCount.textContent = state.pharmacyRows.length + state.customerRows.length;
+
     title.textContent =
       state.filter === "all" ? "النواقص" : "📦 " + labels[state.filter];
 
