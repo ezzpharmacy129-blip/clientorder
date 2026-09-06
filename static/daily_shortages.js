@@ -38,7 +38,7 @@
     return window.apiFetch(...args);
   };
 
-  const notify = window.toast || ((message) => alert(message));
+  const notify = window.toast || (() => {});
 
   function value(object, ...keys) {
     for (const key of keys) {
@@ -386,7 +386,7 @@
     }
 
     const submit = form.querySelector('button[type="submit"]');
-    if (submit) submit.disabled = true;
+    if (submit) setButtonLoading?.(submit, true, state.editingId ? "جاري الحفظ..." : "جاري الإضافة...");
 
     try {
       const url = state.editingId
@@ -404,7 +404,7 @@
     } catch (error) {
       notify(error.message, "error");
     } finally {
-      if (submit) submit.disabled = false;
+      if (submit) setButtonLoading?.(submit, false);
     }
   }
 
