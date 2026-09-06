@@ -317,7 +317,7 @@ async function resetMessageTemplates(){
   if(!confirm("استعادة نصوص الرسائل الأصلية؟"))return;
   try{const d=await apiFetch("/api/message-templates/reset",{method:"POST",body:"{}"});const t=d.templates||{};document.getElementById("tpl-price-confirmation").value=t.Message_Template_Price_Confirmation||"";document.getElementById("tpl-available").value=t.Message_Template_Available||"";document.getElementById("tpl-partial").value=t.Message_Template_Partial||"";document.getElementById("tpl-unavailable").value=t.Message_Template_Unavailable||"";document.getElementById("tpl-shortage").value=t.Message_Template_Shortage||"";toast("تمت استعادة النصوص الأصلية");}catch(e){toast(e.message,"error")}
 }
-function refresh(){loadDashboard();loadActionCenter();if(document.getElementById("view-orders").classList.contains("active"))loadOrders()}
+function refresh(){loadDashboard();if(document.getElementById("view-orders").classList.contains("active"))loadOrders()}
 function initModals(){
   const availabilityModal=document.getElementById('availability-modal');
   const orderModal=document.getElementById('order-modal');
