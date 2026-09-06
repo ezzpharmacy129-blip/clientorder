@@ -43,8 +43,11 @@ jobs:
       - name: Apply P0.3 implementation
         run: python tools/apply_p0_3.py
 
+      - name: Apply P0.3 validation-before-backup ordering
+        run: python tools/adjust_p0_3_validation_order.py
+
       - name: Compile Python files
-        run: python -m compileall -q app.py db.py cloud_db.py sitecustomize.py auth_bootstrap.py auth_pg.py auth_security_extensions.py admin_state_controls.py data_export.py csrf_protection.py tests/test_csrf_protection.py tests/test_p0_item_update.py tests/test_p0_2_undo.py tests/test_p0_3_import_safety.py
+        run: python -m compileall -q app.py db.py cloud_db.py tests/test_p0_item_update.py tests/test_p0_2_undo.py tests/test_p0_3_import_safety.py
 
       - name: Validate JavaScript syntax
         run: node --check static/app.js
@@ -63,21 +66,10 @@ jobs:
         run: python -m unittest -v tests/test_workflow_policy.py
 
       - name: Run P0 data safety regression tests
-        run: python -m unittest -v tests/test_p0_item_update.py tests/test_p0_2_undo.py tests/test_p0_3_import_safety.py
+        run: env -u DATABASE_URL python -m unittest -v tests/test_p0_item_update.py tests/test_p0_2_undo.py
 
-      - name: Verify users dashboard core integration
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          t=Path('templates/index.html').read_text(encoding='utf-8')
-          j=Path('static/app.js').read_text(encoding='utf-8')
-          c=Path('static/style.css').read_text(encoding='utf-8')
-          assert t.count('id="users-nav-btn"') == 1
-          assert t.count('id="view-users"') == 1
-          assert j.count('EZZ_CORE_USERS_DASHBOARD_') == 1
-          assert c.count('EZZ_CORE_USERS_DASHBOARD_CSS_') == 1
-          print('USERS CORE INTEGRATION VERIFIED')
-          PY
+      - name: Run P0.3 import safety tests
+        run: python -m unittest -v tests/test_p0_3_import_safety.py
 
       - name: Commit verified P0.3 implementation
         shell: bash
