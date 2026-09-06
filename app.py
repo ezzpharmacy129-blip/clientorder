@@ -678,7 +678,7 @@ def _customer_shortage_items(order):
     Single source of truth for customer shortages.
 
     Priority:
-    1) Item-level availability_status == "بانتظار التوفير".
+    1) Item-level availability_status == "بانتظار التوفر".
     2) For legacy/inconsistent orders whose order status is still pending,
        fall back to all non-rejected items.
     """
@@ -691,7 +691,7 @@ def _customer_shortage_items(order):
 
     pending_items = [
         item for item in active_items
-        if str(item.get("Availability_Status") or "").strip() == "بانتظار التوفير"
+        if str(item.get("Availability_Status") or "").strip() == "بانتظار التوفر"
     ]
 
     if pending_items:
@@ -735,7 +735,7 @@ def api_customer_shortages():
                     "product_name": item.get("Product_Name") or order.get("Product_Name") or "",
                     "quantity": item.get("Quantity") or order.get("Quantity") or 1,
                     "order_date": order.get("Order_Date") or order.get("Created_At") or "",
-                    "status": "بانتظار التوفير",
+                    "status": "بانتظار التوفر",
                 })
 
         rows.sort(key=lambda row: str(row.get("order_date") or ""), reverse=True)
