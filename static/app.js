@@ -230,23 +230,45 @@ async function doPostpone(days,date=null){if(!currentPostpone)return;try{await a
 function renderOrders(orders){const b=document.getElementById("orders-table-body");if(!orders.length){b.innerHTML='<tr><td colspan="12" class="empty-state">لا توجد طلبات</td></tr>';return}b.innerHTML=orders.map(o=>`<tr><td>${esc(o.Order_ID)}</td><td>${esc(o.Customer_Name)}</td><td>${esc(o.Phone)}</td><td class="products-cell">${productsSummary(o)}</td><td>${o.Quantity}</td><td>${fmtDate(o.Order_Date)}</td><td>${fmtDate(o.Available_Date)}</td><td>${badge(o.Status)}</td><td>${contactBadge(o.Contact_Status)}</td><td>${fmtDate(o.Last_Contact_Date)}</td><td>${fmtDate(o.Next_Followup_Date)}</td><td><button class="btn btn-secondary btn-sm details-btn" data-id="${o.Order_ID}">التفاصيل</button></td></tr>`).join("");b.querySelectorAll(".details-btn").forEach(x=>x.onclick=()=>details(x.dataset.id))}
 function populateStatus(){const s=document.getElementById("orders-status-filter");if(s.dataset.done)return;STATUS_ORDER.forEach(x=>s.insertAdjacentHTML("beforeend",`<option value="${esc(x)}">${esc(x)}</option>`));s.dataset.done=1}
 let ordersLoadPromise=null;
-async function loadOrders(){
+let ordersPage=1;
+const ORDERS_PAGE_SIZE=20;
+
+function renderOrdersPagination(meta){
+  const host=document.getElementById("orders-pagination");
+  if(!host)return;
+  const pages=Math.max(1,Number(meta && meta.pages)||1);
+  const current=Math.min(pages,Math.max(1,Number(meta && meta.page)||1));
+  if(pages<=1){host.innerHTML="";return;}
+  host.innerHTML='<button type="button" class="btn btn-secondary btn-sm" data-orders-page="prev" '+(current<=1?'disabled':'')+'>السابق</button><span class="pagination-info">صفحة '+current+' من '+pages+'</span><button type="button" class="btn btn-secondary btn-sm" data-orders-page="next" '+(current>=pages?'disabled':'')+'>التالي</button>';
+  const prev=host.querySelector('[data-orders-page="prev"]');
+  const next=host.querySelector('[data-orders-page="next"]');
+  prev&&prev.addEventListener('click',()=>{ordersPage=Math.max(1,current-1);loadOrders();});
+  next&&next.addEventListener('click',()=>{ordersPage=Math.min(pages,current+1);loadOrders();});
+}
+
+function loadOrders(){
   if(ordersLoadPromise)return ordersLoadPromise;
   ordersLoadPromise=(async()=>{
     populateStatus();
-    const p=new URLSearchParams(),q=document.getElementById("orders-search").value.trim(),s=document.getElementById("orders-status-filter").value,f=document.getElementById("orders-date-from").value,t=document.getElementById("orders-date-to").value;
-    if(q)p.set("q",q);if(s)p.set("status",s);if(f)p.set("date_from",f);if(t)p.set("date_to",t);
+    const q=document.getElementById("orders-search").value.trim();
+    const s=document.getElementById("orders-status-filter").value;
+    const f=document.getElementById("orders-date-from").value;
+    const t=document.getElementById("orders-date-to").value;
+    const p=new URLSearchParams();
+    if(q)p.set("q",q);
+    if(s)p.set("status",s);
+    if(f)p.set("date_from",f);
+    if(t)p.set("date_to",t);
+    p.set("page",String(ordersPage));
+    p.set("page_size",String(ORDERS_PAGE_SIZE));
     try{
-      const d=await apiFetch(`/api/orders?${p}`);
-      renderOrders(d.orders);
-      document.getElementById("orders-count").textContent=`عدد النتائج: ${d.count}`;
+      const d=await apiFetch('/api/orders?'+p.toString());
+      renderOrders(d.orders||[]);
+      document.getElementById("orders-count").textContent='عدد النتائج: '+d.count+' — صفحة '+d.page+' من '+d.pages;
+      renderOrdersPagination(d);
       return d;
-    }catch(e){
-      toast(e.message,"error");
-      throw e;
-    }finally{
-      ordersLoadPromise=null;
-    }
+    }catch(e){toast(e.message,"error");throw e;}
+    finally{ordersLoadPromise=null;}
   })();
   return ordersLoadPromise;
 }
@@ -358,7 +380,7 @@ async function loadBackups(){
     root.querySelectorAll(".restore-btn").forEach(btn=>btn.onclick=()=>openConfirm(`استعادة النسخة ${btn.dataset.file}؟ سيتم حفظ نسخة تلقائية من الحالة الحالية أولًا.`,async()=>{try{await apiFetch("/api/backups/restore",{method:"POST",body:JSON.stringify({filename:btn.dataset.file})});toast("تمت الاستعادة");refresh();loadBackups()}catch(e){toast(e.message,"error")}}));
   }catch(e){console.error("loadBackups failed",e);root.innerHTML='<div class="empty-state">تعذر تحميل النسخ الاحتياطية حاليًا.</div>';toast(e.message,"error");}
 }
-function initOrders(){let t;["orders-search"].forEach(id=>document.getElementById(id).oninput=()=>{clearTimeout(t);t=setTimeout(loadOrders,300)});document.getElementById("orders-status-filter").onchange=loadOrders;document.getElementById("orders-date-from").onchange=loadOrders;document.getElementById("orders-date-to").onchange=loadOrders;document.getElementById("orders-clear-filters").onclick=()=>{document.getElementById("orders-search").value="";document.getElementById("orders-status-filter").value="";document.getElementById("orders-date-from").value="";document.getElementById("orders-date-to").value="";loadOrders()}}
+function initOrders(){let t;["orders-search"].forEach(id=>document.getElementById(id).oninput=()=>{clearTimeout(t);t=setTimeout(()=>{ordersPage=1;loadOrders()},300)});document.getElementById("orders-status-filter").onchange=()=>{ordersPage=1;loadOrders()};document.getElementById("orders-date-from").onchange=()=>{ordersPage=1;loadOrders()};document.getElementById("orders-date-to").onchange=()=>{ordersPage=1;loadOrders()};document.getElementById("orders-clear-filters").onclick=()=>{document.getElementById("orders-search").value="";document.getElementById("orders-status-filter").value="";document.getElementById("orders-date-from").value="";document.getElementById("orders-date-to").value="";ordersPage=1;loadOrders()}}
 async function resetAllData(){
   const first=window.prompt("تحذير: سيُحذف كل الطلبات والصور والنسخ الاحتياطية. اكتب العبارة التالية للتأكيد:\n\nحذف كل البيانات");
   if(first!=="حذف كل البيانات"){ toast("تم إلغاء العملية"); return; }

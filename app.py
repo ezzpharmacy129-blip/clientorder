@@ -175,20 +175,19 @@ def uploaded_file(filename):
 
 @app.route("/api/orders", methods=["GET"])
 def api_list_orders():
-    orders=db.get_all_orders(); q=(request.args.get("q") or "").strip().lower(); status=(request.args.get("status") or "").strip()
-    date_from=(request.args.get("date_from") or "").strip(); date_to=(request.args.get("date_to") or "").strip()
-    if q:
-        qp=clean_phone(q)
-        def match(o):
-            blob=" ".join([str(o.get("Customer_Name","")),str(o.get("Phone","")),str(o.get("Product_Name","")),str(o.get("Order_ID",""))]).lower()
-            item_match=any(q in str(i.get("Product_Name","")) .lower() for i in o.get("Items",[]))
-            return q in blob or (qp and qp in str(o.get("Phone",""))) or item_match
-        orders=[o for o in orders if match(o)]
-    if status: orders=[o for o in orders if o.get("Status")==status]
-    if date_from: orders=[o for o in orders if str(o.get("Order_Date",""))>=date_from]
-    if date_to: orders=[o for o in orders if str(o.get("Order_Date",""))<=date_to]
-    orders.sort(key=lambda o:str(o.get("Created_At","")), reverse=True)
-    return jsonify({"orders":orders,"count":len(orders)})
+    q=(request.args.get("q") or "").strip()
+    status=(request.args.get("status") or "").strip()
+    date_from=(request.args.get("date_from") or "").strip()
+    date_to=(request.args.get("date_to") or "").strip()
+    try:
+        page=max(1,int(request.args.get("page",1)))
+        page_size=max(1,min(100,int(request.args.get("page_size",20))))
+    except (TypeError,ValueError):
+        return jsonify({"error":"قيم pagination غير صحيحة"}),400
+    try:
+        return jsonify(db.search_orders_page(q,status,date_from,date_to,page,page_size))
+    except Exception as e:
+        return jsonify({"error":f"تعذر البحث في الطلبات: {e}"}),500
 
 @app.route("/api/orders/search", methods=["GET"])
 def api_search_orders(): return api_list_orders()
