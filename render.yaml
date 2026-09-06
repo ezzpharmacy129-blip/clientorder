@@ -3,7 +3,7 @@ services:
     name: ezz-pharmacy-secure
     runtime: python
     plan: free
-    buildCommand: pip install -r requirements.txt
+    buildCommand: pip install -r requirements.txt && python tools/build_assets.py
     startCommand: python -m gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120
     envVars:
       - key: DATABASE_URL
