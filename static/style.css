@@ -182,3 +182,29 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--focus-ring),0 3px 12px 
 @media(prefers-reduced-motion:reduce){
   .btn,.nav-btn,.stat-card,.toast,.modal-close,.remove-product,input,select,textarea{transition:none}
 }
+
+
+/* EZZ MOBILE UX v1 */
+@media(max-width:720px){
+.table-wrap{overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;scrollbar-width:thin}
+.orders-table,.dashboard-orders-table{min-width:760px}
+.orders-table th,.orders-table td{padding:9px 8px}
+.orders-table td .btn,.dashboard-orders-table td .btn{min-height:36px;padding:7px 9px;font-size:12px}
+.table-footer{font-size:12px}
+.panel-header{gap:12px}
+.panel-header h2{font-size:17px}
+.form-actions{gap:8px}
+.form-actions .btn{min-height:42px}
+.followup-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.followup-actions .btn,.followup-actions .contact-links{width:100%}
+.contact-links{display:flex;gap:8px}
+.contact-links .btn{flex:1}
+}
+@media(max-width:520px){
+.orders-table,.dashboard-orders-table{min-width:700px}
+.orders-table th,.orders-table td{font-size:11px;padding:8px 7px}
+.orders-table td .btn,.dashboard-orders-table td .btn{min-height:34px;padding:6px 8px;font-size:11px}
+.today-meta{width:100%;align-items:flex-start}
+.action-item-actions{display:grid;grid-template-columns:1fr;gap:8px}
+.action-item-actions .btn{width:100%;min-width:0}
+}
