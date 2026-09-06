@@ -157,8 +157,12 @@ function renderActionCenter(){
   });
 
   const list=document.getElementById("action-center-list");
-  const total=Number(actionCenterData.total_actionable||0);
   if(!list)return;
+
+  const total=Number(actionCenterData.total_actionable||0);
+  const visible=actionCenterFilteredItems();
+  const visibleCount=visible.length;
+  const label=actionCenterFilter ? ((ACTION_CENTER_META[actionCenterFilter]||{}).label||"الطلبات") : "كل الطلبات التي تحتاج اهتمامًا";
 
   if(!total){
     list.innerHTML='<div class="action-center-empty"><div class="action-empty-icon">✓</div><strong>ممتاز، لا توجد طلبات تحتاج إجراء الآن</strong><span>يمكنك متابعة العمل بشكل طبيعي.</span></div>';
@@ -166,14 +170,13 @@ function renderActionCenter(){
     return;
   }
 
-  const visible=actionCenterFilteredItems();
-  const label=actionCenterFilter ? ((ACTION_CENTER_META[actionCenterFilter]||{}).label||"الطلبات") : "كل الطلبات التي تحتاج اهتمامًا";
-  document.getElementById("action-center-subtitle").textContent=total+" طلبات تحتاج اهتمامًا الآن — "+label;
-
-  if(!visible.length){
-    list.innerHTML='<div class="action-center-empty"><div class="action-empty-icon">✓</div><strong>لا توجد طلبات ضمن هذا التصنيف</strong><span>اختر تصنيفًا آخر من الأعلى.</span></div>';
+  if(actionCenterFilter && visibleCount===0){
+    document.getElementById("action-center-subtitle").textContent="0 طلبات ضمن «"+label+"»";
+    list.innerHTML='<div class="action-center-empty"><div class="action-empty-icon">✓</div><strong>لا توجد طلبات ضمن «'+esc(label)+'»</strong><span>اختر تصنيفًا آخر من الأعلى.</span></div>';
     return;
   }
+
+  document.getElementById("action-center-subtitle").textContent=(actionCenterFilter ? visibleCount : total)+" طلبات تحتاج اهتمامًا الآن — "+label;
 
   list.innerHTML=visible.map(function(o){
     const meta=ACTION_CENTER_META[o.action_key]||ACTION_CENTER_META.today;
