@@ -1,3 +1,4 @@
+# CI trigger: validate the corrected Dashboard source-of-truth commit.
 import unittest
 from pathlib import Path
 
