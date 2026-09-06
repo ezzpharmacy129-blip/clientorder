@@ -230,7 +230,7 @@ async function doPostpone(days,date=null){if(!currentPostpone)return;try{await a
 function renderOrders(orders){const b=document.getElementById("orders-table-body");if(!orders.length){b.innerHTML='<tr><td colspan="12" class="empty-state">لا توجد طلبات</td></tr>';return}b.innerHTML=orders.map(o=>`<tr><td>${esc(o.Order_ID)}</td><td>${esc(o.Customer_Name)}</td><td>${esc(o.Phone)}</td><td class="products-cell">${productsSummary(o)}</td><td>${o.Quantity}</td><td>${fmtDate(o.Order_Date)}</td><td>${fmtDate(o.Available_Date)}</td><td>${badge(o.Status)}</td><td>${contactBadge(o.Contact_Status)}</td><td>${fmtDate(o.Last_Contact_Date)}</td><td>${fmtDate(o.Next_Followup_Date)}</td><td><button class="btn btn-secondary btn-sm details-btn" data-id="${o.Order_ID}">التفاصيل</button></td></tr>`).join("");b.querySelectorAll(".details-btn").forEach(x=>x.onclick=()=>details(x.dataset.id))}
 function populateStatus(){const s=document.getElementById("orders-status-filter");if(s.dataset.done)return;STATUS_ORDER.forEach(x=>s.insertAdjacentHTML("beforeend",`<option value="${esc(x)}">${esc(x)}</option>`));s.dataset.done=1}
 let ordersLoadPromise=null;
-async let ordersPage=1;
+let ordersPage=1;
 const ORDERS_PAGE_SIZE=20;
 
 function renderOrdersPagination(meta){
@@ -380,7 +380,7 @@ async function loadBackups(){
     root.querySelectorAll(".restore-btn").forEach(btn=>btn.onclick=()=>openConfirm(`استعادة النسخة ${btn.dataset.file}؟ سيتم حفظ نسخة تلقائية من الحالة الحالية أولًا.`,async()=>{try{await apiFetch("/api/backups/restore",{method:"POST",body:JSON.stringify({filename:btn.dataset.file})});toast("تمت الاستعادة");refresh();loadBackups()}catch(e){toast(e.message,"error")}}));
   }catch(e){console.error("loadBackups failed",e);root.innerHTML='<div class="empty-state">تعذر تحميل النسخ الاحتياطية حاليًا.</div>';toast(e.message,"error");}
 }
-function initOrders(){let t;["orders-search"].forEach(id=>document.getElementById(id).oninput=()=>{clearTimeout(t);t=setTimeout(loadOrders,300)});document.getElementById("orders-status-filter").onchange=loadOrders;document.getElementById("orders-date-from").onchange=loadOrders;document.getElementById("orders-date-to").onchange=loadOrders;document.getElementById("orders-clear-filters").onclick=()=>{document.getElementById("orders-search").value="";document.getElementById("orders-status-filter").value="";document.getElementById("orders-date-from").value="";document.getElementById("orders-date-to").value="";loadOrders()}}
+function initOrders(){let t;["orders-search"].forEach(id=>document.getElementById(id).oninput=()=>{clearTimeout(t);t=setTimeout(()=>{ordersPage=1;loadOrders()},300)});document.getElementById("orders-status-filter").onchange=()=>{ordersPage=1;loadOrders()};document.getElementById("orders-date-from").onchange=()=>{ordersPage=1;loadOrders()};document.getElementById("orders-date-to").onchange=()=>{ordersPage=1;loadOrders()};document.getElementById("orders-clear-filters").onclick=()=>{document.getElementById("orders-search").value="";document.getElementById("orders-status-filter").value="";document.getElementById("orders-date-from").value="";document.getElementById("orders-date-to").value="";ordersPage=1;loadOrders()}}
 async function resetAllData(){
   const first=window.prompt("تحذير: سيُحذف كل الطلبات والصور والنسخ الاحتياطية. اكتب العبارة التالية للتأكيد:\n\nحذف كل البيانات");
   if(first!=="حذف كل البيانات"){ toast("تم إلغاء العملية"); return; }
