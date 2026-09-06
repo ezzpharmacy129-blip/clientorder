@@ -50,6 +50,10 @@ jobs:
           if code.count(old)!=1: raise SystemExit('FAIL CLOSED: image safety block')
           Path('cloud_db.py').write_text(code.replace(old,new,1),encoding='utf-8')
           PY
+      - name: Run focused P0.1 and P0.2 regression tests
+        id: p0reg
+        if: github.ref == 'refs/heads/p0-2-data-safe-undo'
+        run: python -m unittest -v tests/test_p0_item_update.py tests/test_p0_undo_safety.py
       - name: Compile Python files
         run: python -m compileall -q app.py db.py cloud_db.py sitecustomize.py auth_bootstrap.py auth_pg.py auth_security_extensions.py admin_state_controls.py data_export.py csrf_protection.py tests/test_csrf_protection.py
       - name: Validate JavaScript syntax
@@ -62,9 +66,6 @@ jobs:
         run: python -m unittest -v tests/test_authorization_policy.py
       - name: Run workflow policy tests
         run: python -m unittest -v tests/test_workflow_policy.py
-      - name: Run P0.1 and P0.2 regression tests
-        if: github.ref == 'refs/heads/p0-2-data-safe-undo'
-        run: python -m unittest -v tests/test_p0_item_update.py tests/test_p0_undo_safety.py
       - name: Verify users dashboard core integration
         run: |
           python - <<'PY'
@@ -79,7 +80,7 @@ jobs:
           print('USERS CORE INTEGRATION VERIFIED')
           PY
       - name: Commit verified P0.2 and restore CI on the staged branch
-        if: github.ref == 'refs/heads/p0-2-data-safe-undo'
+        if: always() && github.ref == 'refs/heads/p0-2-data-safe-undo' && steps.p0reg.outcome == 'success'
         shell: bash
         run: |
           cat > .github/workflows/ci.yml <<'EOF'
