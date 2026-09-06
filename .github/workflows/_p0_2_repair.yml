@@ -1,0 +1,87 @@
+name: P0.2 repair runner
+
+on:
+  push:
+    branches: [p0-2-data-safe-undo]
+
+permissions:
+  contents: write
+
+jobs:
+  repair-and-test:
+    if: github.event.head_commit.message != 'feat: close P0.2 data-safe undo'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: python -m pip install -r requirements.txt
+      - name: Reuse exact P0.2 patch script and test fixture
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json
+
+          wf = Path('.github/workflows/_p0_2_apply.yml').read_text(encoding='utf-8')
+
+          # Reuse the already-reviewed patch script instead of duplicating it.
+          p0_start = wf.index("          python - <<'PY'", wf.index('Apply P0.2 fail-closed patch')) + len("          python - <<'PY'\n")
+          p0_end = wf.index("          PY", p0_start)
+          patch_script = wf[p0_start:p0_end]
+          exec(compile(patch_script, '<p0_2_patch>', 'exec'), {})
+
+          # Reuse the already-reviewed test fixture.
+          t_start = wf.index("          cat > tests/test_p0_undo_safety.py <<'PY'") + len("          cat > tests/test_p0_undo_safety.py <<'PY'\n")
+          t_end = wf.index("          PY", t_start)
+          test_script = wf[t_start:t_end]
+          Path('tests/test_p0_undo_safety.py').write_text(test_script, encoding='utf-8')
+
+          code = Path('cloud_db.py').read_text(encoding='utf-8')
+          old = """                    expected=str(item.get('Image_Path') or ''); actual=str(current_by_id[item_id].get('Image_Path') or '')\n                    if expected!=actual and item_id not in images_by_item:\n                        raise ValueError(f'لا يمكن التراجع بأمان عن الصورة المرتبطة بالمنتج {item_id}: بيانات الصورة السابقة غير محفوظة')\n"""
+          new = """                    expected=str(item.get('Image_Path') or ''); actual=str(current_by_id[item_id].get('Image_Path') or '')\n                    if expected != actual:\n                        if expected:\n                            if item_id not in images_by_item:\n                                raise ValueError(f'لا يمكن التراجع بأمان عن الصورة المرتبطة بالمنتج {item_id}: بيانات الصورة السابقة غير محفوظة')\n                        else:\n                            # The snapshot intentionally had no image. Undo must remove a newly-added image.\n                            conn.execute('DELETE FROM item_images WHERE order_id=%s AND item_id=%s',(str(order_id),item_id))\n"""
+          if code.count(old) != 1:
+              raise SystemExit('FAIL CLOSED: expected-image safety block not found exactly once')
+          code = code.replace(old, new, 1)
+          Path('cloud_db.py').write_text(code, encoding='utf-8')
+
+          test = Path('tests/test_p0_undo_safety.py').read_text(encoding='utf-8')
+          if 'psycopg.Binary = lambda value: value' not in test:
+              test = test.replace('from cloud_db import CloudDB\n', 'from cloud_db import CloudDB\nimport psycopg\npsycopg.Binary = lambda value: value\n', 1)
+
+          marker = "\n\nclass SourceGuardTest(unittest.TestCase):\n"
+          addition = r'''\n    def test_undo_removes_new_image_when_snapshot_had_no_image(self):
+        before = copy.deepcopy(self.c.items)
+        snapshot_items = copy.deepcopy(before)
+        snapshot_items['A']['image_path'] = ''
+        self.c.items['A']['image_path'] = 'O/A-new.png'
+        self.c.images['O/A-new.png'] = {'image_path':'O/A-new.png','order_id':'O','item_id':'A','filename':'A-new.png','content_type':'image/png','data':b'NEW','created_at':'T3'}
+        snapshot = {'order': copy.deepcopy(self.c.orders['O']), 'items': [snapshot_items['A'], snapshot_items['B']]}
+        self.c.undo.append({'undo_id':'U1','order_id':'O','action':'إضافة صورة للمنتج','snapshot_json':json.dumps(snapshot,ensure_ascii=False),'created_at':'T4','undone_at':'','user_name':'tester'})
+        out = self.db.undo_last('O', user='tester')
+        got = {x['Item_ID']:x for x in out['order']['Items']}
+        self.assertEqual(got['A']['Image_Path'], '')
+        self.assertNotIn('O/A-new.png', self.c.images)
+'''
+          if 'test_undo_removes_new_image_when_snapshot_had_no_image' not in test:
+              if marker not in test:
+                  raise SystemExit('FAIL CLOSED: test class insertion marker not found')
+              test = test.replace(marker, addition + marker, 1)
+          Path('tests/test_p0_undo_safety.py').write_text(test, encoding='utf-8')
+          PY
+      - name: Verify P0.2 after repair
+        run: |
+          python -m compileall -q app.py db.py cloud_db.py tests/test_p0_undo_safety.py
+          node --check static/app.js
+          python -m unittest -v tests/test_p0_undo_safety.py tests/test_p0_item_update.py
+          git diff --check
+      - name: Commit verified P0.2 and remove all temporary runners
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm -f .github/workflows/_p0_2_apply.yml .github/workflows/_p0_2_repair.yml
+          git add cloud_db.py tests/test_p0_undo_safety.py .github/workflows/_p0_2_apply.yml .github/workflows/_p0_2_repair.yml
+          git commit -m "feat: close P0.2 data-safe undo"
+          git push
