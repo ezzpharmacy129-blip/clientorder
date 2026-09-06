@@ -15,7 +15,7 @@
     editingId: null
   };
 
-  const FILTERS = new Set(["all", "pharmacy", "customer"]);
+  const FILTERS = new Set(["all", "pharmacy", "pharmacy_available", "customer"]);
   const PAGE_SIZES = new Set(["20", "30", "all"]);
 
   const esc = window.esc || (value => String(value ?? "").replace(/[&<>\"]/g, ch => ({
@@ -75,14 +75,16 @@
       product: value(item, "product_name", "Product_Name") || "—",
       quantity: Number(value(item, "quantity", "Quantity")) || 1,
       date: value(item, "created_at", "Created_At") || "",
-      status: String(value(item, "status", "Status") || "pending") === "available" ? "تم التوفير" : "بانتظار التوفير",
+      statusKey: String(value(item, "status", "Status") || "pending").toLowerCase() === "available" ? "available" : "pending",
+      status: String(value(item, "status", "Status") || "pending").toLowerCase() === "available" ? "تم التوفير" : "بانتظار التوفير",
       note: value(item, "note", "Note") || "",
       createdBy: value(item, "created_by", "Created_By") || "موظف"
     }));
   }
 
   function rowsForFilter() {
-    if (state.filter === "pharmacy") return state.pharmacyRows;
+    if (state.filter === "pharmacy") return state.pharmacyRows.filter(row => row.statusKey === "pending");
+    if (state.filter === "pharmacy_available") return state.pharmacyRows.filter(row => row.statusKey === "available");
     if (state.filter === "customer") return state.customerRows;
     return [...state.customerRows, ...state.pharmacyRows].sort((a, b) =>
       String(b.date || "").localeCompare(String(a.date || ""))
@@ -114,16 +116,20 @@
     const pharmacy = document.getElementById("pharmacy-shortages-tab-count");
     const customer = document.getElementById("customer-shortages-tab-count");
     const all = document.getElementById("all-shortages-tab-count");
-    if (pharmacy) pharmacy.textContent = state.pharmacyRows.length;
+    const pendingPharmacy = state.pharmacyRows.filter(row => row.statusKey === "pending").length;
+    const availablePharmacy = state.pharmacyRows.filter(row => row.statusKey === "available").length;
+    if (pharmacy) pharmacy.textContent = pendingPharmacy;
     if (customer) customer.textContent = state.customerRows.length;
-    if (all) all.textContent = state.pharmacyRows.length + state.customerRows.length;
+    if (all) all.textContent = pendingPharmacy + state.customerRows.length;
+    const provided = document.getElementById("pharmacy-shortages-provided-count");
+    if (provided) provided.textContent = availablePharmacy;
   }
 
   function updateHeaders() {
     const head = document.getElementById("daily-shortages-table-head");
     if (!head) return;
 
-    const headers = state.filter === "pharmacy"
+    const headers = (state.filter === "pharmacy" || state.filter === "pharmacy_available")
       ? ["المنتج", "الكمية", "التاريخ", "الحالة", "الإجراء"]
       : state.filter === "customer"
         ? ["رقم الطلب", "العميل", "الهاتف", "المنتج", "الكمية", "التاريخ", "الإجراء"]
@@ -135,7 +141,7 @@
   function pharmacyAction(row) {
     const availability = row.status === "تم التوفير"
       ? `<button type="button" class="btn btn-secondary btn-sm ps-undo" data-id="${esc(row.shortageId)}">↩ تراجع</button>`
-      : `<button type="button" class="btn btn-primary btn-sm ps-available" data-id="${esc(row.shortageId)}">تم التوفير</button>`;
+      : `<button type="button" class="btn btn-primary btn-sm ps-available" data-id="${esc(row.shortageId)}">تم توفيره</button>`;
     return `${availability}<button type="button" class="btn btn-outline btn-sm ps-edit" data-id="${esc(row.shortageId)}">تعديل</button>`;
   }
 
@@ -148,7 +154,7 @@
     if (!body) return;
 
     const rows = pageRows();
-    const colspan = state.filter === "pharmacy" ? 5 : state.filter === "customer" ? 7 : 9;
+    const colspan = (state.filter === "pharmacy" || state.filter === "pharmacy_available") ? 5 : state.filter === "customer" ? 7 : 9;
 
     if (!rows.length) {
       body.innerHTML = `<tr><td colspan="${colspan}" class="empty-state">لا توجد نواقص ضمن هذا التصنيف ✅</td></tr>`;
@@ -161,7 +167,7 @@
         : `<span class="status-badge status-pending">بانتظار التوفير</span>`;
       const action = row.type === "pharmacy" ? pharmacyAction(row) : customerAction(row);
 
-      if (state.filter === "pharmacy") {
+      if (state.filter === "pharmacy" || state.filter === "pharmacy_available") {
         return `<tr>
           <td><strong>${esc(row.product)}</strong>${row.note ? `<div class="daily-shortage-note">${esc(row.note)}</div>` : ""}</td>
           <td>${esc(row.quantity)}</td>
@@ -244,7 +250,7 @@
     const subtitle = document.getElementById("daily-shortages-subtitle");
     const summary = document.getElementById("daily-shortages-summary");
     const limit = document.getElementById("pharmacy-shortages-limit");
-    const labels = { all: "الكل", pharmacy: "نواقص الصيدلية", customer: "طلبات العملاء" };
+    const labels = { all: "الكل", pharmacy: "النواقص الحالية", pharmacy_available: "تم توفيره", customer: "طلبات العملاء" };
 
     if (state.page > pageCount()) state.page = pageCount();
     updateCounts();
@@ -253,10 +259,12 @@
 
     if (title) title.textContent = state.filter === "all" ? "النواقص" : `📦 ${labels[state.filter]}`;
     if (subtitle) subtitle.textContent = state.filter === "all"
-      ? "عرض موحد لنواقص الصيدلية وطلبات العملاء."
+      ? "عرض موحد للنواقص الحالية وطلبات العملاء."
       : state.filter === "pharmacy"
-        ? "النواقص المسجلة على مستوى الصيدلية."
-        : "المنتجات غير المتوفرة المرتبطة بطلبات العملاء.";
+        ? "النواقص التي لم يتم توفيرها بعد."
+        : state.filter === "pharmacy_available"
+          ? "المنتجات التي تم توفيرها مسبقًا."
+          : "المنتجات غير المتوفرة المرتبطة بطلبات العملاء.";
 
     if (limit) limit.value = PAGE_SIZES.has(state.pageSize) ? state.pageSize : "20";
 
@@ -432,7 +440,7 @@
       if (event.target.id === "pharmacy-shortage-modal") closeForm();
     });
 
-    state.filter = "all";
+    state.filter = "pharmacy";
     state.page = 1;
     render();
     load();
@@ -441,7 +449,7 @@
   window.dailyShortages = {
     load,
     open: () => {
-      state.filter = "all";
+      state.filter = "pharmacy";
       state.page = 1;
       render();
       return load();
