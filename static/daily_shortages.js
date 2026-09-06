@@ -111,11 +111,21 @@
     const title = document.getElementById("daily-shortages-title");
     const subtitle = document.getElementById("daily-shortages-subtitle");
     const summary = document.getElementById("daily-shortages-summary");
+    const head = document.getElementById("daily-shortages-table-head");
     const body = document.getElementById("daily-shortages-table-body");
     const limitWrap = document.getElementById("pharmacy-shortages-limit-wrap");
     const limitSelect = document.getElementById("pharmacy-shortages-limit");
 
     if (!body) return;
+
+    if (head) {
+      const headers = state.filter === "pharmacy"
+        ? ["المنتج", "الكمية", "التاريخ", "الحالة", "الإجراء"]
+        : state.filter === "customer"
+          ? ["رقم الطلب", "العميل", "الهاتف", "المنتج", "الكمية", "التاريخ", "الإجراء"]
+          : ["النوع", "رقم الطلب", "العميل", "الهاتف", "المنتج", "الكمية", "التاريخ", "الحالة", "الإجراء"];
+      head.innerHTML = "<tr>" + headers.map(h => "<th>" + h + "</th>").join("") + "</tr>";
+    }
 
     const labels = {
       all: "الكل",
@@ -161,7 +171,7 @@
 
     if (!rows.length) {
       body.innerHTML =
-        '<tr><td colspan="9" class="empty-state">لا توجد نواقص ضمن هذا التصنيف ✅</td></tr>';
+        '<tr><td colspan="" + (state.filter === "pharmacy" ? "5" : state.filter === "customer" ? "7" : "9") + " class="empty-state">لا توجد نواقص ضمن هذا التصنيف ✅</td></tr>';
       return;
     }
 
