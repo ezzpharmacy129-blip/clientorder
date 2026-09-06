@@ -25,7 +25,7 @@ function waUrl(phone,message){const p=normalizePhoneClient(phone);return `whatsa
 function openWhatsAppOnThisDevice(appUrl,webUrl){if(!appUrl)return;let timer=null;const hidden=()=>{if(timer)clearTimeout(timer);document.removeEventListener("visibilitychange",hidden)};document.addEventListener("visibilitychange",hidden);try{window.location.href=appUrl}catch(_e){if(webUrl)window.open(webUrl,"_blank","noopener");return}timer=setTimeout(()=>{document.removeEventListener("visibilitychange",hidden);if(document.visibilityState==="visible"&&webUrl)window.open(webUrl,"_blank","noopener")},1400)}
 function phoneLinks(p){const n=normalizePhoneClient(p);if(!n)return"";const wa=waUrl(n,"");return `<span class="contact-links"><a class="btn btn-icon btn-sm" href="tel:${n}">📞</a><a class="btn btn-icon btn-sm wa-desktop-link" href="${wa}">💬</a></span>`}
 function todayISO(){return new Date().toLocaleDateString("en-CA",{timeZone:"Asia/Riyadh"})}
-function switchView(v){document.querySelectorAll(".view").forEach(x=>x.classList.remove("active"));document.querySelectorAll(".nav-btn[data-view]").forEach(x=>x.classList.remove("active"));document.getElementById(`view-${v}`)?.classList.add("active");document.querySelector(`.nav-btn[data-view="${v}"]`)?.classList.add("active");if(v==="dashboard")loadDashboard();if(v==="orders")loadOrders();if(v==="backups")loadBackups();if(v==="message-templates")loadMessageTemplates();if(v==="shortages")window.dailyShortages?.open?.();if(v==="whatsapp"){loadMessageTemplates();loadShortages();loadWaCustomers();}if(v==="whatsapp_legacy_never"){loadShortages();loadWaCustomers()}if(v==="new-order")document.querySelector('[name="order_date"]').value ||= todayISO()}
+function switchView(v){const current=document.querySelector(".view.active")?.id?.replace(/^view-/,"");document.querySelectorAll(".view").forEach(x=>x.classList.remove("active"));document.querySelectorAll(".nav-btn[data-view]").forEach(x=>x.classList.remove("active"));document.getElementById(`view-${v}`)?.classList.add("active");document.querySelector(`.nav-btn[data-view="${v}"]`)?.classList.add("active");if(v==="dashboard"&&current!=="dashboard")loadDashboard();if(v==="orders")loadOrders();if(v==="backups")loadBackups();if(v==="message-templates")loadMessageTemplates();if(v==="shortages")window.dailyShortages?.open?.();if(v==="whatsapp"){loadMessageTemplates();loadShortages();loadWaCustomers();}if(v==="whatsapp_legacy_never"){loadShortages();loadWaCustomers()}if(v==="new-order")document.querySelector('[name="order_date"]').value ||= todayISO()}
 function initNav(){
   document.querySelectorAll(".nav-btn[data-view]").forEach(b=>b.addEventListener("click",()=>switchView(b.dataset.view)));
 }
@@ -86,17 +86,34 @@ function renderDashboardResults(){
   document.getElementById('dashboard-results-count').textContent=`عدد النتائج: ${orders.length}`;
 }
 function closeDashboardResults(){const panel=document.getElementById('dashboard-results-panel');panel.classList.add('hidden');document.getElementById('dashboard-results-search').value='';if(document.getElementById('dashboard-contact-filter'))document.getElementById('dashboard-contact-filter').value='';}
+let dashboardLoadPromise=null;
+let dashboardLoadedOnce=false;
+
 async function loadDashboard(){
-  try{
-    const [s,o]=await Promise.all([apiFetch('/api/dashboard'),apiFetch('/api/orders')]);
-    window.dashboardStats=s;dashboardAllOrders=o.orders||[];
-    renderDashboardCards(s);
-    document.getElementById('today-date').textContent=fmtDate(s.date);
-    document.getElementById('today-summary').innerHTML=`لديك <strong>${s.available}</strong> طلبات جاهزة للتواصل، <strong>${s.awaiting_reply}</strong> بانتظار رد العميل، <strong>${s.overdue}</strong> متابعات متأخرة`;
-    if(dashboardFilterKey) renderDashboardResults();
-    await loadActionCenter();
-    await loadFollowups();
-  }catch(e){toast(e.message,'error')}
+  if(dashboardLoadPromise) return dashboardLoadPromise;
+  dashboardLoadPromise=(async()=>{
+    try{
+      const data=await apiFetch('/api/dashboard');
+      window.dashboardStats=data;
+      dashboardAllOrders=data.orders||[];
+      renderDashboardCards(data);
+      document.getElementById('today-date').textContent=fmtDate(data.date);
+      document.getElementById('today-summary').innerHTML=`لديك <strong>${data.available}</strong> طلبات جاهزة للتواصل، <strong>${data.awaiting_reply}</strong> بانتظار رد العميل، <strong>${data.overdue}</strong> متابعات متأخرة`;
+
+      actionCenterData=data.action_center||{summary:{},items:[],total_actionable:0};
+      renderActionCenter();
+      const followupTarget=document.getElementById('followups-list');
+      if(followupTarget) renderFollowupsList(data.followups||[]);
+      if(dashboardFilterKey) renderDashboardResults();
+      dashboardLoadedOnce=true;
+    }catch(e){
+      toast(e.message,'error');
+      throw e;
+    }finally{
+      dashboardLoadPromise=null;
+    }
+  })();
+  return dashboardLoadPromise;
 }
 
 
@@ -202,9 +219,44 @@ async function loadActionCenter(){
   }
 }
 
+function renderFollowupsList(followups){
+  const c=document.getElementById("followups-list");
+  if(!c)return;
+  if(!followups.length){
+    c.innerHTML='<div class="empty-state">لا توجد متابعات مطلوبة اليوم 🎉</div>';
+    return;
+  }
+  c.innerHTML=followups.map(o=>{
+    const k=o._followup_kind;
+    const tag=k==='overdue'?'🔴 متابعة متأخرة':k==='needs_call'?'🟠 يحتاج اتصال':'🔵 متابعة اليوم';
+    const btn=k==='needs_call'
+      ? '<button class="btn btn-primary btn-sm act-contact" data-id="'+esc(o.Order_ID)+'">تم الاتصال</button>'
+      : '<button class="btn btn-primary btn-sm act-pickup" data-id="'+esc(o.Order_ID)+'">تم الاستلام</button><button class="btn btn-outline btn-sm act-postpone" data-id="'+esc(o.Order_ID)+'">تأجيل</button>';
+    return '<div class="followup-card kind-'+esc(k)+'"><div class="followup-info"><div class="followup-tag">'+tag+'</div><div class="fi-name">'+esc(o.Customer_Name)+'</div><div class="fi-meta">'+productsSummary(o)+'<br>'+esc(o.Phone)+'</div></div><div class="followup-actions"><button class="btn btn-outline btn-sm act-wa" data-id="'+esc(o.Order_ID)+'">💬 إرسال الرسالة</button>'+phoneLinks(o.Phone)+btn+'<button class="btn btn-secondary btn-sm act-details" data-id="'+esc(o.Order_ID)+'">التفاصيل</button></div></div>';
+  }).join("");
+  attachActions(c);
+}
+
 function productsSummary(o){if(Array.isArray(o.Items)&&o.Items.length)return o.Items.map(i=>`${esc(i.Product_Name)} × ${i.Quantity}${i.Image_Path?' 📷':''}`).join("<br>");return esc(o.Product_Name)}
 function imageHtml(item,compact=false){if(!item?.Image_Path)return `<div class="no-image">لا توجد صورة</div>`;const u=`/uploads/${encodeURIComponent(item.Image_Path).replace(/%2F/g,'/')}`;return `<a href="${u}" target="_blank" rel="noopener" class="product-image-link"><img class="product-thumb ${compact?'compact':''}" src="${u}" alt="${esc(item.Product_Name)}"></a>`}
-async function loadFollowups(term=""){try{let {followups}=await apiFetch("/api/followups/today");if(term){const q=term.toLowerCase();followups=followups.filter(o=>`${o.Customer_Name} ${o.Phone} ${o.Product_Name} ${(o.Items||[]).map(i=>i.Product_Name).join(" ")}`.toLowerCase().includes(q))}const c=document.getElementById("followups-list");if(!followups.length){c.innerHTML='<div class="empty-state">لا توجد متابعات مطلوبة اليوم 🎉</div>';return}c.innerHTML=followups.map(o=>{const k=o._followup_kind;const tag=k==='overdue'?'🔴 متابعة متأخرة':k==='needs_call'?'🟠 يحتاج اتصال':'🔴 متابعة اليوم';let btn=k==='needs_call'?`<button class="btn btn-primary btn-sm act-contact" data-id="${o.Order_ID}">تم الاتصال</button>`:`<button class="btn btn-primary btn-sm act-pickup" data-id="${o.Order_ID}">تم الاستلام</button><button class="btn btn-outline btn-sm act-postpone" data-id="${o.Order_ID}">تأجيل</button>`;return `<div class="followup-card kind-${k}"><div class="followup-info"><div class="followup-tag">${tag}</div><div class="fi-name">${esc(o.Customer_Name)}</div><div class="fi-meta">${productsSummary(o)}<br>${esc(o.Phone)}</div></div><div class="followup-actions"><button class="btn btn-outline btn-sm act-wa" data-id="${o.Order_ID}">💬 إرسال الرسالة</button>${phoneLinks(o.Phone)}${btn}<button class="btn btn-secondary btn-sm act-details" data-id="${o.Order_ID}">التفاصيل</button></div></div>`}).join("");attachActions(c)}catch(e){document.getElementById("followups-list").innerHTML='<div class="empty-state">تعذر تحميل المتابعات</div>'}}
+async function loadFollowups(term=""){
+  try{
+    let followups;
+    if(term){
+      const data=await apiFetch("/api/followups/today");
+      followups=data.followups||[];
+      const q=term.toLowerCase();
+      followups=followups.filter(o=>`${o.Customer_Name} ${o.Phone} ${o.Product_Name} ${(o.Items||[]).map(i=>i.Product_Name).join(" ")}`.toLowerCase().includes(q));
+    }else{
+      followups=(window.dashboardStats?.followups)||[];
+    }
+    renderFollowupsList(followups);
+  }catch(e){
+    const c=document.getElementById("followups-list");
+    if(c)c.innerHTML='<div class="empty-state">تعذر تحميل المتابعات</div>';
+  }
+}
+
 function attachActions(c){c.querySelectorAll(".act-wa").forEach(b=>b.onclick=()=>openClientWhatsApp(b.dataset.id));c.querySelectorAll(".act-contact").forEach(b=>b.onclick=()=>contact(b.dataset.id));c.querySelectorAll(".act-pickup").forEach(b=>b.onclick=()=>pickup(b.dataset.id));c.querySelectorAll(".act-postpone").forEach(b=>b.onclick=()=>openPostpone(b.dataset.id));c.querySelectorAll(".act-details").forEach(b=>b.onclick=()=>details(b.dataset.id))}
 function contactBadge(s){const v=s||"لم يتم التواصل";return `<span class="contact-badge ${CONTACT_STATUS_LABELS[v]||"contact-not"}">${esc(v)}</span>`}
 function renderRejectedItemsChooser(order){
@@ -357,7 +409,7 @@ document.addEventListener("DOMContentLoaded",()=>{initNav();initModals();initDai
  document.getElementById("import-data-btn")?.addEventListener("click",()=>document.getElementById("import-data-file")?.click());
  document.getElementById("import-data-file")?.addEventListener("change",e=>importLegacyData(e.target.files?.[0]));
  
- document.getElementById("dashboard-results-search")?.addEventListener("input",()=>renderDashboardResults());document.getElementById("dashboard-contact-filter")?.addEventListener("change",()=>renderDashboardResults());document.getElementById("dashboard-results-close")?.addEventListener("click",()=>{dashboardFilterKey=null;closeDashboardResults();renderDashboardCards(window.dashboardStats||{})});document.getElementById("dashboard-search").oninput=e=>{clearTimeout(window._s);window._s=setTimeout(()=>loadFollowups(e.target.value.trim()),250)};document.getElementById("refresh-shortages-btn")?.addEventListener("click",loadShortages);document.getElementById("shortages-select-all")?.addEventListener("click",()=>selectAllShortages(true));document.getElementById("shortages-clear-all")?.addEventListener("click",()=>selectAllShortages(false));document.getElementById("shortages-mode")?.addEventListener("change",updateShortageMessage);document.getElementById("copy-shortages-btn")?.addEventListener("click",copyShortages);document.getElementById("open-wa-group-btn")?.addEventListener("click",openShortagesWhatsApp);document.getElementById("refresh-wa-customers-btn")?.addEventListener("click",loadWaCustomers);document.getElementById("message-templates-save")?.addEventListener("click",saveMessageTemplates);document.getElementById("message-templates-reset")?.addEventListener("click",resetMessageTemplates);loadDashboard();document.getElementById("action-center-refresh")?.addEventListener("click",loadActionCenter);document.querySelectorAll("[data-action-filter]").forEach(function(b){b.addEventListener("click",function(){const k=b.dataset.actionFilter;actionCenterFilter=actionCenterFilter===k?null:k;renderActionCenter();});});});
+ document.getElementById("dashboard-results-search")?.addEventListener("input",()=>renderDashboardResults());document.getElementById("dashboard-contact-filter")?.addEventListener("change",()=>renderDashboardResults());document.getElementById("dashboard-results-close")?.addEventListener("click",()=>{dashboardFilterKey=null;closeDashboardResults();renderDashboardCards(window.dashboardStats||{})});document.getElementById("dashboard-search").oninput=e=>{clearTimeout(window._s);window._s=setTimeout(()=>loadFollowups(e.target.value.trim()),250)};document.getElementById("refresh-shortages-btn")?.addEventListener("click",loadShortages);document.getElementById("shortages-select-all")?.addEventListener("click",()=>selectAllShortages(true));document.getElementById("shortages-clear-all")?.addEventListener("click",()=>selectAllShortages(false));document.getElementById("shortages-mode")?.addEventListener("change",updateShortageMessage);document.getElementById("copy-shortages-btn")?.addEventListener("click",copyShortages);document.getElementById("open-wa-group-btn")?.addEventListener("click",openShortagesWhatsApp);document.getElementById("refresh-wa-customers-btn")?.addEventListener("click",loadWaCustomers);document.getElementById("message-templates-save")?.addEventListener("click",saveMessageTemplates);document.getElementById("message-templates-reset")?.addEventListener("click",resetMessageTemplates);loadDashboard();document.getElementById("action-center-refresh")?.addEventListener("click",async()=>{actionCenterData={summary:{},items:[],total_actionable:0};await loadDashboard();});document.querySelectorAll("[data-action-filter]").forEach(function(b){b.addEventListener("click",function(){const k=b.dataset.actionFilter;actionCenterFilter=actionCenterFilter===k?null:k;renderActionCenter();});});});
 
 /* EZZ SHORTAGE GROUPING FIX v1 */
 /* EZZ_CORE_USERS_DASHBOARD_V5 */
