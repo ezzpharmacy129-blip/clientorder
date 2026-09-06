@@ -395,3 +395,20 @@
     justify-content:flex-start;
   }
 }
+
+
+/* Independent shortage send actions */
+.shortages-page .shortages-send-actions{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  flex-wrap:wrap;
+}
+.shortages-page .shortage-send-btn{
+  white-space:nowrap;
+}
+@media(max-width:1100px){
+  .shortages-page .shortages-send-actions{
+    width:100%;
+  }
+}
