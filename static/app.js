@@ -229,9 +229,45 @@ function openPostpone(id){currentPostpone=id;document.getElementById("postpone-c
 async function doPostpone(days,date=null){if(!currentPostpone)return;try{await apiFetch(`/api/orders/${currentPostpone}/postpone`,{method:"POST",body:JSON.stringify(date?{custom_date:date}:{days})});toast("تم تأجيل المتابعة");closeModals();refresh()}catch(e){toast(e.message,"error")}}
 function renderOrders(orders){const b=document.getElementById("orders-table-body");if(!orders.length){b.innerHTML='<tr><td colspan="12" class="empty-state">لا توجد طلبات</td></tr>';return}b.innerHTML=orders.map(o=>`<tr><td>${esc(o.Order_ID)}</td><td>${esc(o.Customer_Name)}</td><td>${esc(o.Phone)}</td><td class="products-cell">${productsSummary(o)}</td><td>${o.Quantity}</td><td>${fmtDate(o.Order_Date)}</td><td>${fmtDate(o.Available_Date)}</td><td>${badge(o.Status)}</td><td>${contactBadge(o.Contact_Status)}</td><td>${fmtDate(o.Last_Contact_Date)}</td><td>${fmtDate(o.Next_Followup_Date)}</td><td><button class="btn btn-secondary btn-sm details-btn" data-id="${o.Order_ID}">التفاصيل</button></td></tr>`).join("");b.querySelectorAll(".details-btn").forEach(x=>x.onclick=()=>details(x.dataset.id))}
 function populateStatus(){const s=document.getElementById("orders-status-filter");if(s.dataset.done)return;STATUS_ORDER.forEach(x=>s.insertAdjacentHTML("beforeend",`<option value="${esc(x)}">${esc(x)}</option>`));s.dataset.done=1}
-async function loadOrders(){populateStatus();const p=new URLSearchParams(),q=document.getElementById("orders-search").value.trim(),s=document.getElementById("orders-status-filter").value,f=document.getElementById("orders-date-from").value,t=document.getElementById("orders-date-to").value;if(q)p.set("q",q);if(s)p.set("status",s);if(f)p.set("date_from",f);if(t)p.set("date_to",t);try{const d=await apiFetch(`/api/orders?${p}`);renderOrders(d.orders);document.getElementById("orders-count").textContent=`عدد النتائج: ${d.count}`}catch(e){toast(e.message,"error")}}
+let ordersLoadPromise=null;
+async function loadOrders(){
+  if(ordersLoadPromise)return ordersLoadPromise;
+  ordersLoadPromise=(async()=>{
+    populateStatus();
+    const p=new URLSearchParams(),q=document.getElementById("orders-search").value.trim(),s=document.getElementById("orders-status-filter").value,f=document.getElementById("orders-date-from").value,t=document.getElementById("orders-date-to").value;
+    if(q)p.set("q",q);if(s)p.set("status",s);if(f)p.set("date_from",f);if(t)p.set("date_to",t);
+    try{
+      const d=await apiFetch(`/api/orders?${p}`);
+      renderOrders(d.orders);
+      document.getElementById("orders-count").textContent=`عدد النتائج: ${d.count}`;
+      return d;
+    }catch(e){
+      toast(e.message,"error");
+      throw e;
+    }finally{
+      ordersLoadPromise=null;
+    }
+  })();
+  return ordersLoadPromise;
+}
 
-function bindImagePreview(row){const input=row.querySelector('.product-image');const preview=row.querySelector('.image-preview');input.onchange=()=>{preview.innerHTML='';const file=input.files?.[0];if(!file)return;const img=document.createElement('img');img.className='product-thumb';img.alt='معاينة';img.src=URL.createObjectURL(file);preview.appendChild(img)}}
+function bindImagePreview(row){
+  const input=row.querySelector('.product-image');
+  const preview=row.querySelector('.image-preview');
+  let objectUrl=null;
+  input.onchange=()=>{
+    if(objectUrl)URL.revokeObjectURL(objectUrl);
+    preview.innerHTML='';
+    const file=input.files?.[0];
+    if(!file)return;
+    objectUrl=URL.createObjectURL(file);
+    const img=document.createElement('img');
+    img.className='product-thumb';
+    img.alt='معاينة';
+    img.src=objectUrl;
+    preview.appendChild(img);
+  };
+}
 function addProductRow(name="",qty=1){const wrap=document.getElementById("product-items"),idx=wrap.children.length+1,div=document.createElement("div");div.className="product-row";div.innerHTML=`<div class="product-number">${idx}</div><input class="product-name" type="text" placeholder="اسم المنتج" value="${esc(name)}"><input class="product-qty" type="number" min="1" value="${qty}"><div class="product-image-cell"><label class="image-upload-btn">📷 صورة المنتج<input class="product-image" type="file" accept="image/jpeg,image/png,image/webp" hidden></label><div class="image-preview"></div></div><button type="button" class="remove-product" title="حذف المنتج">✕</button>`;div.querySelectorAll("input").forEach(x=>x.addEventListener("input",updateProductTotals));div.querySelector(".remove-product").onclick=()=>{div.remove();renumberProducts();if(!document.querySelectorAll(".product-row").length)addProductRow();updateProductTotals()};wrap.appendChild(div);bindImagePreview(div);updateProductTotals()}
 function renumberProducts(){document.querySelectorAll(".product-row").forEach((r,i)=>r.querySelector(".product-number").textContent=i+1)}
 function updateProductTotals(){const rows=[...document.querySelectorAll(".product-row")];document.getElementById("products-count").textContent=rows.length;document.getElementById("products-total").textContent=rows.reduce((n,r)=>n+(parseInt(r.querySelector(".product-qty").value)||0),0)}
