@@ -4,10 +4,18 @@ import tempfile
 import unittest
 from unittest.mock import Mock
 
-from openpyxl import Workbook
+# db.py selects CloudDB while importing when DATABASE_URL is already present.
+# Import the modules first without the environment selector, then restore it so
+# CloudDB instances can still connect to the integration PostgreSQL database.
+_ci_database_url = os.environ.pop('DATABASE_URL', None)
+try:
+    from cloud_db import CloudDB
+    from db import STATUS_PENDING, CONTACT_NOT_CONTACTED
+finally:
+    if _ci_database_url:
+        os.environ['DATABASE_URL'] = _ci_database_url
 
-from cloud_db import CloudDB
-from db import STATUS_PENDING, CONTACT_NOT_CONTACTED
+from openpyxl import Workbook
 
 
 def workbook_bytes(orders, items=None, logs=None, undos=None, settings=None):
@@ -42,13 +50,12 @@ class ValidationTests(unittest.TestCase):
         self.item = {'Item_ID':'ITEM-1','Order_ID':'ORD-1','Product_Name':'دواء','Quantity':1,'Image_Path':'','Availability_Status':'بانتظار التوفر'}
 
     def check_rejected(self, **kwargs):
-        args = kwargs
-        orders = args.pop('orders', [self.order.copy()])
-        items = args.pop('items', [self.item.copy()])
-        logs = args.pop('logs', [])
-        undos = args.pop('undos', [])
-        settings = args.pop('settings', [])
-        images = args.pop('images', None)
+        orders = kwargs.pop('orders', [self.order.copy()])
+        items = kwargs.pop('items', [self.item.copy()])
+        logs = kwargs.pop('logs', [])
+        undos = kwargs.pop('undos', [])
+        settings = kwargs.pop('settings', [])
+        images = kwargs.pop('images', None)
         with self.assertRaises(ValueError):
             self.db._validate_import_payload(orders, items, logs, undos, settings, images)
 
