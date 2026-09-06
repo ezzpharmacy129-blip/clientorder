@@ -1,11 +1,11 @@
-/* Daily Pharmacy Shortages — single owner for shortages navigation + view */
+/* Daily Pharmacy Shortages — single owner for shortages page */
 (() => {
   "use strict";
 
   const state = {
     pharmacyRows: [],
     customerRows: [],
-    filter: localStorage.getItem("ezz_daily_shortages_filter") || "all",
+    filter: "all",
     limit: localStorage.getItem("ezz_pharmacy_shortages_limit") || "20",
     editingId: null
   };
@@ -24,25 +24,24 @@
 
   function normalizeCustomerRows(orders) {
     const rows = [];
+
     (orders || []).forEach(order => {
       const pending = (order.Items || []).filter(
         item => item.Availability_Status === "بانتظار التوفر"
       );
 
       if (pending.length) {
-        pending.forEach(item => {
-          rows.push({
-            type: "customer",
-            orderId: order.Order_ID || "—",
-            customer: order.Customer_Name || "—",
-            phone: order.Phone || "—",
-            product: item.Product_Name || "—",
-            quantity: item.Quantity || 1,
-            date: order.Order_Date || order.Created_At || "",
-            status: "بانتظار التوفير"
-          });
-        });
-      } else if (order.Status === "بانتظار التوفر") {
+        pending.forEach(item => rows.push({
+          type: "customer",
+          orderId: order.Order_ID || "—",
+          customer: order.Customer_Name || "—",
+          phone: order.Phone || "—",
+          product: item.Product_Name || "—",
+          quantity: item.Quantity || 1,
+          date: order.Order_Date || order.Created_At || "",
+          status: "بانتظار التوفير"
+        }));
+      } else if (order.Status === "بانتظار التوفير") {
         rows.push({
           type: "customer",
           orderId: order.Order_ID || "—",
@@ -55,6 +54,7 @@
         });
       }
     });
+
     return rows;
   }
 
@@ -76,57 +76,35 @@
 
   function currentRows() {
     if (state.filter === "pharmacy") {
-      const limit = state.limit === "all"
+      const count = state.limit === "all"
         ? state.pharmacyRows.length
         : Math.max(1, Number(state.limit) || 20);
-      return state.pharmacyRows.slice(0, limit);
+      return state.pharmacyRows.slice(0, count);
     }
-    if (state.filter === "customer") return state.customerRows;
+
+    if (state.filter === "customer") {
+      return state.customerRows;
+    }
+
     return [...state.customerRows, ...state.pharmacyRows].sort(
       (a, b) => String(b.date || "").localeCompare(String(a.date || ""))
     );
   }
 
-  function setNavState() {
-    const dropdown = document.querySelector("[data-nav-dropdown]");
-    const toggle = dropdown?.querySelector(".nav-dropdown-toggle");
-    const activeItem = document.querySelector(
-      '[data-shortages-filter="' + state.filter + '"]'
-    );
-
-    document.querySelectorAll("[data-shortages-filter]").forEach(item => {
-      item.classList.toggle("active", item === activeItem);
-    });
-
-    toggle?.classList.toggle("active", document.getElementById("view-shortages")?.classList.contains("active") === true);
-    toggle?.setAttribute("aria-expanded", "false");
-    dropdown?.classList.remove("open");
-  }
-
-  function openDropdown() {
-    const dropdown = document.querySelector("[data-nav-dropdown]");
-    const toggle = dropdown?.querySelector(".nav-dropdown-toggle");
-    if (!dropdown || !toggle) return;
-    const opened = dropdown.classList.toggle("open");
-    toggle.setAttribute("aria-expanded", String(opened));
-  }
-
-  function switchFilter(filter) {
+  function setFilter(filter) {
     state.filter = ["pharmacy", "customer", "all"].includes(filter)
       ? filter
       : "all";
 
-    localStorage.setItem("ezz_daily_shortages_filter", state.filter);
-
-    if (typeof window.switchView === "function") {
-      window.switchView("shortages");
-    } else {
-      document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
-      document.getElementById("view-shortages")?.classList.add("active");
-    }
-
-    setNavState();
     render();
+  }
+
+  function syncFilterButtons() {
+    document.querySelectorAll("[data-shortages-view]").forEach(button => {
+      const active = button.dataset.shortagesView === state.filter;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-selected", String(active));
+    });
   }
 
   function render() {
@@ -140,9 +118,9 @@
     if (!body) return;
 
     const labels = {
+      all: "الكل",
       pharmacy: "نواقص الصيدلية",
-      customer: "طلبات العملاء",
-      all: "الكل"
+      customer: "طلبات العملاء"
     };
 
     const rows = currentRows();
@@ -154,17 +132,17 @@
           : state.customerRows.length + state.pharmacyRows.length;
 
     title.textContent = "📦 " + labels[state.filter];
-
     subtitle.textContent =
-      state.filter === "pharmacy"
-        ? "النواقص المسجلة على مستوى الصيدلية فقط."
-        : state.filter === "customer"
-          ? "المنتجات غير المتوفرة المرتبطة بطلبات العملاء."
-          : "عرض موحد لنواقص الصيدلية وطلبات العملاء.";
+      state.filter === "all"
+        ? "جميع النواقص الحالية في مكان واحد."
+        : state.filter === "pharmacy"
+          ? "النواقص المسجلة على مستوى الصيدلية."
+          : "المنتجات غير المتوفرة المرتبطة بطلبات العملاء.";
 
     limitWrap?.classList.toggle("hidden", state.filter !== "pharmacy");
+
     if (limitSelect) {
-      limitSelect.value = ["20","30","50","100","all"].includes(state.limit)
+      limitSelect.value = ["20", "30", "all"].includes(state.limit)
         ? state.limit
         : "20";
     }
@@ -174,6 +152,8 @@
         ? "عرض " + rows.length + " من أصل " + total + " نقص"
         : "عدد النتائج: " + rows.length;
 
+    syncFilterButtons();
+
     if (!rows.length) {
       body.innerHTML =
         '<tr><td colspan="9" class="empty-state">لا توجد نواقص ضمن هذا التصنيف ✅</td></tr>';
@@ -181,32 +161,28 @@
     }
 
     body.innerHTML = rows.map(row => {
-      const type =
-        row.type === "pharmacy"
-          ? '<span class="shortage-type shortage-type-pharmacy">الصيدلية</span>'
-          : '<span class="shortage-type shortage-type-customer">طلب عميل</span>';
+      const type = row.type === "pharmacy"
+        ? '<span class="shortage-type shortage-type-pharmacy">الصيدلية</span>'
+        : '<span class="shortage-type shortage-type-customer">طلب عميل</span>';
 
-      const status =
-        row.type === "pharmacy"
-          ? '<span class="status-badge ' +
-            (row.status === "تم التوفير" ? "status-picked" : "status-pending") +
-            '">' + escLocal(row.status) + '</span>'
-          : '<span class="status-badge status-pending">' +
-            escLocal(row.status) + '</span>';
+      const status = row.type === "pharmacy"
+        ? '<span class="status-badge ' +
+          (row.status === "تم التوفير" ? "status-picked" : "status-pending") +
+          '">' + escLocal(row.status) + '</span>'
+        : '<span class="status-badge status-pending">بانتظار التوفير</span>';
 
-      const action =
-        row.type === "pharmacy"
-          ? (
-              row.status === "تم التوفير"
-                ? '<button type="button" class="btn btn-secondary btn-sm ps-undo" data-id="' +
-                  escLocal(row.shortageId) + '">↩️ تراجع</button>'
-                : '<button type="button" class="btn btn-primary btn-sm ps-available" data-id="' +
-                  escLocal(row.shortageId) + '">تم التوفير</button>'
-            ) +
-            '<button type="button" class="btn btn-outline btn-sm ps-edit" data-id="' +
-            escLocal(row.shortageId) + '">تعديل</button>'
-          : '<button type="button" class="btn btn-outline btn-sm ps-detail" data-id="' +
-            escLocal(row.orderId) + '">التفاصيل</button>';
+      let action = "";
+      if (row.type === "pharmacy") {
+        action =
+          (row.status === "تم التوفير"
+            ? '<button type="button" class="btn btn-secondary btn-sm ps-undo" data-id="' + escLocal(row.shortageId) + '">↩️ تراجع</button>'
+            : '<button type="button" class="btn btn-primary btn-sm ps-available" data-id="' + escLocal(row.shortageId) + '">تم التوفير</button>') +
+          '<button type="button" class="btn btn-outline btn-sm ps-edit" data-id="' + escLocal(row.shortageId) + '">تعديل</button>';
+      } else {
+        action =
+          '<button type="button" class="btn btn-outline btn-sm ps-detail" data-id="' +
+          escLocal(row.orderId) + '">التفاصيل</button>';
+      }
 
       return '<tr>' +
         '<td>' + type + '</td>' +
@@ -223,23 +199,25 @@
       '</tr>';
     }).join("");
 
-    body.querySelectorAll(".ps-detail").forEach(btn => {
-      btn.onclick = () => {
-        if (typeof window.details === "function") window.details(btn.dataset.id);
+    body.querySelectorAll(".ps-detail").forEach(button => {
+      button.onclick = () => {
+        if (typeof window.details === "function") {
+          window.details(button.dataset.id);
+        }
       };
     });
 
-    body.querySelectorAll(".ps-available").forEach(btn => {
-      btn.onclick = () => setAvailable(btn.dataset.id);
+    body.querySelectorAll(".ps-available").forEach(button => {
+      button.onclick = () => setAvailable(button.dataset.id);
     });
 
-    body.querySelectorAll(".ps-undo").forEach(btn => {
-      btn.onclick = () => undo(btn.dataset.id);
+    body.querySelectorAll(".ps-undo").forEach(button => {
+      button.onclick = () => undo(button.dataset.id);
     });
 
-    body.querySelectorAll(".ps-edit").forEach(btn => {
-      btn.onclick = () => {
-        const row = state.pharmacyRows.find(x => x.shortageId === btn.dataset.id);
+    body.querySelectorAll(".ps-edit").forEach(button => {
+      button.onclick = () => {
+        const row = state.pharmacyRows.find(x => x.shortageId === button.dataset.id);
         if (row) openForm(row);
       };
     });
@@ -259,6 +237,13 @@
     } catch (error) {
       notify(error.message, "error");
     }
+  }
+
+  function open() {
+    state.filter = "all";
+    localStorage.setItem("ezz_daily_shortages_filter", "all");
+    render();
+    return load();
   }
 
   function openForm(row = null) {
@@ -282,7 +267,6 @@
   function closeForm() {
     const modal = document.getElementById("pharmacy-shortage-modal");
     const form = document.getElementById("pharmacy-shortage-form");
-
     modal?.classList.add("hidden");
     modal?.setAttribute("aria-hidden", "true");
     form?.reset();
@@ -324,7 +308,6 @@
       state.filter = "pharmacy";
       localStorage.setItem("ezz_daily_shortages_filter", "pharmacy");
       await load();
-      setNavState();
     } catch (error) {
       notify(error.message, "error");
     } finally {
@@ -383,50 +366,17 @@
     }
   }
 
-  function bindNavigation() {
-    const dropdown = document.querySelector("[data-nav-dropdown]");
-    const toggle = dropdown?.querySelector(".nav-dropdown-toggle");
-    if (!dropdown || !toggle) return;
-
-    if (dropdown.dataset.bound !== "1") {
-      dropdown.dataset.bound = "1";
-
-      toggle.addEventListener("click", event => {
-        event.stopPropagation();
-        openDropdown();
-      });
-
-      dropdown.querySelectorAll("[data-shortages-filter]").forEach(item => {
-        item.addEventListener("click", event => {
-          event.preventDefault();
-          event.stopPropagation();
-          switchFilter(item.dataset.shortagesFilter);
-        });
-      });
-
-      document.addEventListener("click", event => {
-        if (!dropdown.contains(event.target)) {
-          dropdown.classList.remove("open");
-          toggle.setAttribute("aria-expanded", "false");
-        }
-      });
-
-      document.addEventListener("keydown", event => {
-        if (event.key === "Escape") {
-          dropdown.classList.remove("open");
-          toggle.setAttribute("aria-expanded", "false");
-        }
-      });
-    }
-  }
-
   function bindPage() {
-    bindNavigation();
+    document.querySelectorAll("[data-shortages-view]").forEach(button => {
+      button.addEventListener("click", () => {
+        setFilter(button.dataset.shortagesView || "all");
+      });
+    });
 
     document.getElementById("refresh-daily-shortages-btn")?.addEventListener("click", load);
 
     document.getElementById("pharmacy-shortages-limit")?.addEventListener("change", event => {
-      state.limit = ["20","30","all"].includes(event.target.value)
+      state.limit = ["20", "30", "all"].includes(event.target.value)
         ? event.target.value
         : "20";
       localStorage.setItem("ezz_pharmacy_shortages_limit", state.limit);
@@ -446,12 +396,12 @@
     document.getElementById("send-pharmacy-shortages")?.addEventListener("click", () => sendShortages("pharmacy"));
     document.getElementById("send-all-shortages")?.addEventListener("click", () => sendShortages("all"));
 
-    setNavState();
+    state.filter = "all";
+    render();
   }
 
-  async function init() {
+  function init() {
     bindPage();
-    await load();
   }
 
   if (document.readyState === "loading") {
@@ -460,5 +410,5 @@
     init();
   }
 
-  window.dailyShortages = { load, switchFilter };
+  window.dailyShortages = { load, open, switchFilter: setFilter };
 })();
