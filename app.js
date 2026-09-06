@@ -8,8 +8,10 @@ const CONTACT_STATUS_LABELS={"لم يتم التواصل":"contact-not","بان�
 let currentPostpone=null,confirmCallback=null;
 
 async function apiFetch(url,options={}){
-  const opts={...options,headers:{...(options.body instanceof FormData?{}:{"Content-Type":"application/json"}),...(options.headers||{})}};
-  const r=await fetch(url,opts);let d=null;try{d=await r.json()}catch{}
+  const opts={...options,credentials:"same-origin",headers:{...(options.body instanceof FormData?{}:{"Content-Type":"application/json"}),...(options.headers||{})}};
+  const method=String(opts.method||"GET").toUpperCase();
+  const requester=window.ezzCsrf?.fetch || ((u,o)=>fetch(u,o));
+  const r=await requester(url,opts);let d=null;try{d=await r.json()}catch{}
   if(!r.ok){const e=new Error(d?.error||(d?.errors?Object.values(d.errors).join("، "):"حدث خطأ"));e.status=r.status;e.data=d;throw e}return d
 }
 function toast(msg,type="success"){const e=document.createElement("div");e.className=`toast ${type}`;e.textContent=msg;document.getElementById("toast-container").appendChild(e);setTimeout(()=>e.remove(),3500)}
