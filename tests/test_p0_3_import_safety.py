@@ -179,5 +179,7 @@ class PostgresIntegrationTests(unittest.TestCase):
         self.assertEqual(backups, 0)
 
 
+# P0.3 verification trigger: same tests, new synchronize event.
+
 if __name__ == '__main__':
     unittest.main()
