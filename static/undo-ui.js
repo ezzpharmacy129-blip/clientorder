@@ -101,9 +101,7 @@
     body.innerHTML='<div class="empty-state">جارِ تحميل تفاصيل الطلب...</div>';
     forceModalStyles(modal);
     try{
-      const r=await fetch('/api/orders/'+encodeURIComponent(id),{credentials:'same-origin',cache:'no-store'});
-      const d=await r.json().catch(()=>({}));
-      if(!r.ok)throw new Error(d.error||'تعذر تحميل تفاصيل الطلب');
+      const d=await window.apiFetch('/api/orders/'+encodeURIComponent(id),{cache:'no-store'});
       const o=d.order||{}, items=Array.isArray(o.Items)?o.Items:[], log=Array.isArray(d.activity_log)?d.activity_log:[], undo=d.undo?.available?d.undo:null;
       const esc=s=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;');
       const fmt=s=>{if(!s)return '—';const p=String(s).split(' ')[0].split('-');return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:String(s)};
@@ -158,7 +156,7 @@
       const box=document.createElement('div'); box.setAttribute('data-undo-ui','1'); box.style.cssText='margin:12px 0;padding:10px;border:1px solid #f1d58a;background:#fff9e8;border-radius:10px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;';
       const text=document.createElement('span'); text.textContent='آخر إجراء قابل للتراجع: '+(undo.action||'تغيير'); text.style.cssText='font-size:12px;font-weight:700;color:#6d5a18;';
       const btn=document.createElement('button'); btn.type='button'; btn.className='btn btn-sm btn-warning'; btn.textContent='↩️ تراجع عن آخر إجراء';
-      btn.addEventListener('click',async function(){ if(!confirm('هل تريد التراجع عن آخر إجراء لهذا الطلب والعودة للحالة السابقة؟'))return; btn.disabled=true; try{const rr=await fetch('/api/orders/'+encodeURIComponent(orderId)+'/undo',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:'{}'}),dd=await rr.json().catch(()=>({})); if(!rr.ok)throw new Error(dd.error||'تعذر التراجع'); if(typeof window.toast==='function')window.toast('تم التراجع عن آخر إجراء بنجاح'); await window.details(orderId); if(typeof window.refresh==='function')window.refresh();}catch(e){btn.disabled=false;if(typeof window.toast==='function')window.toast(e.message||'تعذر التراجع','error');else alert(e.message||'تعذر التراجع');} });
+      btn.addEventListener('click',async function(){ if(!confirm('هل تريد التراجع عن آخر إجراء لهذا الطلب والعودة للحالة السابقة؟'))return; btn.disabled=true; try{const dd=await window.apiFetch('/api/orders/'+encodeURIComponent(orderId)+'/undo',{method:'POST',body:'{}'}); if(typeof window.toast==='function')window.toast('تم التراجع عن آخر إجراء بنجاح'); await window.details(orderId); if(typeof window.refresh==='function')window.refresh();}catch(e){btn.disabled=false;if(typeof window.toast==='function')window.toast(e.message||'تعذر التراجع','error');else alert(e.message||'تعذر التراجع');} });
       box.appendChild(text); box.appendChild(btn); body.appendChild(box);
     }catch(e){}
   }
