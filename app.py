@@ -500,8 +500,67 @@ def api_whatsapp_shortages_grouped():
 
 
 # ---------------------------------------------------------------------------
-# Daily Pharmacy Shortages
+# Customer Shortages
 # ---------------------------------------------------------------------------
+
+@app.get("/api/customer-shortages")
+def api_customer_shortages():
+    """
+    Return customer shortage line-items as a dedicated read model.
+    This endpoint intentionally does not reuse the WhatsApp formatter.
+    """
+    denied = _daily_shortage_auth()
+    if denied:
+        return denied
+
+    try:
+        rows = []
+        for order in db.get_all_orders():
+            items = order.get("Items") or []
+
+            # Prefer item-level availability; this is the source of truth.
+            pending_items = [
+                item for item in items
+                if str(item.get("Availability_Status") or "").strip() == "بانتظار التوفير"
+                and str(item.get("Customer_Decision") or "").strip().lower() != "rejected"
+            ]
+
+            if pending_items:
+                for item in pending_items:
+                    rows.append({
+                        "type": "customer",
+                        "order_id": order.get("Order_ID") or "",
+                        "customer_name": order.get("Customer_Name") or "",
+                        "phone": order.get("Phone") or "",
+                        "product_name": item.get("Product_Name") or "",
+                        "quantity": item.get("Quantity") or 1,
+                        "order_date": order.get("Order_Date") or order.get("Created_At") or "",
+                        "status": "بانتظار التوفير",
+                    })
+                continue
+
+            # Legacy orders may have no order_items rows but still carry a pending order.
+            if (
+                not items
+                and str(order.get("Status") or "").strip() == STATUS_PENDING
+                and str(order.get("Customer_Decision") or "").strip().lower() != "rejected"
+            ):
+                rows.append({
+                    "type": "customer",
+                    "order_id": order.get("Order_ID") or "",
+                    "customer_name": order.get("Customer_Name") or "",
+                    "phone": order.get("Phone") or "",
+                    "product_name": order.get("Product_Name") or "",
+                    "quantity": order.get("Quantity") or 1,
+                    "order_date": order.get("Order_Date") or order.get("Created_At") or "",
+                    "status": "بانتظار التوفير",
+                })
+
+        rows.sort(key=lambda row: str(row.get("order_date") or ""), reverse=True)
+        return jsonify({"shortages": rows, "count": len(rows)})
+    except Exception as e:
+        return jsonify({"error": f"تعذر قراءة نواقص العملاء: {e}"}), 500
+
 
 def _daily_shortage_actor():
     provider = getattr(db, "_auth_user_provider", None)
