@@ -93,11 +93,14 @@
     <div class="shortages-overview">
       <div class="shortages-overview-copy">
         <span class="shortages-overview-title">تصنيف النواقص</span>
-        <span class="shortages-overview-note">يتم فتح الصفحة على الكل تلقائيًا</span>
+        <span class="shortages-overview-note">تفتح الصفحة على النواقص الحالية تلقائيًا</span>
       </div>
       <div class="shortages-view-tabs" role="tablist" aria-label="تصنيف النواقص">
-        <button type="button" class="shortages-view-tab" role="tab" aria-selected="false" data-shortages-view="pharmacy">
-          <span>نواقص الصيدلية</span><strong id="pharmacy-shortages-tab-count">0</strong>
+        <button type="button" class="shortages-view-tab active" role="tab" aria-selected="true" data-shortages-view="pharmacy">
+          <span>النواقص الحالية</span><strong id="pharmacy-shortages-tab-count">0</strong>
+        </button>
+        <button type="button" class="shortages-view-tab" role="tab" aria-selected="false" data-shortages-view="pharmacy_available">
+          <span>✅ تم توفيره</span><strong id="pharmacy-shortages-provided-count">0</strong>
         </button>
         <button type="button" class="shortages-view-tab" role="tab" aria-selected="false" data-shortages-view="customer">
           <span>طلبات العملاء</span><strong id="customer-shortages-tab-count">0</strong>
@@ -158,7 +161,7 @@
   </div>
 </div>
 
-<script src="{{ url_for('static', filename='app.js') }}?v=20260906-action-center-v3"></script>
+<script src="{{ url_for('static', filename='app.js') }}?v=20260906-action-center-v4"></script>
 <script src="{{ url_for('static', filename='action_center.js') }}?v=20260906-action-center-v3"></script>
 <script src="{{ url_for('static', filename='cancelled_orders.js') }}?v=20260902-cancelled-orders"></script>
 <script src="{{ url_for('static', filename='daily_shortages.js') }}?v=20260906-shortages-ui-v2"></script>
