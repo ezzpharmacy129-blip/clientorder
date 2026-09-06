@@ -332,17 +332,60 @@ def _action_center_item(order, today):
 
     return None
 
-@app.get("/api/action-center")
-def api_action_center():
-    orders = db.get_all_orders()
-    today = today_str()
+
+
+def _dashboard_order_payload(order):
+    items = []
+    for item in order.get("Items") or []:
+        items.append({
+            "Item_ID": item.get("Item_ID", ""),
+            "Product_Name": item.get("Product_Name", ""),
+            "Quantity": item.get("Quantity", 0),
+            "Image_Path": item.get("Image_Path", ""),
+            "Availability_Status": item.get("Availability_Status", ""),
+            "Customer_Decision": item.get("Customer_Decision", ""),
+        })
+    return {
+        "Order_ID": order.get("Order_ID", ""),
+        "Customer_Name": order.get("Customer_Name", ""),
+        "Phone": order.get("Phone", ""),
+        "Product_Name": order.get("Product_Name", ""),
+        "Quantity": order.get("Quantity", 0),
+        "Order_Date": order.get("Order_Date", ""),
+        "Status": order.get("Status", ""),
+        "Contact_Status": order.get("Contact_Status", ""),
+        "Next_Followup_Date": order.get("Next_Followup_Date", ""),
+        "Created_At": order.get("Created_At", ""),
+        "Updated_At": order.get("Updated_At", ""),
+        "Items": items,
+    }
+
+def _build_action_center_payload(orders, today=None):
+    today = today or today_str()
     grouped = {key: [] for key in ACTION_CENTER_LABELS}
     for order in orders:
         item = _action_center_item(order, today)
         if not item:
             continue
-        row = dict(order)
-        row.update(item)
+        shortage_count = sum(
+            1 for i in (order.get("Items") or [])
+            if str(i.get("Availability_Status") or "").strip() == "بانتظار التوفر"
+            and str(i.get("Customer_Decision") or "").strip() != "rejected"
+        )
+        row = {
+            "Order_ID": order.get("Order_ID", ""),
+            "Customer_Name": order.get("Customer_Name", ""),
+            "Phone": order.get("Phone", ""),
+            "Status": order.get("Status", ""),
+            "Contact_Status": order.get("Contact_Status", ""),
+            "Next_Followup_Date": order.get("Next_Followup_Date", ""),
+            "Created_At": order.get("Created_At", ""),
+            "action_key": item["action_key"],
+            "priority": item["priority"],
+            "next_action": item["next_action"],
+            "action_hint": item["action_hint"],
+            "shortage_count": shortage_count,
+        }
         grouped[item["action_key"]].append(row)
 
     for key in grouped:
@@ -356,29 +399,85 @@ def api_action_center():
     for key in ("overdue", "today", "awaiting_reply", "needs_supply"):
         flat.extend(grouped[key])
 
-    return jsonify({
+    return {
         "summary": {key: len(grouped[key]) for key in ACTION_CENTER_LABELS},
         "total_actionable": len(flat),
         "items": flat[:50],
-        "updated_at": datetime.now(ZoneInfo("Asia/Riyadh")).strftime("%Y-%m-%d %H:%M:%S"),
-    })
+    }
+
+def _active_followups_payload(orders, today=None):
+    today = today or today_str()
+    payload = []
+    for order in orders:
+        status = str(order.get("Status") or "")
+        if status in CLOSED_STATUSES:
+            continue
+        kind = None
+        if status in (STATUS_AVAILABLE, STATUS_PARTIAL, STATUS_UNAVAILABLE):
+            kind = "needs_call"
+        elif status in (STATUS_CONTACTED, STATUS_NOT_PICKED):
+            nxt = str(order.get("Next_Followup_Date") or "")
+            if nxt and nxt < today:
+                kind = "overdue"
+            elif nxt == today:
+                kind = "today"
+        if kind:
+            row = _dashboard_order_payload(order)
+            row["_followup_kind"] = kind
+            payload.append(row)
+
+    priority = {"overdue": 0, "today": 1, "needs_call": 2}
+    payload.sort(key=lambda x: (
+        priority.get(x.get("_followup_kind"), 99),
+        str(x.get("Created_At") or ""),
+    ))
+    return payload
+
+@app.get("/api/action-center")
+def api_action_center():
+    orders = db.get_all_orders()
+    payload = _build_action_center_payload(orders)
+    payload["updated_at"] = datetime.now(ZoneInfo("Asia/Riyadh")).strftime("%Y-%m-%d %H:%M:%S")
+    return jsonify(payload)
+
 
 @app.get("/api/dashboard")
 def api_dashboard():
-    orders=db.get_all_orders(); today=today_str()
-    def count(p): return sum(1 for o in orders if p(o))
-    stats={
-        "total":len(orders),
-        "pending":count(lambda o:o["Status"]==STATUS_PENDING),
-        "available":count(lambda o:o["Status"] in (STATUS_AVAILABLE, STATUS_PARTIAL, STATUS_UNAVAILABLE) and o.get("Contact_Status") in ("", CONTACT_NOT_CONTACTED)),
-        "awaiting_reply":count(lambda o:o.get("Contact_Status")==CONTACT_AWAITING),
-        "pickup_pending":count(lambda o:o["Status"] in (STATUS_CONTACTED, STATUS_NOT_PICKED)),
-        "picked_up":count(lambda o:o["Status"]==STATUS_PICKED_UP),
-        "today_followup":count(lambda o: ((o["Status"] in (STATUS_AVAILABLE, STATUS_PARTIAL, STATUS_UNAVAILABLE) and o.get("Contact_Status") in ("", CONTACT_NOT_CONTACTED)) or o.get("Contact_Status")==CONTACT_AWAITING or o["Status"] in (STATUS_CONTACTED, STATUS_NOT_PICKED)) and str(o.get("Next_Followup_Date") or "")==today),
-        "overdue":count(lambda o: ((o.get("Contact_Status")==CONTACT_AWAITING) or o["Status"] in (STATUS_CONTACTED, STATUS_NOT_PICKED)) and str(o.get("Next_Followup_Date") or "") and str(o.get("Next_Followup_Date"))<today),
-        "date":today,
+    orders = db.get_all_orders()
+    today = today_str()
+
+    def count(p):
+        return sum(1 for o in orders if p(o))
+
+    stats = {
+        "total": len(orders),
+        "pending": count(lambda o: o["Status"] == STATUS_PENDING),
+        "available": count(lambda o: o["Status"] in (STATUS_AVAILABLE, STATUS_PARTIAL, STATUS_UNAVAILABLE) and o.get("Contact_Status") in ("", CONTACT_NOT_CONTACTED)),
+        "awaiting_reply": count(lambda o: o.get("Contact_Status") == CONTACT_AWAITING),
+        "pickup_pending": count(lambda o: o["Status"] in (STATUS_CONTACTED, STATUS_NOT_PICKED)),
+        "picked_up": count(lambda o: o["Status"] == STATUS_PICKED_UP),
+        "today_followup": count(lambda o: (
+            (o["Status"] in (STATUS_AVAILABLE, STATUS_PARTIAL, STATUS_UNAVAILABLE) and o.get("Contact_Status") in ("", CONTACT_NOT_CONTACTED))
+            or o.get("Contact_Status") == CONTACT_AWAITING
+            or o["Status"] in (STATUS_CONTACTED, STATUS_NOT_PICKED)
+        ) and str(o.get("Next_Followup_Date") or "") == today),
+        "overdue": count(lambda o: (
+            (o.get("Contact_Status") == CONTACT_AWAITING)
+            or o["Status"] in (STATUS_CONTACTED, STATUS_NOT_PICKED)
+        ) and str(o.get("Next_Followup_Date") or "") and str(o.get("Next_Followup_Date")) < today),
+        "date": today,
     }
-    return jsonify(stats)
+
+    action_center = _build_action_center_payload(orders, today)
+    followups = _active_followups_payload(orders, today)
+    dashboard_orders = [_dashboard_order_payload(o) for o in orders]
+    return jsonify({
+        **stats,
+        "orders": dashboard_orders,
+        "action_center": action_center,
+        "followups": followups,
+        "updated_at": datetime.now(ZoneInfo("Asia/Riyadh")).strftime("%Y-%m-%d %H:%M:%S"),
+    })
 
 def active_followups(orders):
     today=today_str(); out=[]
