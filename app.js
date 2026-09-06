@@ -99,8 +99,112 @@ async function loadDashboard(){
     document.getElementById('today-date').textContent=fmtDate(s.date);
     document.getElementById('today-summary').innerHTML=`لديك <strong>${s.available}</strong> طلبات جاهزة للتواصل، <strong>${s.awaiting_reply}</strong> بانتظار رد العميل، <strong>${s.overdue}</strong> متابعات متأخرة`;
     if(dashboardFilterKey) renderDashboardResults();
+    await loadActionCenter();
     await loadFollowups();
   }catch(e){toast(e.message,'error')}
+}
+
+
+let actionCenterData = {summary:{}, items:[], total_actionable:0};
+let actionCenterFilter = null;
+
+const ACTION_CENTER_META = {
+  overdue: {label:"متأخرة", cls:"action-item-overdue", cta:"واتساب"},
+  needs_supply: {label:"تحتاج توفير", cls:"action-item-supply", cta:"تحديث التوفر"},
+  awaiting_reply: {label:"تنتظر رد العميل", cls:"action-item-reply", cta:"عرض الطلب"},
+  today: {label:"متابعة اليوم", cls:"action-item-today", cta:"واتساب"}
+};
+
+function actionAge(order){
+  const created=String(order.Created_At||"");
+  if(!created)return"";
+  const d=created.split(" ")[0];
+  if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(d))return"";
+  const now=todayISO();
+  const days=Math.max(0,Math.round((Date.parse(now+"T00:00:00")-Date.parse(d+"T00:00:00"))/86400000));
+  if(days===0)return"اليوم";
+  return "منذ "+days+" "+(days===1?"يوم":"أيام");
+}
+
+function actionCenterFilteredItems(){
+  return actionCenterFilter ? (actionCenterData.items||[]).filter(function(x){return x.action_key===actionCenterFilter;}) : (actionCenterData.items||[]);
+}
+
+function renderActionCenter(){
+  const s=actionCenterData.summary||{};
+  const set=function(id,v){const e=document.getElementById(id);if(e)e.textContent=String(v??0)};
+  set("action-count-overdue",s.overdue);
+  set("action-count-supply",s.needs_supply);
+  set("action-count-reply",s.awaiting_reply);
+  set("action-count-today",s.today);
+
+  document.querySelectorAll("[data-action-filter]").forEach(function(b){
+    const key=b.dataset.actionFilter;
+    b.classList.toggle("active",actionCenterFilter===key);
+    b.setAttribute("aria-pressed",String(actionCenterFilter===key));
+  });
+
+  const list=document.getElementById("action-center-list");
+  const total=Number(actionCenterData.total_actionable||0);
+  if(!list)return;
+
+  if(!total){
+    list.innerHTML='<div class="action-center-empty"><div class="action-empty-icon">✓</div><strong>ممتاز، لا توجد طلبات تحتاج إجراء الآن</strong><span>يمكنك متابعة العمل بشكل طبيعي.</span></div>';
+    document.getElementById("action-center-subtitle").textContent="لا توجد طلبات تحتاج اهتمامًا الآن.";
+    return;
+  }
+
+  const visible=actionCenterFilteredItems();
+  const label=actionCenterFilter ? ((ACTION_CENTER_META[actionCenterFilter]||{}).label||"الطلبات") : "كل الطلبات التي تحتاج اهتمامًا";
+  document.getElementById("action-center-subtitle").textContent=total+" طلبات تحتاج اهتمامًا الآن — "+label;
+
+  if(!visible.length){
+    list.innerHTML='<div class="action-center-empty"><div class="action-empty-icon">✓</div><strong>لا توجد طلبات ضمن هذا التصنيف</strong><span>اختر تصنيفًا آخر من الأعلى.</span></div>';
+    return;
+  }
+
+  list.innerHTML=visible.map(function(o){
+    const meta=ACTION_CENTER_META[o.action_key]||ACTION_CENTER_META.today;
+    const age=actionAge(o);
+    const shortageCount=(o.Items||[]).filter(function(i){return String(i.Availability_Status||"").trim()==="بانتظار التوفر";}).length;
+    let primary="";
+    if(o.action_key==="needs_supply"){
+      primary='<button type="button" class="btn btn-primary btn-sm action-availability-btn" data-id="'+esc(o.Order_ID)+'">'+meta.cta+'</button>';
+    }else if(o.action_key==="awaiting_reply"){
+      primary='<button type="button" class="btn btn-secondary btn-sm action-detail-btn" data-id="'+esc(o.Order_ID)+'">عرض الطلب</button>';
+    }else{
+      primary='<button type="button" class="btn btn-outline btn-sm action-wa-btn" data-id="'+esc(o.Order_ID)+'">💬 '+meta.cta+'</button>';
+    }
+    const secondary=o.action_key==="awaiting_reply"
+      ? '<button type="button" class="btn btn-outline btn-sm action-wa-btn" data-id="'+esc(o.Order_ID)+'">💬 واتساب</button>'
+      : '<button type="button" class="btn btn-secondary btn-sm action-detail-btn" data-id="'+esc(o.Order_ID)+'">التفاصيل</button>';
+
+    return '<article class="action-item '+meta.cls+'">'
+      +'<div class="action-item-main">'
+      +'<div class="action-item-head"><strong>'+esc(o.Order_ID)+'</strong><span class="action-badge">'+meta.label+'</span></div>'
+      +'<div class="action-customer">'+esc(o.Customer_Name)+' <span>'+esc(o.Phone)+'</span></div>'
+      +'<div class="action-item-meta"><span>'+esc(o.next_action||"متابعة الطلب")+'</span>'
+      +(age?'<span>⏱ '+esc(age)+'</span>':"")
+      +(shortageCount?'<span>📦 '+shortageCount+' نواقص</span>':"")
+      +'</div>'
+      +'<div class="action-item-hint">'+esc(o.action_hint||"")+'</div>'
+      +'</div><div class="action-item-actions">'+primary+secondary+'</div>'
+      +'</article>';
+  }).join("");
+
+  list.querySelectorAll(".action-availability-btn").forEach(function(b){b.onclick=function(){openAvailability(b.dataset.id);};});
+  list.querySelectorAll(".action-wa-btn").forEach(function(b){b.onclick=function(){openClientWhatsApp(b.dataset.id);};});
+  list.querySelectorAll(".action-detail-btn").forEach(function(b){b.onclick=function(){details(b.dataset.id);};});
+}
+
+async function loadActionCenter(){
+  try{
+    actionCenterData=await apiFetch("/api/action-center");
+    renderActionCenter();
+  }catch(e){
+    const list=document.getElementById("action-center-list");
+    if(list)list.innerHTML='<div class="action-center-empty error">تعذر تحميل مركز العمل</div>';
+  }
 }
 
 function productsSummary(o){if(Array.isArray(o.Items)&&o.Items.length)return o.Items.map(i=>`${esc(i.Product_Name)} × ${i.Quantity}${i.Image_Path?' 📷':''}`).join("<br>");return esc(o.Product_Name)}
@@ -313,7 +417,7 @@ async function resetMessageTemplates(){
   if(!confirm("استعادة نصوص الرسائل الأصلية؟"))return;
   try{const d=await apiFetch("/api/message-templates/reset",{method:"POST",body:"{}"});const t=d.templates||{};document.getElementById("tpl-price-confirmation").value=t.Message_Template_Price_Confirmation||"";document.getElementById("tpl-available").value=t.Message_Template_Available||"";document.getElementById("tpl-partial").value=t.Message_Template_Partial||"";document.getElementById("tpl-unavailable").value=t.Message_Template_Unavailable||"";document.getElementById("tpl-shortage").value=t.Message_Template_Shortage||"";toast("تمت استعادة النصوص الأصلية");}catch(e){toast(e.message,"error")}
 }
-function refresh(){loadDashboard();if(document.getElementById("view-orders").classList.contains("active"))loadOrders()}
+function refresh(){loadDashboard();loadActionCenter();if(document.getElementById("view-orders").classList.contains("active"))loadOrders()}
 function initModals(){
   const availabilityModal=document.getElementById('availability-modal');
   const orderModal=document.getElementById('order-modal');
@@ -343,7 +447,7 @@ document.addEventListener("DOMContentLoaded",()=>{initNav();initModals();initDai
  document.getElementById("import-data-btn")?.addEventListener("click",()=>document.getElementById("import-data-file")?.click());
  document.getElementById("import-data-file")?.addEventListener("change",e=>importLegacyData(e.target.files?.[0]));
  
- document.getElementById("dashboard-results-search")?.addEventListener("input",()=>renderDashboardResults());document.getElementById("dashboard-contact-filter")?.addEventListener("change",()=>renderDashboardResults());document.getElementById("dashboard-results-close")?.addEventListener("click",()=>{dashboardFilterKey=null;closeDashboardResults();renderDashboardCards(window.dashboardStats||{})});document.getElementById("dashboard-search").oninput=e=>{clearTimeout(window._s);window._s=setTimeout(()=>loadFollowups(e.target.value.trim()),250)};document.getElementById("refresh-shortages-btn")?.addEventListener("click",loadShortages);document.getElementById("shortages-select-all")?.addEventListener("click",()=>selectAllShortages(true));document.getElementById("shortages-clear-all")?.addEventListener("click",()=>selectAllShortages(false));document.getElementById("shortages-mode")?.addEventListener("change",updateShortageMessage);document.getElementById("copy-shortages-btn")?.addEventListener("click",copyShortages);document.getElementById("open-wa-group-btn")?.addEventListener("click",openShortagesWhatsApp);document.getElementById("refresh-wa-customers-btn")?.addEventListener("click",loadWaCustomers);document.getElementById("message-templates-save")?.addEventListener("click",saveMessageTemplates);document.getElementById("message-templates-reset")?.addEventListener("click",resetMessageTemplates);loadDashboard()});
+ document.getElementById("dashboard-results-search")?.addEventListener("input",()=>renderDashboardResults());document.getElementById("dashboard-contact-filter")?.addEventListener("change",()=>renderDashboardResults());document.getElementById("dashboard-results-close")?.addEventListener("click",()=>{dashboardFilterKey=null;closeDashboardResults();renderDashboardCards(window.dashboardStats||{})});document.getElementById("dashboard-search").oninput=e=>{clearTimeout(window._s);window._s=setTimeout(()=>loadFollowups(e.target.value.trim()),250)};document.getElementById("refresh-shortages-btn")?.addEventListener("click",loadShortages);document.getElementById("shortages-select-all")?.addEventListener("click",()=>selectAllShortages(true));document.getElementById("shortages-clear-all")?.addEventListener("click",()=>selectAllShortages(false));document.getElementById("shortages-mode")?.addEventListener("change",updateShortageMessage);document.getElementById("copy-shortages-btn")?.addEventListener("click",copyShortages);document.getElementById("open-wa-group-btn")?.addEventListener("click",openShortagesWhatsApp);document.getElementById("refresh-wa-customers-btn")?.addEventListener("click",loadWaCustomers);document.getElementById("message-templates-save")?.addEventListener("click",saveMessageTemplates);document.getElementById("message-templates-reset")?.addEventListener("click",resetMessageTemplates);loadDashboard();document.getElementById("action-center-refresh")?.addEventListener("click",loadActionCenter);document.querySelectorAll("[data-action-filter]").forEach(function(b){b.addEventListener("click",function(){const k=b.dataset.actionFilter;actionCenterFilter=actionCenterFilter===k?null:k;renderActionCenter();});});});
 
 
 // postrollback_export_button_v1
