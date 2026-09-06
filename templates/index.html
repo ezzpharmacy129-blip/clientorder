@@ -35,34 +35,52 @@
 </section>
 <section id="view-shortages" class="view">
   <div class="panel daily-shortages-panel">
-    <div class="panel-header daily-shortages-header">
-      <div>
-        <h2 id="daily-shortages-title">📦 النواقص</h2>
-        <p id="daily-shortages-subtitle" class="panel-subtitle">عرض جميع النواقص. اختر التصنيف من الأزرار أدناه.</p>
+    <div class="daily-shortages-top">
+      <div class="daily-shortages-heading">
+        <div class="daily-shortages-kicker">📦 متابعة النواقص</div>
+        <h2 id="daily-shortages-title">النواقص</h2>
+        <p id="daily-shortages-subtitle" class="panel-subtitle">جميع النواقص الحالية في مكان واحد.</p>
       </div>
-      <div class="daily-shortages-actions">
+
+      <div class="daily-shortages-toolbar">
         <div id="pharmacy-shortages-limit-wrap" class="shortages-limit-control hidden">
           <label for="pharmacy-shortages-limit">عرض</label>
           <select id="pharmacy-shortages-limit" aria-label="عدد نواقص الصيدلية المعروضة">
-            <option value="20">20 نقص</option>
-            <option value="30">30 نقص</option>
+            <option value="20">20</option>
+            <option value="30">30</option>
             <option value="all">الكل</option>
           </select>
+          <span>نقص</span>
         </div>
         <button type="button" class="btn btn-primary btn-sm" id="add-pharmacy-shortage-btn">+ إضافة نقص صيدلية</button>
         <button type="button" class="btn btn-secondary btn-sm" id="refresh-daily-shortages-btn">تحديث</button>
       </div>
     </div>
-    <div class="shortages-view-tabs" role="tablist" aria-label="تصنيف النواقص">
-      <button type="button" class="shortages-view-tab active" role="tab" aria-selected="true" data-shortages-view="pharmacy">نواقص الصيدلية</button>
-      <button type="button" class="shortages-view-tab" role="tab" aria-selected="false" data-shortages-view="customer">طلبات العملاء</button>
+
+    <div class="shortages-overview">
+      <div class="shortages-overview-copy">
+        <span class="shortages-overview-title">التصنيف</span>
+        <span class="shortages-overview-note">اختر نوع النواقص لعرضه</span>
+      </div>
+      <div class="shortages-view-tabs" role="tablist" aria-label="تصنيف النواقص">
+        <button type="button" class="shortages-view-tab active" role="tab" aria-selected="true" data-shortages-view="pharmacy">
+          <span>نواقص الصيدلية</span><strong id="pharmacy-shortages-tab-count">0</strong>
+        </button>
+        <button type="button" class="shortages-view-tab" role="tab" aria-selected="false" data-shortages-view="customer">
+          <span>طلبات العملاء</span><strong id="customer-shortages-tab-count">0</strong>
+        </button>
+      </div>
     </div>
+
     <div id="daily-shortages-summary" class="daily-shortages-summary"></div>
-    <div class="daily-shortages-table-wrap table-wrap">
-      <table class="orders-table daily-shortages-table">
-        <thead><tr><th>النوع</th><th>رقم الطلب</th><th>العميل</th><th>الهاتف</th><th>المنتج</th><th>الكمية</th><th>التاريخ</th><th>الحالة</th><th>الإجراء</th></tr></thead>
-        <tbody id="daily-shortages-table-body"></tbody>
-      </table>
+
+    <div class="daily-shortages-table-card">
+      <div class="daily-shortages-table-wrap">
+        <table class="orders-table daily-shortages-table">
+          <thead><tr><th>النوع</th><th>رقم الطلب</th><th>العميل</th><th>الهاتف</th><th>المنتج</th><th>الكمية</th><th>التاريخ</th><th>الحالة</th><th>الإجراء</th></tr></thead>
+          <tbody id="daily-shortages-table-body"></tbody>
+        </table>
+      </div>
     </div>
   </div>
 </section>
@@ -105,7 +123,7 @@
 
 <script src="{{ url_for('static', filename='app.js') }}?v=20260906-shortages"></script>
 <script src="{{ url_for('static', filename='cancelled_orders.js') }}?v=20260902-cancelled-orders"></script>
-<script src="{{ url_for('static', filename='daily_shortages.js') }}?v=20260906-shortages-tabs"></script>
+<script src="{{ url_for('static', filename='daily_shortages.js') }}?v=20260906-shortages-ui-v2"></script>
 <script src="{{ url_for('static', filename='vip_customers.js') }}?v=20260831-vip"></script>
 <script src="{{ url_for('static', filename='users-admin.js') }}?v=20260906-users"></script>
 <script src="{{ url_for('static', filename='ai_chat.js') }}?v=20260905-ai"></script>
