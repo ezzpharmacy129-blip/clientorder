@@ -425,7 +425,7 @@
     document.getElementById("refresh-daily-shortages-btn")?.addEventListener("click", load);
 
     document.getElementById("pharmacy-shortages-limit")?.addEventListener("change", event => {
-      state.limit = ["20","30","50","100","all"].includes(event.target.value)
+      state.limit = ["20","30","all"].includes(event.target.value)
         ? event.target.value
         : "20";
       localStorage.setItem("ezz_pharmacy_shortages_limit", state.limit);
