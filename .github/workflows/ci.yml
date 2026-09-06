@@ -31,6 +31,8 @@ jobs:
         run: python -m unittest -v tests/test_login_rate_limit.py
       - name: Run authorization policy tests
         run: python -m unittest -v tests/test_authorization_policy.py
+      - name: Run workflow policy tests
+        run: python -m unittest -v tests/test_workflow_policy.py
       - name: Verify users dashboard core integration
         run: |
           python - <<'PY'
