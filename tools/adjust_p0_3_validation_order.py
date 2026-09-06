@@ -18,3 +18,6 @@ text = text.replace(old, new, 1)
 
 p.write_text(text, encoding='utf-8')
 print('P0.3 validation-before-backup ordering applied')
+
+# Trigger-only edit: preserve logic above while forcing a fresh workflow run.
+print('P0.3 verification trigger refreshed')
