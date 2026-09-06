@@ -515,7 +515,7 @@ def api_dashboard():
              or o.get("Contact_Status") == CONTACT_AWAITING
              or o["Status"] in (STATUS_CONTACTED, STATUS_NOT_PICKED))
             and str(o.get("Next_Followup_Date") or "") == today
-        ],
+        )],
         "overdue": [_dashboard_order_payload(o) for o in orders if (
             (o.get("Contact_Status") == CONTACT_AWAITING or o["Status"] in (STATUS_CONTACTED, STATUS_NOT_PICKED))
             and str(o.get("Next_Followup_Date") or "")
