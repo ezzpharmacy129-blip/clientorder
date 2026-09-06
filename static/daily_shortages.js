@@ -52,55 +52,17 @@
     return "";
   }
 
-  function normalizeCustomerRows(orders) {
-    const rows = [];
-
-    for (const order of orders || []) {
-      const items = value(order, "Items", "items");
-      const normalizedItems = Array.isArray(items) ? items : [];
-      const pendingItems = normalizedItems.filter(item => {
-        const availability = String(value(item, "Availability_Status", "availability_status") || "بانتظار التوفير").trim();
-        const decision = String(value(item, "Customer_Decision", "customer_decision") || "").trim().toLowerCase();
-        return availability === "بانتظار التوفير" && decision !== "rejected";
-      });
-
-      const orderId = value(order, "Order_ID", "order_id") || "—";
-      const customer = value(order, "Customer_Name", "customer_name") || "—";
-      const phone = value(order, "Phone", "phone") || "—";
-      const date = value(order, "Order_Date", "order_date", "Created_At", "created_at") || "";
-
-      if (pendingItems.length) {
-        for (const item of pendingItems) {
-          rows.push({
-            type: "customer",
-            orderId,
-            customer,
-            phone,
-            product: value(item, "Product_Name", "product_name") || "—",
-            quantity: Number(value(item, "Quantity", "quantity")) || 1,
-            date,
-            status: "بانتظار التوفير"
-          });
-        }
-        continue;
-      }
-
-      const orderStatus = String(value(order, "Status", "status") || "").trim();
-      if (orderStatus === "بانتظار التوفير") {
-        rows.push({
-          type: "customer",
-          orderId,
-          customer,
-          phone,
-          product: value(order, "Product_Name", "product_name") || "—",
-          quantity: Number(value(order, "Quantity", "quantity")) || 1,
-          date,
-          status: "بانتظار التوفير"
-        });
-      }
-    }
-
-    return rows;
+  function normalizeCustomerRows(rows) {
+    return (rows || []).map(row => ({
+      type: "customer",
+      orderId: value(row, "order_id", "Order_ID") || "—",
+      customer: value(row, "customer_name", "Customer_Name") || "—",
+      phone: value(row, "phone", "Phone") || "—",
+      product: value(row, "product_name", "Product_Name") || "—",
+      quantity: Number(value(row, "quantity", "Quantity")) || 1,
+      date: value(row, "order_date", "Order_Date", "created_at", "Created_At") || "",
+      status: value(row, "status", "Status") || "بانتظار التوفير"
+    }));
   }
 
   function normalizePharmacyRows(items) {
@@ -330,11 +292,11 @@
     try {
       const [pharmacyData, customerData] = await Promise.all([
         api("/api/pharmacy-shortages"),
-        api("/api/whatsapp/shortages")
+        api("/api/customer-shortages")
       ]);
 
       state.pharmacyRows = normalizePharmacyRows(pharmacyData.shortages || []);
-      state.customerRows = normalizeCustomerRows(customerData.orders || []);
+      state.customerRows = normalizeCustomerRows(customerData.shortages || []);
       state.page = Math.min(state.page, pageCount());
       render();
     } catch (error) {
