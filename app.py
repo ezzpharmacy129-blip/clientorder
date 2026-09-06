@@ -5,6 +5,8 @@ import re
 import threading
 import webbrowser
 import os
+from datetime import datetime, date
+from zoneinfo import ZoneInfo
 from urllib.parse import quote
 from flask import Flask, jsonify, request, render_template, send_from_directory, send_file, Response, session
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -324,8 +326,9 @@ def _action_center_item(order, today):
     if contact == CONTACT_AWAITING:
         return {"action_key":"awaiting_reply","priority":2,"next_action":"انتظار رد العميل","action_hint":"الرسالة أُرسلت وننتظر رد العميل"}
 
-    if status == STATUS_PENDING:
-        return {"action_key":"needs_supply","priority":3,"next_action":"متابعة التوفير","action_hint":"يوجد منتج أو أكثر بانتظار التوفر"}
+    pending_items = [i for i in (order.get("Items") or []) if str(i.get("Availability_Status") or "").strip() == "بانتظار التوفر" and str(i.get("Customer_Decision") or "").strip() != "rejected"]
+    if status == STATUS_PENDING or pending_items:
+        return {"action_key":"needs_supply","priority":3,"next_action":"متابعة التوفير","action_hint":f"يوجد {len(pending_items) if pending_items else 1} منتج بانتظار التوفر"}
 
     return None
 
