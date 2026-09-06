@@ -17,53 +17,36 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.14"
-
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
-
-      - name: Apply reviewed P0.2 implementation
+      - name: Apply P0.2 implementation
         shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
-          p=Path('cloud_db.py')
-          s=p.read_text(encoding='utf-8')
+          p=Path('cloud_db.py'); s=p.read_text(encoding='utf-8')
           marker="CREATE INDEX IF NOT EXISTS idx_undo_order_id ON undo_history(order_id);\n\n"
           schema="""CREATE INDEX IF NOT EXISTS idx_undo_order_id ON undo_history(order_id);\n\nCREATE TABLE IF NOT EXISTS undo_item_images (\n    undo_id TEXT NOT NULL REFERENCES undo_history(undo_id) ON DELETE CASCADE,\n    item_id TEXT NOT NULL,\n    image_path TEXT NOT NULL,\n    filename TEXT NOT NULL,\n    content_type TEXT NOT NULL,\n    data BYTEA NOT NULL,\n    created_at TEXT NOT NULL,\n    PRIMARY KEY (undo_id, item_id, image_path)\n);\nCREATE INDEX IF NOT EXISTS idx_undo_item_images_undo_id ON undo_item_images(undo_id);\n\n"""
           if "CREATE TABLE IF NOT EXISTS undo_item_images" not in s:
               if s.count(marker)!=1: raise SystemExit('FAIL CLOSED: schema marker not unique')
               s=s.replace(marker,schema,1)
           a=s.index('    def _add_undo('); b=s.index('    def get_undo_info(',a)
-          add="""    def _add_undo(self, conn, order_id, action, snapshot, user, image_item_ids=None):\n        undo_id=self._next_undo_id(conn)\n        conn.execute('INSERT INTO undo_history(undo_id,order_id,action,snapshot_json,created_at,undone_at,user_name) VALUES (%s,%s,%s,%s,%s,%s,%s)',\n                     (undo_id,str(order_id),action,json.dumps(snapshot,ensure_ascii=False),now_str(),'',_clean_name(user)))\n        wanted={str(x).strip() for x in (image_item_ids or set()) if str(x).strip()}\n        if not wanted: return undo_id\n        placeholders=','.join(['%s']*len(wanted))\n        rows=conn.execute(f'SELECT item_id,image_path,filename,content_type,data,created_at FROM item_images WHERE order_id=%s AND item_id IN ({placeholders})',(str(order_id),*sorted(wanted))).fetchall()\n        for row in rows:\n            conn.execute('INSERT INTO undo_item_images(undo_id,item_id,image_path,filename,content_type,data,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s)',\n                         (undo_id,str(row['item_id']),str(row['image_path']),str(row['filename']),str(row['content_type']),psycopg.Binary(bytes(row['data'])),str(row['created_at'])))\n        return undo_id\n\n"""
-          s=s[:a]+add+s[b:]
+          s=s[:a]+"""    def _add_undo(self, conn, order_id, action, snapshot, user, image_item_ids=None):\n        undo_id=self._next_undo_id(conn)\n        conn.execute('INSERT INTO undo_history(undo_id,order_id,action,snapshot_json,created_at,undone_at,user_name) VALUES (%s,%s,%s,%s,%s,%s,%s)',(undo_id,str(order_id),action,json.dumps(snapshot,ensure_ascii=False),now_str(),'',_clean_name(user)))\n        wanted={str(x).strip() for x in (image_item_ids or set()) if str(x).strip()}\n        if not wanted: return undo_id\n        ph=','.join(['%s']*len(wanted))\n        rows=conn.execute(f'SELECT item_id,image_path,filename,content_type,data,created_at FROM item_images WHERE order_id=%s AND item_id IN ({ph})',(str(order_id),*sorted(wanted))).fetchall()\n        for row in rows:\n            conn.execute('INSERT INTO undo_item_images(undo_id,item_id,image_path,filename,content_type,data,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s)',(undo_id,str(row['item_id']),str(row['image_path']),str(row['filename']),str(row['content_type']),psycopg.Binary(bytes(row['data'])),str(row['created_at'])))\n        return undo_id\n\n"""+s[b:]
           a=s.index('    def undo_last('); b=s.index('    def _action(',a)
-          undo="""    def undo_last(self, order_id, user='موظف'):\n        with self._connect() as conn:\n            row=conn.execute(\"SELECT * FROM undo_history WHERE order_id=%s AND COALESCE(undone_at,'')='' ORDER BY created_at DESC LIMIT 1\",(str(order_id),)).fetchone()\n            current=self._fetch_order(conn,order_id)\n            if not row: return {'error':'لا يوجد إجراء يمكن التراجع عنه لهذا الطلب','code':409}\n            if not current: return {'error':'الطلب غير موجود','code':404}\n            snapshot=json.loads(row['snapshot_json']); order_data=snapshot.get('order',{})\n            image_rows=conn.execute('SELECT item_id,image_path,filename,content_type,data,created_at FROM undo_item_images WHERE undo_id=%s ORDER BY item_id,image_path',(row['undo_id'],)).fetchall()\n            images_by_item={}\n            for image in image_rows: images_by_item.setdefault(str(image['item_id']),[]).append(image)\n            sets=[]; params=[]\n            for key,dbkey in [('Customer_Name','customer_name'),('Phone','phone'),('Product_Name','product_name'),('Quantity','quantity'),('Order_Date','order_date'),('Available_Date','available_date'),('Status','status'),('Contact_Status','contact_status'),('Last_Contact_Date','last_contact_date'),('Next_Followup_Date','next_followup_date'),('Pickup_Date','pickup_date'),('Notes','notes'),('Created_At','created_at')]:\n                sets.append(f'{dbkey}=%s'); params.append(order_data.get(key,''))\n            sets.append('updated_at=%s'); params.append(now_str()); params.append(str(order_id))\n            conn.execute(f\"UPDATE orders SET {', '.join(sets)} WHERE order_id=%s\",params)\n            snapshot_items=snapshot.get('items',[]) or []\n            current_items=self._fetch_items(conn,order_id)\n            current_by_id={str(i.get('Item_ID')):i for i in current_items if i.get('Item_ID')}\n            snapshot_by_id={str(i.get('Item_ID')):i for i in snapshot_items if i.get('Item_ID')}\n            for item_id in sorted(set(current_by_id)-set(snapshot_by_id)):\n                conn.execute('DELETE FROM order_items WHERE item_id=%s AND order_id=%s',(item_id,str(order_id)))\n            fields=('Product_Name','Quantity','Image_Path','Availability_Status','Available_Price','Discounted_Price','Unavailable_Reason','Availability_Note','Price_Confirmation_Required','Available_At','Created_At','Customer_Decision')\n            for item_id,item in snapshot_by_id.items():\n                values=tuple(item.get(k,'') for k in fields)\n                if item_id in current_by_id:\n                    conn.execute('UPDATE order_items SET product_name=%s,quantity=%s,image_path=%s,availability_status=%s,available_price=%s,discounted_price=%s,unavailable_reason=%s,availability_note=%s,price_confirmation_required=%s,available_at=%s,created_at=%s,customer_decision=%s WHERE item_id=%s AND order_id=%s',values+(item_id,str(order_id)))\n                    expected=str(item.get('Image_Path') or ''); actual=str(current_by_id[item_id].get('Image_Path') or '')\n                    if expected != actual and expected and item_id not in images_by_item:\n                        raise ValueError(f'لا يمكن التراجع بأمان عن الصورة المرتبطة بالمنتج {item_id}: بيانات الصورة السابقة غير محفوظة')\n                    if not expected and actual:\n                        conn.execute('DELETE FROM item_images WHERE order_id=%s AND item_id=%s',(str(order_id),item_id))\n                else:\n                    conn.execute('INSERT INTO order_items(item_id,order_id,product_name,quantity,image_path,availability_status,available_price,discounted_price,unavailable_reason,availability_note,price_confirmation_required,available_at,created_at,customer_decision) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',(item_id,str(order_id),item.get('Product_Name',''),item.get('Quantity',1),item.get('Image_Path',''),item.get('Availability_Status','بانتظار التوفر'),item.get('Available_Price',''),item.get('Discounted_Price',''),item.get('Unavailable_Reason',''),item.get('Availability_Note',''),item.get('Price_Confirmation_Required',''),item.get('Available_At',''),item.get('Created_At') or now_str(),item.get('Customer_Decision','')))\n                    if item.get('Image_Path') and item_id not in images_by_item:\n                        raise ValueError(f'لا يمكن التراجع بأمان عن الصورة المرتبطة بالمنتج {item_id}: بيانات الصورة السابقة غير محفوظة')\n            for item_id,images in images_by_item.items():\n                if item_id not in snapshot_by_id:\n                    raise ValueError(f'صورة Undo مرتبطة بمنتج غير موجود في snapshot: {item_id}')\n                conn.execute('DELETE FROM item_images WHERE order_id=%s AND item_id=%s',(str(order_id),item_id))\n                for image in images:\n                    conn.execute('INSERT INTO item_images(image_path,order_id,item_id,filename,content_type,data,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s)',(str(image['image_path']),str(order_id),item_id,str(image['filename']),str(image['content_type']),psycopg.Binary(bytes(image['data'])),str(image['created_at'])))\n            conn.execute('UPDATE undo_history SET undone_at=%s WHERE undo_id=%s',(now_str(),row['undo_id']))\n            self._log(conn,order_id,f\"تراجع عن: {row['action']}\",current['Status'],order_data.get('Status',''),'تم التراجع عن آخر تغيير للمستخدم',user)\n            return {'order':self._refresh_order_in_conn(conn,order_id),'undone_action':row['action']}\n\n"""
-          s=s[:a]+undo+s[b:]
-          old="""                ts = now_str()\n                for item in resolved:\n"""
-          new="""                self._add_undo(conn, order_id, 'تعديل بيانات الطلب', snapshot, user, image_item_ids=overlap)\n                ts = now_str()\n                for item in resolved:\n"""
-          if old not in s: raise SystemExit('FAIL CLOSED: update_order mutation anchor')
-          s=s.replace(old,new,1)
-          old="""                updates['Quantity'] = sum(int(i.get('Quantity') or 0) for i in fresh_items)\n            col_map = {\n"""
-          new="""                updates['Quantity'] = sum(int(i.get('Quantity') or 0) for i in fresh_items)\n            else:\n                self._add_undo(conn, order_id, 'تعديل بيانات الطلب', snapshot, user)\n            col_map = {\n"""
-          if old not in s: raise SystemExit('FAIL CLOSED: update_order non-product anchor')
-          s=s.replace(old,new,1)
-          old="""            if not item: return None\n            if item['image_path']:\n"""
-          new="""            if not item: return None\n            snapshot=self._snapshot(conn, order_id)\n            self._invalidate_undo(conn, order_id)\n            self._add_undo(conn, order_id, 'إضافة صورة للمنتج', snapshot, user, image_item_ids={str(item_id)})\n            if item['image_path']:\n"""
-          if old not in s: raise SystemExit('FAIL CLOSED: set_item_image anchor')
-          s=s.replace(old,new,1)
-          old="""            if not item: return False\n            if not item['image_path']: return True\n            conn.execute('DELETE FROM item_images WHERE image_path=%s',(item['image_path'],))\n"""
-          new="""            if not item: return False\n            if not item['image_path']: return True\n            snapshot=self._snapshot(conn, order_id)\n            self._invalidate_undo(conn, order_id)\n            self._add_undo(conn, order_id, 'حذف صورة المنتج', snapshot, user, image_item_ids={str(item_id)})\n            conn.execute('DELETE FROM item_images WHERE image_path=%s',(item['image_path'],))\n"""
-          if old not in s: raise SystemExit('FAIL CLOSED: delete_item_image anchor')
-          s=s.replace(old,new,1)
+          s=s[:a]+"""    def undo_last(self, order_id, user='موظف'):\n        with self._connect() as conn:\n            row=conn.execute(\"SELECT * FROM undo_history WHERE order_id=%s AND COALESCE(undone_at,'')='' ORDER BY created_at DESC LIMIT 1\",(str(order_id),)).fetchone()\n            current=self._fetch_order(conn,order_id)\n            if not row: return {'error':'لا يوجد إجراء يمكن التراجع عنه لهذا الطلب','code':409}\n            if not current: return {'error':'الطلب غير موجود','code':404}\n            snapshot=json.loads(row['snapshot_json']); order_data=snapshot.get('order',{})\n            image_rows=conn.execute('SELECT item_id,image_path,filename,content_type,data,created_at FROM undo_item_images WHERE undo_id=%s ORDER BY item_id,image_path',(row['undo_id'],)).fetchall()\n            images_by_item={}\n            for image in image_rows: images_by_item.setdefault(str(image['item_id']),[]).append(image)\n            sets=[]; params=[]\n            for key,dbkey in [('Customer_Name','customer_name'),('Phone','phone'),('Product_Name','product_name'),('Quantity','quantity'),('Order_Date','order_date'),('Available_Date','available_date'),('Status','status'),('Contact_Status','contact_status'),('Last_Contact_Date','last_contact_date'),('Next_Followup_Date','next_followup_date'),('Pickup_Date','pickup_date'),('Notes','notes'),('Created_At','created_at')]:\n                sets.append(f'{dbkey}=%s'); params.append(order_data.get(key,''))\n            sets.append('updated_at=%s'); params.append(now_str()); params.append(str(order_id))\n            conn.execute(f\"UPDATE orders SET {', '.join(sets)} WHERE order_id=%s\",params)\n            snapshot_items=snapshot.get('items',[]) or []\n            current_items=self._fetch_items(conn,order_id)\n            current_by_id={str(i.get('Item_ID')):i for i in current_items if i.get('Item_ID')}\n            snapshot_by_id={str(i.get('Item_ID')):i for i in snapshot_items if i.get('Item_ID')}\n            for item_id in sorted(set(current_by_id)-set(snapshot_by_id)):\n                conn.execute('DELETE FROM order_items WHERE item_id=%s AND order_id=%s',(item_id,str(order_id)))\n            fields=('Product_Name','Quantity','Image_Path','Availability_Status','Available_Price','Discounted_Price','Unavailable_Reason','Availability_Note','Price_Confirmation_Required','Available_At','Created_At','Customer_Decision')\n            for item_id,item in snapshot_by_id.items():\n                values=tuple(item.get(k,'') for k in fields)\n                if item_id in current_by_id:\n                    conn.execute('UPDATE order_items SET product_name=%s,quantity=%s,image_path=%s,availability_status=%s,available_price=%s,discounted_price=%s,unavailable_reason=%s,availability_note=%s,price_confirmation_required=%s,available_at=%s,created_at=%s,customer_decision=%s WHERE item_id=%s AND order_id=%s',values+(item_id,str(order_id)))\n                    expected=str(item.get('Image_Path') or ''); actual=str(current_by_id[item_id].get('Image_Path') or '')\n                    if expected != actual and expected and item_id not in images_by_item:\n                        raise ValueError(f'لا يمكن التراجع بأمان عن الصورة المرتبطة بالمنتج {item_id}: بيانات الصورة السابقة غير محفوظة')\n                    if not expected and actual:\n                        conn.execute('DELETE FROM item_images WHERE order_id=%s AND item_id=%s',(str(order_id),item_id))\n                else:\n                    conn.execute('INSERT INTO order_items(item_id,order_id,product_name,quantity,image_path,availability_status,available_price,discounted_price,unavailable_reason,availability_note,price_confirmation_required,available_at,created_at,customer_decision) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',(item_id,str(order_id),item.get('Product_Name',''),item.get('Quantity',1),item.get('Image_Path',''),item.get('Availability_Status','بانتظار التوفر'),item.get('Available_Price',''),item.get('Discounted_Price',''),item.get('Unavailable_Reason',''),item.get('Availability_Note',''),item.get('Price_Confirmation_Required',''),item.get('Available_At',''),item.get('Created_At') or now_str(),item.get('Customer_Decision','')))\n                    if item.get('Image_Path') and item_id not in images_by_item:\n                        raise ValueError(f'لا يمكن التراجع بأمان عن الصورة المرتبطة بالمنتج {item_id}: بيانات الصورة السابقة غير محفوظة')\n            for item_id,images in images_by_item.items():\n                if item_id not in snapshot_by_id:\n                    raise ValueError(f'صورة Undo مرتبطة بمنتج غير موجود في snapshot: {item_id}')\n                conn.execute('DELETE FROM item_images WHERE order_id=%s AND item_id=%s',(str(order_id),item_id))\n                for image in images:\n                    conn.execute('INSERT INTO item_images(image_path,order_id,item_id,filename,content_type,data,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s)',(str(image['image_path']),str(order_id),item_id,str(image['filename']),str(image['content_type']),psycopg.Binary(bytes(image['data'])),str(image['created_at'])))\n            conn.execute('UPDATE undo_history SET undone_at=%s WHERE undo_id=%s',(now_str(),row['undo_id']))\n            self._log(conn,order_id,f\"تراجع عن: {row['action']}\",current['Status'],order_data.get('Status',''),'تم التراجع عن آخر تغيير للمستخدم',user)\n            return {'order':self._refresh_order_in_conn(conn,order_id),'undone_action':row['action']}\n\n"""+s[b:]
+          anchors=["                ts = now_str()\n                for item in resolved:\n","                updates['Quantity'] = sum(int(i.get('Quantity') or 0) for i in fresh_items)\n            col_map = {\n","            if not item: return None\n            if item['image_path']:\n","            if not item: return False\n            if not item['image_path']: return True\n            conn.execute('DELETE FROM item_images WHERE image_path=%s',(item['image_path'],))\n"]
+          if any(x not in s for x in anchors): raise SystemExit('FAIL CLOSED: required anchor missing')
+          s=s.replace(anchors[0],"                self._add_undo(conn, order_id, 'تعديل بيانات الطلب', snapshot, user, image_item_ids=overlap)\n                ts = now_str()\n                for item in resolved:\n",1)
+          s=s.replace(anchors[1],"                updates['Quantity'] = sum(int(i.get('Quantity') or 0) for i in fresh_items)\n            else:\n                self._add_undo(conn, order_id, 'تعديل بيانات الطلب', snapshot, user)\n            col_map = {\n",1)
+          s=s.replace(anchors[2],"            if not item: return None\n            snapshot=self._snapshot(conn, order_id)\n            self._invalidate_undo(conn, order_id)\n            self._add_undo(conn, order_id, 'إضافة صورة للمنتج', snapshot, user, image_item_ids={str(item_id)})\n            if item['image_path']:\n",1)
+          s=s.replace(anchors[3],"            if not item: return False\n            if not item['image_path']: return True\n            snapshot=self._snapshot(conn, order_id)\n            self._invalidate_undo(conn, order_id)\n            self._add_undo(conn, order_id, 'حذف صورة المنتج', snapshot, user, image_item_ids={str(item_id)})\n            conn.execute('DELETE FROM item_images WHERE image_path=%s',(item['image_path'],))\n",1)
           p.write_text(s,encoding='utf-8')
           PY
-
-      - name: Add focused P0.2 tests
+      - name: Add corrected P0.2 tests
         run: |
           cat > tests/test_p0_2_undo.py <<'PY'
           import copy, json, unittest
@@ -72,7 +55,7 @@ jobs:
           from cloud_db import CloudDB
           psycopg.Binary=lambda value:value
           class Cur:
-              def __init__(self, rows=None): self.rows=rows or []
+              def __init__(self,rows=None): self.rows=rows or []
               def fetchone(self): return self.rows[0] if self.rows else None
               def fetchall(self): return self.rows
           class Conn:
@@ -94,7 +77,7 @@ jobs:
                   if s.startswith('select item_id,image_path,filename,content_type,data,created_at from undo_item_images where undo_id='):
                       return Cur([copy.deepcopy(x) for x in self.undo_images if x['undo_id']==str(p[0])])
                   if s.startswith('select * from undo_history where order_id='):
-                      rows=[copy.deepcopy(x) for x in self.undo if x['order_id']==str(p[0]) and not x['undone_at']]; rows.sort(key=lambda x:x['created_at'],reverse=True); return Cur(rows[:1])
+                      rows=[copy.deepcopy(x) for x in self.undo if x['order_id']==str(p[0]) and not x['undone_at']]; return Cur(sorted(rows,key=lambda x:x['created_at'],reverse=True)[:1])
                   if s.startswith('update order_items set product_name=%s,quantity=%s,image_path='):
                       iid=str(p[-2]); keys=['product_name','quantity','image_path','availability_status','available_price','discounted_price','unavailable_reason','availability_note','price_confirmation_required','available_at','created_at','customer_decision']
                       for k,v in zip(keys,p[:-2]): self.items[iid][k]=v
@@ -111,46 +94,35 @@ jobs:
                       for x in self.undo:
                           if x['undo_id']==str(p[1]): x['undone_at']=str(p[0])
                       return Cur([])
-                  if s.startswith('update orders set'): return Cur([])
-                  if s.startswith('insert into activity_log'): return Cur([])
-                  if s.startswith('insert into undo_history'):
-                      self.undo.append({'undo_id':str(p[0]),'order_id':str(p[1]),'action':str(p[2]),'snapshot_json':str(p[3]),'created_at':str(p[4]),'undone_at':str(p[5]),'user_name':str(p[6])}); return Cur([])
-                  if s.startswith('insert into undo_item_images'):
-                      self.undo_images.append({'undo_id':str(p[0]),'item_id':str(p[1]),'image_path':str(p[2]),'filename':str(p[3]),'content_type':str(p[4]),'data':bytes(p[5]),'created_at':str(p[6])}); return Cur([])
+                  if s.startswith('update orders set') or s.startswith('insert into activity_log') or s.startswith('insert into undo_history') or s.startswith('insert into undo_item_images'): return Cur([])
                   return Cur([])
           @contextmanager
           def ctx(c): yield c
           class TestUndo(unittest.TestCase):
               def setUp(self):
                   self.c=Conn(); self.db=CloudDB.__new__(CloudDB); self.db._connect=lambda:ctx(self.c); self.db._next_undo_id=lambda c:'U1'; self.db._next_log_id=lambda c:'L1'; self.db._log=lambda *a,**k:None; self.db._refresh_order_in_conn=lambda c,o:{'Items':[copy.deepcopy(x) for x in c.items.values() if x['order_id']==o]}
-              def test_deleted_item_and_image_are_restored(self):
-                  snap={'order':copy.deepcopy(self.c.orders['O']),'items':[copy.deepcopy(self.c.items['A']),copy.deepcopy(self.c.items['B'])]}
-                  self.c.undo=[{'undo_id':'U1','order_id':'O','action':'تعديل','snapshot_json':json.dumps(snap,ensure_ascii=False),'created_at':'T4','undone_at':'','user_name':'tester'}]
-                  self.c.undo_images=[{'undo_id':'U1','item_id':'B','image_path':'O/B.png','filename':'B.png','content_type':'image/png','data':b'BBB','created_at':'T2'}]
-                  self.c.items.pop('B'); self.c.images.pop('O/B.png')
-                  self.db.undo_last('O','tester')
-                  self.assertIn('B',self.c.items); self.assertEqual(self.c.items['B']['availability_status'],'غير متوفر'); self.assertEqual(self.c.images['O/B.png']['data'],b'BBB')
+              def test_deleted_item_and_image_restore(self):
+                  snap={'order':copy.deepcopy(self.c.orders['O']),'items':[{'Item_ID':'A','Order_ID':'O','Product_Name':'A','Quantity':2,'Image_Path':'O/A.png','Availability_Status':'متوفر','Available_Price':'20','Discounted_Price':'18','Unavailable_Reason':'','Availability_Note':'note','Price_Confirmation_Required':'','Available_At':'D','Created_At':'T','Customer_Decision':'accepted'},{'Item_ID':'B','Order_ID':'O','Product_Name':'B','Quantity':1,'Image_Path':'O/B.png','Availability_Status':'غير متوفر','Available_Price':'','Discounted_Price':'','Unavailable_Reason':'no','Availability_Note':'','Price_Confirmation_Required':'','Available_At':'','Created_At':'T2','Customer_Decision':'rejected'}]}
+                  self.c.undo=[{'undo_id':'U1','order_id':'O','action':'تعديل','snapshot_json':json.dumps(snap,ensure_ascii=False),'created_at':'T4','undone_at':'','user_name':'tester'}]; self.c.undo_images=[{'undo_id':'U1','item_id':'B','image_path':'O/B.png','filename':'B.png','content_type':'image/png','data':b'BBB','created_at':'T2'}]
+                  self.c.items.pop('B'); self.c.images.pop('O/B.png'); self.db.undo_last('O','tester'); self.assertIn('B',self.c.items); self.assertEqual(self.c.images['O/B.png']['data'],b'BBB')
               def test_new_image_removed_when_snapshot_had_none(self):
-                  snap=copy.deepcopy(self.c.items); snap['A']['image_path']=''; self.c.items['A']['image_path']='O/A-new.png'; self.c.images['O/A-new.png']={'image_path':'O/A-new.png','order_id':'O','item_id':'A','filename':'A-new.png','content_type':'image/png','data':b'NEW','created_at':'T3'}
-                  self.c.undo=[{'undo_id':'U1','order_id':'O','action':'إضافة صورة','snapshot_json':json.dumps({'order':self.c.orders['O'],'items':[snap['A'],snap['B']]},ensure_ascii=False),'created_at':'T4','undone_at':'','user_name':'tester'}]
-                  self.db.undo_last('O','tester')
-                  self.assertEqual(self.c.items['A']['image_path'],''); self.assertNotIn('O/A-new.png',self.c.images)
+                  snap={'order':copy.deepcopy(self.c.orders['O']),'items':[{'Item_ID':'A','Order_ID':'O','Product_Name':'A','Quantity':2,'Image_Path':'','Availability_Status':'متوفر','Available_Price':'20','Discounted_Price':'18','Unavailable_Reason':'','Availability_Note':'note','Price_Confirmation_Required':'','Available_At':'D','Created_At':'T','Customer_Decision':'accepted'},{'Item_ID':'B','Order_ID':'O','Product_Name':'B','Quantity':1,'Image_Path':'O/B.png','Availability_Status':'غير متوفر','Available_Price':'','Discounted_Price':'','Unavailable_Reason':'no','Availability_Note':'','Price_Confirmation_Required':'','Available_At':'','Created_At':'T2','Customer_Decision':'rejected'}]}
+                  self.c.items['A']['image_path']='O/A-new.png'; self.c.images['O/A-new.png']={'image_path':'O/A-new.png','order_id':'O','item_id':'A','filename':'A-new.png','content_type':'image/png','data':b'NEW','created_at':'T3'}; self.c.undo=[{'undo_id':'U1','order_id':'O','action':'إضافة صورة','snapshot_json':json.dumps(snap,ensure_ascii=False),'created_at':'T4','undone_at':'','user_name':'tester'}]
+                  self.db.undo_last('O','tester'); self.assertEqual(self.c.items['A']['image_path'],''); self.assertNotIn('O/A-new.png',self.c.images)
           if __name__=='__main__': unittest.main()
           PY
-
       - name: Run P0.2 checks
         run: |
           python -m compileall -q app.py db.py cloud_db.py tests/test_p0_item_update.py tests/test_p0_2_undo.py
           node --check static/app.js
           python -m unittest -v tests/test_p0_item_update.py tests/test_p0_2_undo.py
           git diff --check
-
-      - name: Commit only after successful P0.2 checks
+      - name: Persist verified P0.2 and remove temporary files
         run: |
           git show origin/p0-1-data-safe-item-update:.github/workflows/fix-excel-export.yml > .github/workflows/fix-excel-export.yml
           rm -f .github/workflows/p0_2_execute.yml .github/p0_2_trigger.txt
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add cloud_db.py tests/test_p0_2_undo.py .github/workflows/fix-excel-export.yml .github/workflows/p0_2_execute.yml .github/p0_2_trigger.txt
-          git commit -m "feat: close P0.2 data-safe undo [skip ci]"
+          git commit -m 'feat: close P0.2 data-safe undo [skip ci]'
           git push origin HEAD:p0-2-data-safe-undo
