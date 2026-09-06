@@ -302,7 +302,7 @@ async function resetAllData(){
   try{await apiFetch("/api/data/reset",{method:"POST",body:JSON.stringify({confirmation:first})}); dashboardFilterKey=null; toast("تم حذف جميع البيانات وإعادة النظام لحالة نظيفة"); await loadDashboard(); await loadOrders(); loadBackups();}catch(e){toast(e.message,"error")}
 }
 
-document.addEventListener("DOMContentLoaded",()=>{initNav();initModals();initDailyShortages();initOrders();initNewOrder();document.getElementById("create-backup-btn").onclick=async()=>{try{await apiFetch("/api/backups",{method:"POST",body:"{}"});toast("تم إنشاء النسخة الاحتياطية");loadBackups()}catch(e){toast(e.message,"error")}};document.getElementById("reset-all-data-btn")?.addEventListener("click",resetAllData);
+document.addEventListener("DOMContentLoaded",()=>{initNav();initModals();initOrders();initNewOrder();document.getElementById("create-backup-btn").onclick=async()=>{try{await apiFetch("/api/backups",{method:"POST",body:"{}"});toast("تم إنشاء النسخة الاحتياطية");loadBackups()}catch(e){toast(e.message,"error")}};document.getElementById("reset-all-data-btn")?.addEventListener("click",resetAllData);
  document.getElementById("import-data-btn")?.addEventListener("click",()=>document.getElementById("import-data-file")?.click());
  document.getElementById("import-data-file")?.addEventListener("change",e=>importLegacyData(e.target.files?.[0]));
  
