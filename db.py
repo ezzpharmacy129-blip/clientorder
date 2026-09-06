@@ -779,7 +779,7 @@ class ExcelDB:
         if os.path.isdir(folder):
             shutil.rmtree(folder, ignore_errors=True)
 
-    def set_item_image(self, order_id, item_id, source_stream, filename, content_length=None):
+    def set_item_image(self, order_id, item_id, source_stream, filename, content_length=None, user="موظف"):
         ext = os.path.splitext(filename or "")[1].lower()
         if ext not in ALLOWED_IMAGE_EXTS:
             raise ValueError("صيغة الصورة غير مدعومة. استخدم JPG أو PNG أو WEBP")
@@ -813,7 +813,7 @@ class ExcelDB:
             _format_sheet(wi)
             _format_sheet(wl)
             _format_sheet(wu)
-            self._append_log(wl, order_id, "إضافة صورة للمنتج", "", "", f"تم إرفاق صورة بالمنتج {target_row[2].value}", "موظف")
+            self._append_log(wl, order_id, "إضافة صورة للمنتج", "", "", f"تم إرفاق صورة بالمنتج {target_row[2].value}", user)
             _atomic_save(wb)
             if old_path and old_path != rel_path:
                 try:
@@ -827,7 +827,7 @@ class ExcelDB:
                 pass
         return rel_path
 
-    def delete_item_image(self, order_id, item_id):
+    def delete_item_image(self, order_id, item_id, user="موظف"):
         with _lock:
             wb = self._load(); wi = wb["Order_Items"]; wl = wb["Activity_Log"]; wu = wb["Undo_History"]
             target = None
@@ -842,7 +842,7 @@ class ExcelDB:
             _make_backup()
             self._invalidate_undo(wu, order_id)
             target[4].value = ""
-            self._append_log(wl, order_id, "حذف صورة المنتج", "", "", f"تم حذف صورة المنتج {target[2].value}", "موظف")
+            self._append_log(wl, order_id, "حذف صورة المنتج", "", "", f"تم حذف صورة المنتج {target[2].value}", user)
             _format_sheet(wu)
             _atomic_save(wb)
             try:
