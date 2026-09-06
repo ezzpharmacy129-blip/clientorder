@@ -83,7 +83,7 @@
     if (state.filter === "pharmacy") return state.pharmacyRows.filter(row => row.statusKey === "pending");
     if (state.filter === "pharmacy_available") return state.pharmacyRows.filter(row => row.statusKey === "available");
     if (state.filter === "customer") return state.customerRows;
-    return [...state.customerRows, ...state.pharmacyRows].sort((a, b) =>
+    return [...state.customerRows, ...state.pharmacyRows.filter(row => row.statusKey === "pending")].sort((a, b) =>
       String(b.date || "").localeCompare(String(a.date || ""))
     );
   }
@@ -295,13 +295,9 @@
 
   async function load() {
     try {
-      const [pharmacyData, customerData] = await Promise.all([
-        api("/api/pharmacy-shortages"),
-        api("/api/customer-shortages")
-      ]);
-
-      state.pharmacyRows = normalizePharmacyRows(pharmacyData.shortages || []);
-      state.customerRows = normalizeCustomerRows(customerData.shortages || []);
+      const data = await api("/api/shortages");
+      state.pharmacyRows = normalizePharmacyRows((data.pharmacy || []).concat(data.pharmacy_available || []));
+      state.customerRows = normalizeCustomerRows(data.customer || []);
       state.page = Math.min(state.page, pageCount());
       render();
     } catch (error) {
