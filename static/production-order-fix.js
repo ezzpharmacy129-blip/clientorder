@@ -7,17 +7,10 @@
   let originalFiles = [];
 
   function api(url, options){
-    const opts = Object.assign({}, options || {});
-    opts.headers = Object.assign({}, opts.headers || {});
-    if (!(opts.body instanceof FormData)) opts.headers["Content-Type"] = "application/json";
-    return fetch(url, opts).then(async r=>{
-      let data = null; try { data = await r.json(); } catch(_e) {}
-      if(!r.ok){
-        const msg = data?.error || (data?.errors ? Object.values(data.errors).join("، ") : "حدث خطأ");
-        const err = new Error(msg); err.status = r.status; err.data = data; throw err;
-      }
-      return data;
-    });
+    if (typeof window.apiFetch !== "function") {
+      return Promise.reject(new Error("طبقة الاتصال غير جاهزة، أعد تحميل الصفحة ثم حاول مرة أخرى."));
+    }
+    return window.apiFetch(url, options || {});
   }
 
   function toastSafe(msg, type){
