@@ -1,23 +1,156 @@
 (function(){
-  'use strict';
-  function esc(v){return String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
-  async function api(url,opts={}){const r=await fetch(url,{...opts,headers:{'Content-Type':'application/json',...(opts.headers||{})}});let d=null;try{d=await r.json()}catch{};if(!r.ok)throw new Error(d?.error||'حدث خطأ');return d}
-  let initialized=false;
-  function boot(){if(initialized)return;initialized=true;
-    fetch('/api/auth/me').then(r=>r.json()).then(me=>{
-      const u=me?.user;if(!u||u.role!=='admin')return;
-      const nav=document.querySelector('.main-nav');if(!nav)return;
-      if(!document.querySelector('[data-view="users"]')){const b=document.createElement('button');b.className='nav-btn';b.dataset.view='users';b.textContent='👥 المستخدمون';nav.insertBefore(b,nav.querySelector('.nav-btn.primary')||null);b.addEventListener('click',()=>showUsers())}
-      if(!document.getElementById('view-users')){
-        const main=document.querySelector('.app-main');const s=document.createElement('section');s.id='view-users';s.className='view';s.innerHTML=`<div class="panel users-admin-panel"><div class="panel-header"><div><h2>👥 إدارة المستخدمين</h2><p class="panel-subtitle">المستخدمون والصلاحيات محفوظون في PostgreSQL.</p></div><div class="users-admin-toolbar"><button type="button" class="btn btn-secondary btn-sm" id="users-refresh">تحديث</button></div></div><div class="panel"><h3>إضافة مستخدم</h3><p class="users-admin-note">كلمة المرور لا تقل عن 8 أحرف. لا يتم عرض كلمات المرور الحالية.</p><form id="users-add-form" class="users-admin-form"><div class="form-row"><label>اسم الموظف</label><input name="name" required></div><div class="form-row"><label>اسم المستخدم</label><input name="username" required minlength="3"></div><div class="form-row"><label>كلمة المرور</label><input name="password" type="password" required minlength="8"></div><div class="form-row"><label>الدور</label><select name="role"><option value="employee">موظف</option><option value="admin">مدير</option></select></div><div class="form-row wide"><button class="btn btn-primary" type="submit">+ إضافة المستخدم</button></div></form></div><div class="panel"><div class="panel-header"><h3>المستخدمون الحاليون</h3><span id="users-count" class="fi-meta"></span></div><div id="users-list" class="users-admin-table-wrap"></div></div></div>`;main.appendChild(s)}
-      document.getElementById('users-refresh')?.addEventListener('click',loadUsers);
-      document.getElementById('users-add-form')?.addEventListener('submit',addUser);
-    }).catch(()=>{});
+  "use strict";
+
+  let initialized = false;
+
+  function escUser(value){
+    return String(value ?? "")
+      .replace(/&/g,"&amp;")
+      .replace(/</g,"&lt;")
+      .replace(/>/g,"&gt;")
+      .replace(/"/g,"&quot;")
+      .replace(/'/g,"&#39;");
   }
-  async function addUser(e){e.preventDefault();const f=e.currentTarget;const data=Object.fromEntries(new FormData(f).entries());const btn=f.querySelector('button[type=submit]');btn.disabled=true;try{await api('/api/admin/users',{method:'POST',body:JSON.stringify(data)});f.reset();await loadUsers();if(window.toast)toast('تم إضافة المستخدم بنجاح');}catch(err){if(window.toast)toast(err.message,'error');else alert(err.message)}finally{btn.disabled=false}}
-  async function loadUsers(){const root=document.getElementById('users-list');if(!root)return;root.innerHTML='<div class="users-admin-empty">جارِ تحميل المستخدمين...</div>';try{const d=await api('/api/admin/users');const rows=Array.isArray(d?.users)?d.users:[];document.getElementById('users-count').textContent=`${rows.length} مستخدم`;if(!rows.length){root.innerHTML='<div class="users-admin-empty">لا يوجد مستخدمون.</div>';return}root.innerHTML=`<table class="users-admin-table"><thead><tr><th>الاسم</th><th>اسم المستخدم</th><th>الدور</th><th>الحالة</th><th>آخر دخول</th><th>الإجراءات</th></tr></thead><tbody>${rows.map(u=>`<tr><td><strong>${esc(u.name)}</strong></td><td>${esc(u.username)}</td><td><span class="users-admin-badge ${u.role==='admin'?'admin':'employee'}">${u.role==='admin'?'مدير':'موظف'}</span></td><td><span class="users-admin-badge ${u.active?'active':'inactive'}">${u.active?'نشط':'معطل'}</span></td><td>${esc(u.last_login||'—')}</td><td><div class="users-admin-actions"><button type="button" class="btn btn-outline btn-sm user-toggle" data-id="${esc(u.user_id)}">${u.active?'تعطيل':'تفعيل'}</button><button type="button" class="btn btn-secondary btn-sm user-pass" data-id="${esc(u.user_id)}">تغيير كلمة المرور</button></div></td></tr>`).join('')}</tbody></table>`;root.querySelectorAll('.user-toggle').forEach(b=>b.onclick=()=>toggleUser(b.dataset.id));root.querySelectorAll('.user-pass').forEach(b=>b.onclick=()=>changePassword(b.dataset.id));}catch(err){root.innerHTML='<div class="users-admin-empty">تعذر تحميل المستخدمين.</div>';if(window.toast)toast(err.message,'error')}}
-  async function toggleUser(id){try{await api('/api/admin/users/'+encodeURIComponent(id)+'/toggle',{method:'POST'});await loadUsers();if(window.toast)toast('تم تحديث حالة المستخدم')}catch(err){if(window.toast)toast(err.message,'error');else alert(err.message)}}
-  async function changePassword(id){const p=prompt('أدخل كلمة المرور الجديدة (8 أحرف على الأقل):');if(p===null)return;if(p.length<8){alert('كلمة المرور يجب ألا تقل عن 8 أحرف');return}try{await api('/api/admin/users/'+encodeURIComponent(id)+'/password',{method:'POST',body:JSON.stringify({password:p})});if(window.toast)toast('تم تغيير كلمة المرور بنجاح');else alert('تم تغيير كلمة المرور بنجاح')}catch(err){if(window.toast)toast(err.message,'error');else alert(err.message)}}
-  function showUsers(){document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));document.querySelectorAll('.nav-btn[data-view]').forEach(v=>v.classList.remove('active'));document.getElementById('view-users')?.classList.add('active');document.querySelector('.nav-btn[data-view="users"]')?.classList.add('active');loadUsers()}
-  document.addEventListener('DOMContentLoaded',boot); if(document.readyState!=='loading')boot();
+
+  async function loadUsers(){
+    const root = document.getElementById("users-list");
+    if(!root) return;
+
+    root.innerHTML = '<div class="users-admin-empty">جارِ تحميل المستخدمين...</div>';
+
+    try{
+      const data = await apiFetch("/api/admin/users");
+      const rows = Array.isArray(data?.users) ? data.users : [];
+      const count = document.getElementById("users-count");
+      if(count) count.textContent = rows.length + " مستخدم";
+
+      if(!rows.length){
+        root.innerHTML = '<div class="users-admin-empty">لا يوجد مستخدمون.</div>';
+        return;
+      }
+
+      root.innerHTML =
+        '<table class="users-admin-table"><thead><tr>' +
+        '<th>الاسم</th><th>اسم المستخدم</th><th>الدور</th><th>الحالة</th><th>آخر دخول</th><th>الإجراءات</th>' +
+        '</tr></thead><tbody>' +
+        rows.map(user =>
+          '<tr>' +
+          '<td><strong>' + escUser(user.name) + '</strong></td>' +
+          '<td>' + escUser(user.username) + '</td>' +
+          '<td><span class="users-admin-badge ' + (user.role === "admin" ? "admin" : "employee") + '">' +
+          (user.role === "admin" ? "مدير" : "موظف") +
+          '</span></td>' +
+          '<td><span class="users-admin-badge ' + (user.active ? "active" : "inactive") + '">' +
+          (user.active ? "نشط" : "معطل") +
+          '</span></td>' +
+          '<td>' + escUser(user.last_login || "—") + '</td>' +
+          '<td><div class="users-admin-actions">' +
+          '<button type="button" class="btn btn-outline btn-sm user-toggle" data-id="' + escUser(user.user_id) + '">' +
+          (user.active ? "تعطيل" : "تفعيل") +
+          '</button>' +
+          '<button type="button" class="btn btn-secondary btn-sm user-pass" data-id="' + escUser(user.user_id) + '">تغيير كلمة المرور</button>' +
+          '</div></td>' +
+          '</tr>'
+        ).join("") +
+        '</tbody></table>';
+
+      root.querySelectorAll(".user-toggle").forEach(button => {
+        button.addEventListener("click", async () => {
+          try{
+            await apiFetch("/api/admin/users/" + encodeURIComponent(button.dataset.id) + "/toggle", {
+              method: "POST",
+              body: JSON.stringify({})
+            });
+            await loadUsers();
+            toast("تم تحديث حالة المستخدم");
+          }catch(error){
+            toast(error.message, "error");
+          }
+        });
+      });
+
+      root.querySelectorAll(".user-pass").forEach(button => {
+        button.addEventListener("click", async () => {
+          const password = prompt("أدخل كلمة المرور الجديدة (8 أحرف على الأقل):");
+          if(password === null) return;
+          if(password.length < 8){
+            toast("كلمة المرور يجب ألا تقل عن 8 أحرف", "error");
+            return;
+          }
+
+          try{
+            await apiFetch("/api/admin/users/" + encodeURIComponent(button.dataset.id) + "/password", {
+              method: "POST",
+              body: JSON.stringify({password})
+            });
+            toast("تم تغيير كلمة المرور بنجاح");
+          }catch(error){
+            toast(error.message, "error");
+          }
+        });
+      });
+    }catch(error){
+      root.innerHTML = '<div class="users-admin-empty">تعذر تحميل المستخدمين.</div>';
+      toast(error.message, "error");
+    }
+  }
+
+  async function initUsers(){
+    if(initialized) return;
+    initialized = true;
+
+    const nav = document.getElementById("users-nav-btn");
+    const view = document.getElementById("view-users");
+
+    if(!nav || !view) return;
+
+    try{
+      const me = (await apiFetch("/api/auth/me")).user;
+      if(!me || me.role !== "admin"){
+        nav.remove();
+        view.remove();
+        return;
+      }
+    }catch(_error){
+      nav.remove();
+      view.remove();
+      return;
+    }
+
+    document.getElementById("users-refresh")?.addEventListener("click", loadUsers);
+
+    document.getElementById("users-add-form")?.addEventListener("submit", async event => {
+      event.preventDefault();
+
+      const form = event.currentTarget;
+      const button = form.querySelector('button[type="submit"]');
+      const data = Object.fromEntries(new FormData(form).entries());
+
+      button.disabled = true;
+      try{
+        await apiFetch("/api/admin/users", {
+          method: "POST",
+          body: JSON.stringify(data)
+        });
+        form.reset();
+        await loadUsers();
+        toast("تم إضافة المستخدم بنجاح");
+      }catch(error){
+        toast(error.message, "error");
+      }finally{
+        button.disabled = false;
+      }
+    });
+
+    nav.addEventListener("click", () => {
+      if(typeof switchView === "function"){
+        switchView("users");
+      }
+      loadUsers();
+    });
+
+    loadUsers();
+  }
+
+  document.addEventListener("DOMContentLoaded", initUsers);
 })();
