@@ -100,8 +100,7 @@ async function loadDashboard(){
       document.getElementById('today-date').textContent=fmtDate(data.date);
       document.getElementById('today-summary').innerHTML=`لديك <strong>${data.available}</strong> طلبات جاهزة للتواصل، <strong>${data.awaiting_reply}</strong> بانتظار رد العميل، <strong>${data.overdue}</strong> متابعات متأخرة`;
 
-      actionCenterData=data.action_center||{summary:{},items:[],total_actionable:0};
-      renderActionCenter();
+      document.dispatchEvent(new CustomEvent('ezz:dashboard-data',{detail:data}));
       const followupTarget=document.getElementById('followups-list');
       if(followupTarget) renderFollowupsList(data.followups||[]);
       if(dashboardFilterKey) renderDashboardResults();
@@ -116,135 +115,6 @@ async function loadDashboard(){
   return dashboardLoadPromise;
 }
 
-
-let actionCenterData = {summary:{}, items:[], total_actionable:0};
-let actionCenterFilter = null;
-
-const ACTION_CENTER_META = {
-  overdue: {label:"متأخرة", cls:"action-item-overdue", cta:"واتساب"},
-  needs_supply: {label:"تحتاج توفير", cls:"action-item-supply", cta:"تحديث التوفر"},
-  awaiting_reply: {label:"تنتظر رد العميل", cls:"action-item-reply", cta:"عرض الطلب"},
-  today: {label:"متابعة اليوم", cls:"action-item-today", cta:"واتساب"}
-};
-
-function actionAge(order){
-  const created=String(order.Created_At||"");
-  if(!created)return"";
-  const d=created.split(" ")[0];
-  if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(d))return"";
-  const now=todayISO();
-  const days=Math.max(0,Math.round((Date.parse(now+"T00:00:00")-Date.parse(d+"T00:00:00"))/86400000));
-  if(days===0)return"اليوم";
-  return "منذ "+days+" "+(days===1?"يوم":"أيام");
-}
-
-function actionCenterFilteredItems(){
-  return actionCenterFilter ? (actionCenterData.items||[]).filter(function(x){return x.action_key===actionCenterFilter;}) : (actionCenterData.items||[]);
-}
-
-function renderActionCenter(){
-  const s=actionCenterData.summary||{};
-  const list=document.getElementById("action-center-list");
-  const title=document.getElementById("action-center-title");
-  const subtitle=document.getElementById("action-center-subtitle");
-  if(!list||!title||!subtitle)return;
-
-  const set=function(id,v){
-    const e=document.getElementById(id);
-    if(e)e.textContent=String(v??0);
-  };
-  set("action-count-overdue",s.overdue);
-  set("action-count-supply",s.needs_supply);
-  set("action-count-reply",s.awaiting_reply);
-  set("action-count-today",s.today);
-
-  document.querySelectorAll("#action-center [data-action-filter]").forEach(function(b){
-    const key=b.dataset.actionFilter;
-    const active=actionCenterFilter===key;
-    b.classList.toggle("active",active);
-    b.setAttribute("aria-pressed",String(active));
-  });
-
-  const total=Number(actionCenterData.total_actionable||0);
-  const visible=actionCenterFilteredItems();
-
-  if(!total){
-    title.textContent="لا توجد إجراءات معلقة";
-    subtitle.textContent="كل الطلبات الحالية لا تحتاج إجراءً من الموظف.";
-    list.innerHTML='<div class="action-center-empty"><div class="action-empty-icon">✓</div><strong>ممتاز، لا توجد طلبات تحتاج إجراء الآن</strong><span>يمكنك متابعة العمل بشكل طبيعي.</span></div>';
-    return;
-  }
-
-  if(!actionCenterFilter){
-    title.textContent="تحتاج إجراء الآن";
-    subtitle.textContent=total+" طلبات تحتاج اهتمامًا — اختر نوع الإجراء لعرضه فقط.";
-  }else{
-    const meta=ACTION_CENTER_META[actionCenterFilter]||{};
-    title.textContent="طلبات «"+(meta.label||"الإجراء") +"»";
-    subtitle.textContent=visible.length+" "+(visible.length===1?"طلب يحتاج":"طلبات تحتاج")+" "+(meta.label||"اهتمام");
-  }
-
-  if(actionCenterFilter && !visible.length){
-    list.innerHTML='<div class="action-center-empty"><div class="action-empty-icon">✓</div><strong>لا توجد طلبات ضمن «'+esc((ACTION_CENTER_META[actionCenterFilter]||{}).label||"هذا التصنيف")+'»</strong><span>الرقم أعلاه يعكس العدد الحقيقي لهذا التصنيف.</span></div>';
-    return;
-  }
-
-  if(!visible.length){
-    list.innerHTML='<div class="action-center-empty"><div class="action-empty-icon">✓</div><strong>اختر نوع الإجراء من الأعلى</strong><span>سيظهر هنا فقط ما يحتاجه الموظف.</span></div>';
-    return;
-  }
-
-  list.innerHTML=visible.map(function(o){
-    const meta=ACTION_CENTER_META[o.action_key]||ACTION_CENTER_META.today;
-    const age=actionAge(o);
-    const shortageCount=Number(o.shortage_count||0);
-    let primary="";
-    if(o.action_key==="needs_supply"){
-      primary='<button type="button" class="btn btn-primary btn-sm action-availability-btn" data-id="'+esc(o.Order_ID)+'">تحديث التوفر</button>';
-    }else if(o.action_key==="awaiting_reply"){
-      primary='<button type="button" class="btn btn-primary btn-sm action-wa-btn" data-id="'+esc(o.Order_ID)+'">💬 تواصل مع العميل</button>';
-    }else if(o.action_key==="today"||o.action_key==="overdue"){
-      primary='<button type="button" class="btn btn-primary btn-sm action-wa-btn" data-id="'+esc(o.Order_ID)+'">💬 تواصل مع العميل</button>';
-    }
-
-    return '<article class="action-item '+meta.cls+'">'
-      +'<div class="action-item-main">'
-      +'<div class="action-item-head"><strong>'+esc(o.Order_ID)+'</strong><span class="action-badge">'+meta.label+'</span></div>'
-      +'<div class="action-customer"><strong>'+esc(o.Customer_Name)+'</strong> <span>'+esc(o.Phone)+'</span></div>'
-      +'<div class="action-item-meta">'
-      +'<span>➡️ '+esc(o.next_action||"متابعة الطلب")+'</span>'
-      +(age?'<span>⏱ '+esc(age)+'</span>':"")
-      +(shortageCount?'<span>📦 '+shortageCount+' نواقص</span>':"")
-      +'</div>'
-      +'<div class="action-item-hint">'+esc(o.action_hint||"")+'</div>'
-      +'</div>'
-      +'<div class="action-item-actions">'
-      +primary
-      +'<button type="button" class="btn btn-secondary btn-sm action-detail-btn" data-id="'+esc(o.Order_ID)+'">فتح الطلب</button>'
-      +'</div>'
-      +'</article>';
-  }).join("");
-
-  list.querySelectorAll(".action-availability-btn").forEach(function(b){
-    b.onclick=function(){openAvailability(b.dataset.id);};
-  });
-  list.querySelectorAll(".action-wa-btn").forEach(function(b){
-    b.onclick=function(){openClientWhatsApp(b.dataset.id);};
-  });
-  list.querySelectorAll(".action-detail-btn").forEach(function(b){
-    b.onclick=function(){details(b.dataset.id);};
-  });
-}
-
-async function loadActionCenter(){
-  try{
-    actionCenterData=await apiFetch("/api/action-center");
-    renderActionCenter();
-  }catch(e){
-    const list=document.getElementById("action-center-list");
-    if(list)list.innerHTML='<div class="action-center-empty error">تعذر تحميل مركز العمل</div>';
-  }
-}
 
 function renderFollowupsList(followups){
   const c=document.getElementById("followups-list");
@@ -436,7 +306,7 @@ document.addEventListener("DOMContentLoaded",()=>{initNav();initModals();initDai
  document.getElementById("import-data-btn")?.addEventListener("click",()=>document.getElementById("import-data-file")?.click());
  document.getElementById("import-data-file")?.addEventListener("change",e=>importLegacyData(e.target.files?.[0]));
  
- document.getElementById("dashboard-results-search")?.addEventListener("input",()=>renderDashboardResults());document.getElementById("dashboard-contact-filter")?.addEventListener("change",()=>renderDashboardResults());document.getElementById("dashboard-results-close")?.addEventListener("click",()=>{dashboardFilterKey=null;closeDashboardResults();renderDashboardCards(window.dashboardStats||{})});document.getElementById("dashboard-search").oninput=e=>{clearTimeout(window._s);window._s=setTimeout(()=>loadFollowups(e.target.value.trim()),250)};document.getElementById("refresh-shortages-btn")?.addEventListener("click",loadShortages);document.getElementById("shortages-select-all")?.addEventListener("click",()=>selectAllShortages(true));document.getElementById("shortages-clear-all")?.addEventListener("click",()=>selectAllShortages(false));document.getElementById("shortages-mode")?.addEventListener("change",updateShortageMessage);document.getElementById("copy-shortages-btn")?.addEventListener("click",copyShortages);document.getElementById("open-wa-group-btn")?.addEventListener("click",openShortagesWhatsApp);document.getElementById("refresh-wa-customers-btn")?.addEventListener("click",loadWaCustomers);document.getElementById("message-templates-save")?.addEventListener("click",saveMessageTemplates);document.getElementById("message-templates-reset")?.addEventListener("click",resetMessageTemplates);loadDashboard();document.getElementById("action-center-refresh")?.addEventListener("click",async()=>{actionCenterFilter=null;await loadDashboard();});const actionCenter=document.getElementById("action-center");actionCenter?.addEventListener("click",function(e){const tile=e.target.closest?.("#action-center [data-action-filter]");if(!tile)return;e.preventDefault();e.stopPropagation();const k=tile.dataset.actionFilter||null;actionCenterFilter=actionCenterFilter===k?null:k;renderActionCenter();document.getElementById("action-center-list")?.scrollIntoView({behavior:"smooth",block:"nearest"});});});
+ document.getElementById("dashboard-results-search")?.addEventListener("input",()=>renderDashboardResults());document.getElementById("dashboard-contact-filter")?.addEventListener("change",()=>renderDashboardResults());document.getElementById("dashboard-results-close")?.addEventListener("click",()=>{dashboardFilterKey=null;closeDashboardResults();renderDashboardCards(window.dashboardStats||{})});document.getElementById("dashboard-search").oninput=e=>{clearTimeout(window._s);window._s=setTimeout(()=>loadFollowups(e.target.value.trim()),250)};document.getElementById("refresh-shortages-btn")?.addEventListener("click",loadShortages);document.getElementById("shortages-select-all")?.addEventListener("click",()=>selectAllShortages(true));document.getElementById("shortages-clear-all")?.addEventListener("click",()=>selectAllShortages(false));document.getElementById("shortages-mode")?.addEventListener("change",updateShortageMessage);document.getElementById("copy-shortages-btn")?.addEventListener("click",copyShortages);document.getElementById("open-wa-group-btn")?.addEventListener("click",openShortagesWhatsApp);document.getElementById("refresh-wa-customers-btn")?.addEventListener("click",loadWaCustomers);document.getElementById("message-templates-save")?.addEventListener("click",saveMessageTemplates);document.getElementById("message-templates-reset")?.addEventListener("click",resetMessageTemplates);loadDashboard();});
 
 /* EZZ SHORTAGE GROUPING FIX v1 */
 /* EZZ_CORE_USERS_DASHBOARD_V5 */

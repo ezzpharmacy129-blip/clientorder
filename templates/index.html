@@ -44,16 +44,16 @@
       <button type="button" class="btn btn-secondary btn-sm" id="action-center-refresh">تحديث</button>
     </div>
     <div class="action-center-grid">
-      <button type="button" class="action-tile action-overdue" data-action-filter="overdue" aria-pressed="false">
+      <button type="button" class="action-tile action-overdue" data-action-category="overdue" aria-pressed="false">
         <span class="action-tile-icon">🔴</span><strong id="action-count-overdue">0</strong><span>متأخرة</span>
       </button>
-      <button type="button" class="action-tile action-supply" data-action-filter="needs_supply" aria-pressed="false">
+      <button type="button" class="action-tile action-supply" data-action-category="needs_supply" aria-pressed="false">
         <span class="action-tile-icon">📦</span><strong id="action-count-supply">0</strong><span>تحتاج توفير</span>
       </button>
-      <button type="button" class="action-tile action-reply" data-action-filter="awaiting_reply" aria-pressed="false">
+      <button type="button" class="action-tile action-reply" data-action-category="awaiting_reply" aria-pressed="false">
         <span class="action-tile-icon">🟡</span><strong id="action-count-reply">0</strong><span>تنتظر رد العميل</span>
       </button>
-      <button type="button" class="action-tile action-today" data-action-filter="today" aria-pressed="false">
+      <button type="button" class="action-tile action-today" data-action-category="today" aria-pressed="false">
         <span class="action-tile-icon">🔵</span><strong id="action-count-today">0</strong><span>متابعة اليوم</span>
       </button>
     </div>
@@ -159,6 +159,7 @@
 </div>
 
 <script src="{{ url_for('static', filename='app.js') }}?v=20260906-action-center-v2"></script>
+<script src="{{ url_for('static', filename='action_center.js') }}?v=20260906-action-center-v3"></script>
 <script src="{{ url_for('static', filename='cancelled_orders.js') }}?v=20260902-cancelled-orders"></script>
 <script src="{{ url_for('static', filename='daily_shortages.js') }}?v=20260906-shortages-ui-v2"></script>
 <script src="{{ url_for('static', filename='vip_customers.js') }}?v=20260831-vip"></script>
