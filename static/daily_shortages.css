@@ -1,0 +1,316 @@
+/* Ezz Pharmacy — Shortages page component
+ * This file owns ONLY the shortages page UI.
+ */
+
+.shortages-page{
+  width:100%;
+}
+
+.shortages-page .daily-shortages-panel{
+  padding:24px;
+  overflow:hidden;
+}
+
+.shortages-page .daily-shortages-top{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:24px;
+  padding-bottom:18px;
+  border-bottom:1px solid var(--border);
+}
+
+.shortages-page .daily-shortages-heading{
+  min-width:0;
+}
+
+.shortages-page .daily-shortages-kicker{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  margin-bottom:5px;
+  color:var(--primary-dark);
+  font-size:12px;
+  font-weight:800;
+}
+
+.shortages-page .daily-shortages-heading h2{
+  margin:0;
+  color:var(--navy);
+  font-size:24px;
+  line-height:1.25;
+  font-weight:900;
+}
+
+.shortages-page .daily-shortages-heading .panel-subtitle{
+  margin:6px 0 0;
+  color:var(--muted);
+  font-size:13px;
+}
+
+.shortages-page .daily-shortages-toolbar{
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  gap:8px;
+  flex-wrap:wrap;
+}
+
+.shortages-page .shortages-limit-control{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:4px 6px 4px 8px;
+  color:var(--muted);
+  background:var(--surface-soft);
+  border:1px solid var(--border);
+  border-radius:10px;
+  font-size:12px;
+  font-weight:800;
+}
+
+.shortages-page .shortages-limit-control select{
+  min-width:64px;
+  min-height:34px;
+  padding:5px 9px;
+  border:1px solid var(--border);
+  border-radius:8px;
+  background:#fff;
+  color:var(--navy);
+  font-size:12px;
+  font-weight:800;
+}
+
+.shortages-page .shortages-overview{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+  margin:16px 0 12px;
+  padding:12px 14px;
+  background:var(--surface-soft);
+  border:1px solid var(--border);
+  border-radius:14px;
+}
+
+.shortages-page .shortages-overview-copy{
+  display:flex;
+  align-items:baseline;
+  gap:8px;
+  min-width:0;
+}
+
+.shortages-page .shortages-overview-title{
+  color:var(--navy);
+  font-size:13px;
+  font-weight:900;
+}
+
+.shortages-page .shortages-overview-note{
+  color:var(--muted);
+  font-size:11px;
+}
+
+.shortages-page .shortages-view-tabs{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  margin:0;
+  padding:0;
+  background:transparent;
+}
+
+.shortages-page .shortages-view-tab{
+  appearance:none;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:9px;
+  min-height:42px;
+  padding:8px 15px;
+  border:1px solid var(--border);
+  border-radius:10px;
+  background:#fff;
+  color:var(--text);
+  cursor:pointer;
+  font:inherit;
+  font-size:13px;
+  font-weight:800;
+  white-space:nowrap;
+  box-shadow:var(--shadow-sm);
+  transition:background var(--transition),color var(--transition),border-color var(--transition),box-shadow var(--transition),transform var(--transition);
+}
+
+.shortages-page .shortages-view-tab:hover{
+  background:var(--primary-soft);
+  border-color:#9bcfd4;
+  color:var(--primary-dark);
+  transform:translateY(-1px);
+}
+
+.shortages-page .shortages-view-tab.active{
+  background:linear-gradient(135deg,var(--primary),#128e9a);
+  border-color:var(--primary);
+  color:#fff;
+  box-shadow:0 7px 16px rgba(21,153,166,.16);
+}
+
+.shortages-page .shortages-view-tab:focus-visible{
+  outline:2px solid var(--primary);
+  outline-offset:2px;
+  box-shadow:var(--focus-ring);
+}
+
+.shortages-page .shortages-view-tab strong{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-width:24px;
+  height:24px;
+  padding:0 7px;
+  border-radius:999px;
+  background:var(--surface-soft);
+  color:var(--primary-dark);
+  font-size:10px;
+  line-height:1;
+}
+
+.shortages-page .shortages-view-tab.active strong{
+  background:rgba(255,255,255,.18);
+  color:#fff;
+}
+
+.shortages-page .daily-shortages-summary{
+  display:flex;
+  align-items:center;
+  min-height:34px;
+  margin:0 0 10px;
+  padding:5px 2px;
+  background:transparent;
+  border:0;
+  color:var(--primary-dark);
+  font-size:12px;
+  font-weight:800;
+}
+
+.shortages-page .daily-shortages-table-card{
+  overflow:hidden;
+  background:#fff;
+  border:1px solid var(--border);
+  border-radius:14px;
+  box-shadow:var(--shadow-sm);
+}
+
+.shortages-page .daily-shortages-table-wrap{
+  max-height:calc(100vh - 315px);
+  min-height:250px;
+  width:100%;
+  overflow:auto;
+  -webkit-overflow-scrolling:touch;
+}
+
+.shortages-page .daily-shortages-table{
+  width:100%;
+  min-width:960px;
+  border-collapse:separate;
+  border-spacing:0;
+}
+
+.shortages-page .daily-shortages-table th,
+.shortages-page .daily-shortages-table td{
+  padding:10px 11px;
+  vertical-align:middle;
+}
+
+.shortages-page .daily-shortages-table th{
+  position:sticky;
+  top:0;
+  z-index:3;
+}
+
+.shortages-page .daily-shortages-table td{
+  font-size:12px;
+}
+
+.shortages-page .daily-shortages-table tr:hover td{
+  background:#f7fcfd;
+}
+
+.shortages-page .daily-shortages-table .status-badge{
+  min-height:25px;
+  padding:4px 9px;
+  font-size:10px;
+}
+
+.shortages-page .shortage-type{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  padding:4px 8px;
+  border-radius:var(--radius-pill);
+  font-size:10px;
+  font-weight:800;
+  white-space:nowrap;
+}
+
+.shortages-page .shortage-type-pharmacy{
+  background:var(--success-bg);
+  color:var(--success);
+}
+
+.shortages-page .shortage-type-customer{
+  background:var(--info-bg);
+  color:var(--info);
+}
+
+.shortages-page .daily-shortage-note{
+  max-width:240px;
+  margin-top:3px;
+  overflow:hidden;
+  color:var(--muted);
+  font-size:10px;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+.shortages-page .daily-shortage-actions{
+  display:flex;
+  align-items:center;
+  gap:5px;
+  flex-wrap:wrap;
+}
+
+.shortages-page .empty-state{
+  min-height:150px;
+}
+
+@media (max-width:900px){
+  .shortages-page .daily-shortages-top{
+    flex-direction:column;
+    gap:14px;
+  }
+  .shortages-page .daily-shortages-toolbar{
+    justify-content:flex-start;
+    width:100%;
+  }
+  .shortages-page .shortages-overview{
+    align-items:flex-start;
+    flex-direction:column;
+  }
+  .shortages-page .shortages-view-tabs{
+    width:100%;
+  }
+  .shortages-page .shortages-view-tab{
+    flex:1 1 0;
+  }
+}
+
+@media (max-width:720px){
+  .shortages-page .daily-shortages-panel{
+    padding:15px;
+  }
+  .shortages-page .daily-shortages-table-wrap{
+    max-height:calc(100vh - 335px);
+    min-height:210px;
+  }
+}
