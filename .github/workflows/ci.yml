@@ -2,134 +2,47 @@ name: Validate application
 
 on:
   push:
-    branches: [p0-2-data-safe-undo]
+    branches: [main]
   pull_request:
     branches: [main]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  p0_2:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/p0-2-data-safe-undo' && github.event.head_commit.message != 'feat: close P0.2 data-safe undo'
+  syntax:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-python@v5
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.14"
-      - run: python -m pip install -r requirements.txt
-      - name: Apply reviewed P0.2 patch
-        shell: bash
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Compile Python files
+        run: python -m compileall -q app.py db.py cloud_db.py sitecustomize.py auth_bootstrap.py auth_pg.py auth_security_extensions.py admin_state_controls.py data_export.py csrf_protection.py tests/test_csrf_protection.py
+      - name: Validate JavaScript syntax
+        run: node --check static/app.js
+      - name: Run CSRF protection tests
+        run: python -m unittest -v tests/test_csrf_protection.py
+      - name: Run login rate limit tests
+        run: python -m unittest -v tests/test_login_rate_limit.py
+      - name: Run authorization policy tests
+        run: python -m unittest -v tests/test_authorization_policy.py
+      - name: Run workflow policy tests
+        run: python -m unittest -v tests/test_workflow_policy.py
+      - name: Verify users dashboard core integration
         run: |
           python - <<'PY'
           from pathlib import Path
-          from textwrap import dedent
-          wf=Path('.github/workflows/_p0_2_apply.yml').read_text(encoding='utf-8')
-          start=wf.index("          python - <<'PY'", wf.index('Apply P0.2 fail-closed patch'))+len("          python - <<'PY'\n")
-          end=wf.index("          PY", start)
-          exec(compile(dedent(wf[start:end]), '<p0_2_patch>', 'exec'), {})
+          t=Path('templates/index.html').read_text(encoding='utf-8')
+          j=Path('static/app.js').read_text(encoding='utf-8')
+          c=Path('static/style.css').read_text(encoding='utf-8')
+          assert t.count('id="users-nav-btn"') == 1
+          assert t.count('id="view-users"') == 1
+          assert j.count('EZZ_CORE_USERS_DASHBOARD_') == 1
+          assert c.count('EZZ_CORE_USERS_DASHBOARD_CSS_') == 1
+          print('USERS CORE INTEGRATION VERIFIED')
           PY
-      - name: Create focused functional tests
-        shell: bash
-        run: |
-          cat > tests/test_p0_2_isolated.py <<'PY'
-          import copy, json, unittest
-          from contextlib import contextmanager
-          from cloud_db import CloudDB
-          import psycopg
-          psycopg.Binary=lambda value:value
-
-          class Cur:
-              def __init__(self, rows): self.rows=rows
-              def fetchone(self): return self.rows[0] if self.rows else None
-              def fetchall(self): return self.rows
-
-          class Conn:
-              def __init__(self):
-                  self.orders={'O':{'order_id':'O','customer_name':'C','phone':'P','product_name':'A × 2، B × 1','quantity':3,'order_date':'D','available_date':'','status':'متوفر - يحتاج اتصال','contact_status':'لم يتم التواصل','last_contact_date':'','next_followup_date':'','pickup_date':'','notes':'N','created_at':'T','updated_at':'T'}}
-                  self.items={'A':{'item_id':'A','order_id':'O','product_name':'A','quantity':2,'image_path':'O/A.png','availability_status':'متوفر','available_price':'20','discounted_price':'18','unavailable_reason':'','availability_note':'note','price_confirmation_required':'','available_at':'D','created_at':'T','customer_decision':'accepted'},'B':{'item_id':'B','order_id':'O','product_name':'B','quantity':1,'image_path':'O/B.png','availability_status':'غير متوفر','available_price':'','discounted_price':'','unavailable_reason':'no','availability_note':'','price_confirmation_required':'','available_at':'','created_at':'T2','customer_decision':'rejected'}}
-                  self.images={'O/A.png':{'image_path':'O/A.png','order_id':'O','item_id':'A','filename':'A.png','content_type':'image/png','data':b'AAA','created_at':'T'},'O/B.png':{'image_path':'O/B.png','order_id':'O','item_id':'B','filename':'B.png','content_type':'image/png','data':b'BBB','created_at':'T2'}}
-                  self.undo=[]; self.undo_images=[]
-              def __enter__(self): return self
-              def __exit__(self,*a): return False
-              def execute(self,sql,params=()):
-                  s=' '.join(sql.strip().split()).lower(); p=list(params)
-                  if s.startswith('select * from orders where order_id='):
-                      r=self.orders.get(str(p[0])); return Cur([copy.deepcopy(r)] if r else [])
-                  if s.startswith('select * from order_items where order_id='):
-                      return Cur([copy.deepcopy(x) for x in self.items.values() if x['order_id']==str(p[0])])
-                  if s.startswith('select product_name,image_path from order_items where item_id='):
-                      r=self.items.get(str(p[0])); return Cur([{'product_name':r['product_name'],'image_path':r['image_path']}] if r and r['order_id']==str(p[1]) else [])
-                  if s.startswith('select item_id,image_path,filename,content_type,data,created_at from item_images where order_id=%s and item_id in'):
-                      oid=str(p[0]); want={str(x) for x in p[1:]}; return Cur([copy.deepcopy(x) for x in self.images.values() if x['order_id']==oid and x['item_id'] in want])
-                  if s.startswith('select item_id,image_path,filename,content_type,data,created_at from undo_item_images where undo_id='):
-                      return Cur([copy.deepcopy(x) for x in self.undo_images if x['undo_id']==str(p[0])])
-                  if s.startswith('select * from undo_history where order_id='):
-                      rows=[copy.deepcopy(x) for x in self.undo if x['order_id']==str(p[0]) and not x['undone_at']]; rows.sort(key=lambda x:x['created_at'],reverse=True); return Cur(rows[:1])
-                  if s.startswith('insert into undo_history'):
-                      self.undo.append({'undo_id':str(p[0]),'order_id':str(p[1]),'action':str(p[2]),'snapshot_json':str(p[3]),'created_at':str(p[4]),'undone_at':str(p[5]),'user_name':str(p[6])}); return Cur([])
-                  if s.startswith('insert into undo_item_images'):
-                      self.undo_images.append({'undo_id':str(p[0]),'item_id':str(p[1]),'image_path':str(p[2]),'filename':str(p[3]),'content_type':str(p[4]),'data':bytes(p[5]),'created_at':str(p[6])}); return Cur([])
-                  if s.startswith('update undo_history set undone_at='):
-                      for x in self.undo:
-                          if x['undo_id']==str(p[1]): x['undone_at']=str(p[0])
-                      return Cur([])
-                  if s.startswith('update order_items set product_name=%s,quantity=%s where item_id='):
-                      iid=str(p[-2]); self.items[iid]['product_name']=p[0]; self.items[iid]['quantity']=p[1]; return Cur([])
-                  if s.startswith('update order_items set product_name=%s,quantity=%s,image_path='):
-                      iid=str(p[-2]); keys=['product_name','quantity','image_path','availability_status','available_price','discounted_price','unavailable_reason','availability_note','price_confirmation_required','available_at','created_at','customer_decision']
-                      for k,v in zip(keys,p[:-2]): self.items[iid][k]=v
-                      return Cur([])
-                  if s.startswith('insert into order_items'):
-                      keys=['item_id','order_id','product_name','quantity','image_path','availability_status','available_price','discounted_price','unavailable_reason','availability_note','price_confirmation_required','available_at','created_at','customer_decision']; self.items[str(p[0])]=dict(zip(keys,p)); return Cur([])
-                  if s.startswith('delete from order_items where item_id='):
-                      iid=str(p[0]); self.items.pop(iid,None); self.images={k:v for k,v in self.images.items() if v['item_id']!=iid}; return Cur([])
-                  if s.startswith('delete from item_images where order_id=') and 'item_id=' in s:
-                      oid,iid=str(p[0]),str(p[1]); self.images={k:v for k,v in self.images.items() if not (v['order_id']==oid and v['item_id']==iid)}; return Cur([])
-                  if s.startswith('insert into item_images'):
-                      keys=['image_path','order_id','item_id','filename','content_type','data','created_at']; self.images[str(p[0])]=dict(zip(keys,p)); return Cur([])
-                  if s.startswith('update orders set'):
-                      return Cur([])
-                  if s.startswith('insert into activity_log'): return Cur([])
-                  raise AssertionError(sql)
-
-          @contextmanager
-          def ctx(c): yield c
-
-          class T(unittest.TestCase):
-              def setUp(self):
-                  self.c=Conn(); self.db=CloudDB.__new__(CloudDB); self.db._connect=lambda:ctx(self.c); self.db._next_item_id=lambda c:'C'; self.db._next_undo_id=lambda c:'U1'; self.db._next_log_id=lambda c:'L1'; self.db._log=lambda *a,**k:None; self.db._refresh_order_in_conn=lambda c,o:{'Items':[copy.deepcopy(x) for x in c.items.values() if x['order_id']==o]}
-              def test_edit_delete_undo_restores_item_state_and_image_bytes(self):
-                  before=copy.deepcopy(self.c.items); before_images=copy.deepcopy(self.c.images)
-                  self.db.update_order('O',{},products=[{'item_id':'A','product_name':'A-mod','quantity':5}],user='tester',deleted_item_ids=['B'])
-                  self.db.undo_last('O',user='tester')
-                  self.assertEqual(self.c.items,before); self.assertEqual(self.c.images['O/B.png']['data'],before_images['O/B.png']['data']); self.assertEqual(self.c.images['O/A.png']['data'],before_images['O/A.png']['data'])
-              def test_undo_removes_new_image_when_snapshot_had_none(self):
-                  snap=copy.deepcopy(self.c.items); snap['A']['image_path']=''; self.c.items['A']['image_path']='O/A-new.png'; self.c.images['O/A-new.png']={'image_path':'O/A-new.png','order_id':'O','item_id':'A','filename':'A-new.png','content_type':'image/png','data':b'NEW','created_at':'T3'}
-                  self.c.undo.append({'undo_id':'U1','order_id':'O','action':'إضافة صورة للمنتج','snapshot_json':json.dumps({'order':self.c.orders['O'],'items':[snap['A'],snap['B']]},ensure_ascii=False),'created_at':'T4','undone_at':'','user_name':'tester'})
-                  self.db.undo_last('O',user='tester'); self.assertEqual(self.c.items['A']['image_path'],''); self.assertNotIn('O/A-new.png',self.c.images)
-
-          if __name__=='__main__': unittest.main()
-          PY
-      - name: Run P0.1 and P0.2 tests
-        id: p0
-        run: |
-          python -m compileall -q app.py db.py cloud_db.py tests/test_p0_item_update.py tests/test_p0_2_isolated.py
-          node --check static/app.js
-          python -m unittest -v tests/test_p0_item_update.py tests/test_p0_2_isolated.py
-          git diff --check
-      - name: Persist verified P0.2 and restore parent CI
-        if: steps.p0.outcome == 'success'
-        shell: bash
-        run: |
-          git fetch origin p0-1-data-safe-item-update
-          git show origin/p0-1-data-safe-item-update:.github/workflows/ci.yml > .github/workflows/ci.yml
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          rm -f .github/workflows/_p0_2_apply.yml .github/workflows/_p0_2_repair.yml .github/workflows/_p0_2_repair2.yml .github/workflows/p0_2_finalizer.yml .github/workflows/p0_2_verify_final.yml .github/workflows/p0_2_isolated.yml .github/workflows/p0_2_finalizer.yml .github/workflows/p0_2_repair2.yml
-          git add cloud_db.py tests/test_p0_undo_safety.py .github/workflows/ci.yml .github/workflows/_p0_2_apply.yml .github/workflows/_p0_2_repair.yml .github/workflows/_p0_2_repair2.yml .github/workflows/p0_2_finalizer.yml .github/workflows/p0_2_verify_final.yml .github/workflows/p0_2_isolated.yml
-          git commit -m "feat: close P0.2 data-safe undo"
-          git push origin HEAD:p0-2-data-safe-undo
