@@ -225,7 +225,7 @@
 .shortages-page .daily-shortages-table th{
   position:sticky;
   top:0;
-  z-index:3;
+  z-index: var(--z-table-header);
 }
 
 .shortages-page .daily-shortages-table td{
