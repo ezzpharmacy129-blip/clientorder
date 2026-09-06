@@ -25,3 +25,5 @@
 .action-item-actions .btn{min-width:120px}
 .action-item-main{flex:1}
 .action-center-list{scroll-margin-top:16px}
+
+@media(max-width:520px){.action-center-header{flex-direction:column}.action-center-header .btn{width:100%}}
