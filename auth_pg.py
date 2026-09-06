@@ -74,9 +74,11 @@ def install_auth(app, db):
                 role TEXT NOT NULL CHECK(role IN ('admin','employee')),
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TEXT NOT NULL,
-                last_login TEXT
+                last_login TEXT,
+                session_version INTEGER NOT NULL DEFAULT 1
             )""")
             conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login TEXT")
+            conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS session_version INTEGER NOT NULL DEFAULT 1")
             au = os.environ.get("ADMIN_USERNAME", "").strip()
             ap = os.environ.get("ADMIN_PASSWORD", "")
             if au and ap:
@@ -117,7 +119,7 @@ def install_auth(app, db):
         col = "user_id" if user_id else "username"
         value = user_id or username
         with db._connect() as conn:
-            row = conn.execute(f"SELECT user_id,username,name,password_hash,role,active,created_at,last_login FROM users WHERE {col}=%s", (value,)).fetchone()
+            row = conn.execute(f"SELECT user_id,username,name,password_hash,role,active,created_at,last_login,COALESCE(session_version,1) AS session_version FROM users WHERE {col}=%s", (value,)).fetchone()
         return dict(row) if row else None
 
     def current_user():
@@ -126,6 +128,15 @@ def install_auth(app, db):
             return None
         user = get_user(user_id=uid)
         if not user or not bool(user.get("active")):
+            session.clear()
+            return None
+        stored_version = int(user.get("session_version") or 1)
+        session_version = session.get("session_version")
+        try:
+            session_version = int(session_version)
+        except (TypeError, ValueError):
+            session_version = None
+        if session_version != stored_version:
             session.clear()
             return None
         return user
@@ -138,6 +149,14 @@ def install_auth(app, db):
                 db._log(conn, str(order_id or ""), str(action or ""), str(old_status or ""), str(new_status or ""), str(note or ""), username)
         except Exception:
             pass
+
+    def bump_session_version(user_id):
+        with db._connect() as conn:
+            row = conn.execute(
+                "UPDATE users SET session_version=COALESCE(session_version,1)+1 WHERE user_id=%s RETURNING session_version",
+                (user_id,),
+            ).fetchone()
+            return int(row["session_version"]) if row else None
 
     def set_last_login(user_id):
         try:
@@ -164,7 +183,10 @@ def install_auth(app, db):
             if uid == actor_uid and bool(row["active"]):
                 return None, "لا يمكنك تعطيل حسابك الحالي"
             new = not bool(row["active"])
-            conn.execute("UPDATE users SET active=%s WHERE user_id=%s", (new, uid))
+            conn.execute(
+                "UPDATE users SET active=%s, session_version=COALESCE(session_version,1)+1 WHERE user_id=%s",
+                (new, uid),
+            )
             return new, None
 
     def change_password(uid, password):
@@ -172,7 +194,10 @@ def install_auth(app, db):
             row = conn.execute("SELECT username FROM users WHERE user_id=%s", (uid,)).fetchone()
             if not row:
                 return None
-            conn.execute("UPDATE users SET password_hash=%s WHERE user_id=%s", (hash_password(password), uid))
+            conn.execute(
+                "UPDATE users SET password_hash=%s, session_version=COALESCE(session_version,1)+1 WHERE user_id=%s",
+                (hash_password(password), uid),
+            )
             return row["username"]
 
     app.extensions["ezz_auth"] = {
@@ -228,11 +253,13 @@ def install_auth(app, db):
         user = get_user(username=username)
         if user and bool(user.get("active")) and verify_password(password, user.get("password_hash", "")):
             clear_login_attempts(remote_addr, username)
+            new_version = bump_session_version(user["user_id"])
             session.clear()
             session.permanent = True
             session["user_id"] = user["user_id"]
             session["username"] = user["username"]
             session["role"] = user["role"]
+            session["session_version"] = new_version
             set_last_login(user["user_id"])
             audit(action="Login", note="تسجيل دخول ناجح", actor=user)
             nxt = request.args.get("next") or url_for("index")
@@ -261,7 +288,14 @@ def install_auth(app, db):
         user = current_user()
         if user:
             audit(action="Logout", note="تسجيل الخروج", actor=user)
-        session.clear(); response = redirect(url_for("ezz_login")); response.headers["Cache-Control"] = "no-store"; return response
+            try:
+                bump_session_version(user["user_id"])
+            except Exception:
+                pass
+        session.clear()
+        response = redirect(url_for("ezz_login"))
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
     def admin_only(fn):
         @wraps(fn)
