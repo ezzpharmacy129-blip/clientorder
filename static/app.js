@@ -25,8 +25,21 @@ function waUrl(phone,message){const p=normalizePhoneClient(phone);return `whatsa
 function openWhatsAppOnThisDevice(appUrl,webUrl){if(!appUrl)return;let timer=null;const hidden=()=>{if(timer)clearTimeout(timer);document.removeEventListener("visibilitychange",hidden)};document.addEventListener("visibilitychange",hidden);try{window.location.href=appUrl}catch(_e){if(webUrl)window.open(webUrl,"_blank","noopener");return}timer=setTimeout(()=>{document.removeEventListener("visibilitychange",hidden);if(document.visibilityState==="visible"&&webUrl)window.open(webUrl,"_blank","noopener")},1400)}
 function phoneLinks(p){const n=normalizePhoneClient(p);if(!n)return"";const wa=waUrl(n,"");return `<span class="contact-links"><a class="btn btn-icon btn-sm" href="tel:${n}">📞</a><a class="btn btn-icon btn-sm wa-desktop-link" href="${wa}">💬</a></span>`}
 function todayISO(){return new Date().toLocaleDateString("en-CA",{timeZone:"Asia/Riyadh"})}
-function switchView(v){document.querySelectorAll(".view").forEach(x=>x.classList.remove("active"));document.querySelectorAll(".nav-btn[data-view]").forEach(x=>x.classList.remove("active"));document.getElementById(`view-${v}`)?.classList.add("active");document.querySelector(`.nav-btn[data-view="${v}"]`)?.classList.add("active");if(v==="dashboard")loadDashboard();if(v==="orders")loadOrders();if(v==="backups")loadBackups();if(v==="message-templates")loadMessageTemplates();if(v==="whatsapp"){loadMessageTemplates();loadShortages();loadWaCustomers();}if(v==="whatsapp_legacy_never"){loadShortages();loadWaCustomers()}if(v==="new-order")document.querySelector('[name="order_date"]').value ||= todayISO()}
-function initNav(){document.querySelectorAll(".nav-btn[data-view]").forEach(b=>b.addEventListener("click",()=>switchView(b.dataset.view)))}
+function switchView(v){document.querySelectorAll(".view").forEach(x=>x.classList.remove("active"));document.querySelectorAll(".nav-btn[data-view]").forEach(x=>x.classList.remove("active"));document.querySelectorAll("[data-nav-dropdown]").forEach(x=>x.classList.remove("open"));document.querySelectorAll("[data-shortages-filter]").forEach(x=>x.classList.remove("active"));document.getElementById(`view-${v}`)?.classList.add("active");document.querySelector(`.nav-btn[data-view="${v}"]`)?.classList.add("active");if(v==="dashboard")loadDashboard();if(v==="orders")loadOrders();if(v==="backups")loadBackups();if(v==="message-templates")loadMessageTemplates();if(v==="whatsapp"){loadMessageTemplates();loadShortages();loadWaCustomers();}if(v==="shortages")loadDailyShortages();if(v==="whatsapp_legacy_never"){loadShortages();loadWaCustomers()}if(v==="new-order")document.querySelector('[name="order_date"]').value ||= todayISO()}
+function initNav(){
+  document.querySelectorAll(".nav-btn[data-view]").forEach(b=>b.addEventListener("click",()=>switchView(b.dataset.view)));
+  const dropdown=document.querySelector("[data-nav-dropdown]");
+  const toggle=dropdown?.querySelector(".nav-dropdown-toggle");
+  toggle?.addEventListener("click",e=>{e.stopPropagation();const open=dropdown.classList.toggle("open");toggle.setAttribute("aria-expanded",String(open));});
+  document.querySelectorAll("[data-shortages-filter]").forEach(item=>item.addEventListener("click",()=>{
+    const filter=item.dataset.shortagesFilter||"all";
+    document.querySelectorAll("[data-shortages-filter]").forEach(x=>x.classList.toggle("active",x===item));
+    dropdown?.classList.remove("open");toggle?.setAttribute("aria-expanded","false");
+    switchShortagesFilter(filter);
+  }));
+  document.addEventListener("click",e=>{if(dropdown&&!dropdown.contains(e.target)){dropdown.classList.remove("open");toggle?.setAttribute("aria-expanded","false");}});
+  document.addEventListener("keydown",e=>{if(e.key==="Escape"){dropdown?.classList.remove("open");toggle?.setAttribute("aria-expanded","false");}});
+}
 const statCards=[
   ['total','إجمالي الطلبات','all'],
   ['pending','بانتظار التوفير','pending'],
@@ -154,6 +167,87 @@ function updateProductTotals(){const rows=[...document.querySelectorAll(".produc
 function productsPayload(){return [...document.querySelectorAll(".product-row")].map(r=>({product_name:r.querySelector(".product-name").value.trim(),quantity:parseInt(r.querySelector(".product-qty").value)||0}))}
 async function uploadOrderImages(order,files){let uploaded=0,failed=0;for(let i=0;i<files.length;i++){const file=files[i];if(!file)continue;const item=order.Items?.[i];if(!item?.Item_ID){failed++;continue}const fd=new FormData();fd.append('image',file);try{await apiFetch(`/api/orders/${order.Order_ID}/items/${item.Item_ID}/image`,{method:'POST',body:fd});uploaded++}catch(e){failed++;toast(`تعذر حفظ صورة المنتج رقم ${i+1}: ${e.message}`,'error')}}return {uploaded,failed}}
 function waUrl(phone,message){const p=String(phone||'').replace(/\D/g,'');return `whatsapp://send?phone=${p}&text=${encodeURIComponent(message)}`}
+let dailyShortagesCache={customer:[],pharmacy:[]};
+let dailyShortagesFilter=localStorage.getItem("ezz_daily_shortages_filter")||"all";
+let pharmacyShortagesLimit=localStorage.getItem("ezz_pharmacy_shortages_limit")||"20";
+
+function customerShortageRows(orders){
+  const rows=[];
+  (orders||[]).forEach(o=>{
+    const pending=(o.Items||[]).filter(i=>i.Availability_Status==="بانتظار التوفر");
+    if(pending.length){
+      pending.forEach(i=>rows.push({type:"customer",orderId:o.Order_ID,customer:o.Customer_Name,phone:o.Phone,product:i.Product_Name,quantity:i.Quantity||1,date:o.Order_Date,status:"بانتظار التوفر"}));
+    }else if(o.Status==="بانتظار التوفر"){
+      rows.push({type:"customer",orderId:o.Order_ID,customer:o.Customer_Name,phone:o.Phone,product:o.Product_Name||"—",quantity:o.Quantity||1,date:o.Order_Date,status:"بانتظار التوفر"});
+    }
+  });
+  return rows;
+}
+function pharmacyShortageRows(items){return (items||[]).map(x=>({type:"pharmacy",shortageId:x.shortage_id,orderId:"—",customer:"—",phone:"—",product:x.product_name,quantity:x.quantity,date:x.created_at,status:x.status==="available"?"تم التوفير":"بانتظار التوفير",note:x.note}));}
+function dailyShortageRows(){
+  if(dailyShortagesFilter==="pharmacy"){const n=pharmacyShortagesLimit==="all"?dailyShortagesCache.pharmacy.length:Number(pharmacyShortagesLimit)||20;return dailyShortagesCache.pharmacy.slice(0,n);}
+  if(dailyShortagesFilter==="customer")return dailyShortagesCache.customer;
+  return dailyShortagesCache.customer.concat(dailyShortagesCache.pharmacy).sort((a,b)=>String(b.date||"").localeCompare(String(a.date||"")));
+}
+function renderDailyShortages(){
+  const body=document.getElementById("daily-shortages-table-body"),title=document.getElementById("daily-shortages-title"),sub=document.getElementById("daily-shortages-subtitle"),sum=document.getElementById("daily-shortages-summary"),wrap=document.getElementById("pharmacy-shortages-limit-wrap");
+  if(!body)return;
+  const labels={all:"الكل",customer:"طلبات العملاء",pharmacy:"نواقص الصيدلية"},rows=dailyShortageRows();
+  const total=dailyShortagesFilter==="pharmacy"?dailyShortagesCache.pharmacy.length:dailyShortagesFilter==="customer"?dailyShortagesCache.customer.length:dailyShortagesCache.customer.length+dailyShortagesCache.pharmacy.length;
+  title.textContent="📦 "+(labels[dailyShortagesFilter]||"النواقص");
+  sub.textContent=dailyShortagesFilter==="pharmacy"?"النواقص المسجلة على مستوى الصيدلية فقط.":dailyShortagesFilter==="customer"?"المنتجات غير المتوفرة المرتبطة بطلبات العملاء.":"جميع النواقص الحالية: طلبات العملاء ونواقص الصيدلية.";
+  wrap?.classList.toggle("hidden",dailyShortagesFilter!=="pharmacy");
+  sum.textContent=dailyShortagesFilter==="pharmacy"&&pharmacyShortagesLimit!=="all"?"عرض "+rows.length+" من أصل "+total+" نقص":"عدد النتائج: "+rows.length;
+  if(!rows.length){body.innerHTML='<tr><td colspan="9" class="empty-state">لا توجد نواقص ضمن هذا التصنيف ✅</td></tr>';return;}
+  body.innerHTML=rows.map(r=>{
+    const type=r.type==="pharmacy"?'<span class="shortage-type shortage-type-pharmacy">الصيدلية</span>':'<span class="shortage-type shortage-type-customer">عميل</span>';
+    const stat=r.type==="pharmacy"?'<span class="status-badge '+(r.status==="تم التوفير"?"status-picked":"status-pending")+'">'+esc(r.status)+'</span>':badge(r.status);
+    const action=r.type==="pharmacy"?(r.status==="تم التوفير"?'<button class="btn btn-secondary btn-sm daily-shortage-undo" data-id="'+esc(r.shortageId)+'">↩️ إعادة</button>':'<button class="btn btn-primary btn-sm daily-shortage-available" data-id="'+esc(r.shortageId)+'">تم التوفير</button>'):'<button class="btn btn-outline btn-sm daily-shortage-detail" data-id="'+esc(r.orderId)+'">التفاصيل</button>';
+    return '<tr><td>'+type+'</td><td><strong>'+esc(r.orderId)+'</strong></td><td>'+esc(r.customer)+'</td><td dir="ltr">'+esc(r.phone)+'</td><td><strong>'+esc(r.product)+'</strong>'+(r.note?'<div class="daily-shortage-note">'+esc(r.note)+'</div>':'')+'</td><td>'+esc(r.quantity)+'</td><td>'+fmtDate(r.date)+'</td><td>'+stat+'</td><td><div class="daily-shortage-actions">'+action+'</div></td></tr>';
+  }).join("");
+  body.querySelectorAll(".daily-shortage-detail").forEach(b=>b.onclick=()=>details(b.dataset.id));
+  body.querySelectorAll(".daily-shortage-available").forEach(b=>b.onclick=()=>setDailyPharmacyAvailable(b.dataset.id));
+  body.querySelectorAll(".daily-shortage-undo").forEach(b=>b.onclick=()=>undoDailyPharmacy(b.dataset.id));
+}
+async function loadDailyShortages(){
+  try{const [orders,pharmacy]=await Promise.all([apiFetch("/api/orders"),apiFetch("/api/pharmacy-shortages")]);dailyShortagesCache.customer=customerShortageRows(orders.orders||[]);dailyShortagesCache.pharmacy=pharmacyShortageRows(pharmacy.shortages||[]);renderDailyShortages();}
+  catch(e){toast(e.message,"error");}
+}
+function switchShortagesFilter(filter){
+  dailyShortagesFilter=["all","customer","pharmacy"].includes(filter)?filter:"all";
+  localStorage.setItem("ezz_daily_shortages_filter",dailyShortagesFilter);
+  switchView("shortages");
+  document.querySelectorAll("[data-shortages-filter]").forEach(x=>x.classList.toggle("active",x.dataset.shortagesFilter===dailyShortagesFilter));
+  loadDailyShortages();
+}
+async function setDailyPharmacyAvailable(id){
+  try{await apiFetch("/api/pharmacy-shortages/"+encodeURIComponent(id)+"/available",{method:"POST",body:"{}"});toast("تم تسجيل توفر المنتج");await loadDailyShortages();}catch(e){toast(e.message,"error")}
+}
+async function undoDailyPharmacy(id){
+  try{await apiFetch("/api/pharmacy-shortages/"+encodeURIComponent(id)+"/undo",{method:"POST",body:"{}"});toast("تم التراجع عن آخر إجراء");await loadDailyShortages();}catch(e){toast(e.message,"error")}
+}
+function openPharmacyShortageModal(){
+  const m=document.getElementById("pharmacy-shortage-modal"),f=document.getElementById("pharmacy-shortage-form");if(!m||!f)return;
+  f.reset();f.quantity.value=1;m.classList.remove("hidden");m.setAttribute("aria-hidden","false");setTimeout(()=>f.product_name.focus(),0);
+}
+function closePharmacyShortageModal(){const m=document.getElementById("pharmacy-shortage-modal");if(m){m.classList.add("hidden");m.setAttribute("aria-hidden","true");}}
+async function submitPharmacyShortage(e){
+  e.preventDefault();const f=e.currentTarget,btn=f.querySelector('button[type="submit"]');
+  const payload={product_name:f.product_name.value.trim(),quantity:Number(f.quantity.value),note:f.note.value.trim()};
+  if(!payload.product_name||!Number.isInteger(payload.quantity)||payload.quantity<1){toast("اسم المنتج والكمية الصحيحة مطلوبان","error");return;}
+  btn.disabled=true;
+  try{await apiFetch("/api/pharmacy-shortages",{method:"POST",body:JSON.stringify(payload)});toast("تمت إضافة نقص الصيدلية");closePharmacyShortageModal();dailyShortagesFilter="pharmacy";localStorage.setItem("ezz_daily_shortages_filter","pharmacy");await loadDailyShortages();}catch(e){toast(e.message,"error")}finally{btn.disabled=false}
+}
+function initDailyShortages(){
+  document.getElementById("refresh-daily-shortages-btn")?.addEventListener("click",loadDailyShortages);
+  document.getElementById("pharmacy-shortages-limit")?.addEventListener("change",e=>{pharmacyShortagesLimit=e.target.value;localStorage.setItem("ezz_pharmacy_shortages_limit",pharmacyShortagesLimit);renderDailyShortages();});
+  document.getElementById("add-pharmacy-shortage-btn")?.addEventListener("click",openPharmacyShortageModal);
+  document.getElementById("pharmacy-shortage-close-btn")?.addEventListener("click",closePharmacyShortageModal);
+  document.getElementById("pharmacy-shortage-cancel-btn")?.addEventListener("click",closePharmacyShortageModal);
+  document.getElementById("pharmacy-shortage-form")?.addEventListener("submit",submitPharmacyShortage);
+  const s=document.getElementById("pharmacy-shortages-limit");if(s)s.value=["20","30","50","100","all"].includes(pharmacyShortagesLimit)?pharmacyShortagesLimit:"20";
+  document.getElementById("pharmacy-shortage-modal")?.addEventListener("click",e=>{if(e.target.id==="pharmacy-shortage-modal")closePharmacyShortageModal();});
+}
 let shortageOrders=[];
 function buildShortageMessage(selected,mode='orders'){
   const orders=selected||[]; const pharmacy='صيدلية عز الصحة';
@@ -247,7 +341,7 @@ async function resetAllData(){
   try{await apiFetch("/api/data/reset",{method:"POST",body:JSON.stringify({confirmation:first})}); dashboardFilterKey=null; toast("تم حذف جميع البيانات وإعادة النظام لحالة نظيفة"); await loadDashboard(); await loadOrders(); loadBackups();}catch(e){toast(e.message,"error")}
 }
 
-document.addEventListener("DOMContentLoaded",()=>{initNav();initModals();initOrders();initNewOrder();document.getElementById("create-backup-btn").onclick=async()=>{try{await apiFetch("/api/backups",{method:"POST",body:"{}"});toast("تم إنشاء النسخة الاحتياطية");loadBackups()}catch(e){toast(e.message,"error")}};document.getElementById("reset-all-data-btn")?.addEventListener("click",resetAllData);
+document.addEventListener("DOMContentLoaded",()=>{initNav();initModals();initDailyShortages();initOrders();initNewOrder();document.getElementById("create-backup-btn").onclick=async()=>{try{await apiFetch("/api/backups",{method:"POST",body:"{}"});toast("تم إنشاء النسخة الاحتياطية");loadBackups()}catch(e){toast(e.message,"error")}};document.getElementById("reset-all-data-btn")?.addEventListener("click",resetAllData);
  document.getElementById("import-data-btn")?.addEventListener("click",()=>document.getElementById("import-data-file")?.click());
  document.getElementById("import-data-file")?.addEventListener("change",e=>importLegacyData(e.target.files?.[0]));
  
