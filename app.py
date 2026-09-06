@@ -441,6 +441,20 @@ def api_action_center():
     return jsonify(payload)
 
 
+def _order_has_pending_item(order):
+    items = list(order.get("Items") or [])
+    active_items = [
+        item for item in items
+        if str(item.get("Customer_Decision") or "").strip().lower() != "rejected"
+    ]
+    if active_items:
+        return any(
+            str(item.get("Availability_Status") or "").strip() == "بانتظار التوفر"
+            for item in active_items
+        )
+    return str(order.get("Status") or "").strip() == STATUS_PENDING
+
+
 @app.get("/api/dashboard")
 def api_dashboard():
     orders = db.get_all_orders()
@@ -451,7 +465,7 @@ def api_dashboard():
 
     stats = {
         "total": len(orders),
-        "pending": count(lambda o: o["Status"] == STATUS_PENDING),
+        "pending": count(lambda o: _order_has_pending_item(o)),
         "available": count(lambda o: o["Status"] in (STATUS_AVAILABLE, STATUS_PARTIAL, STATUS_UNAVAILABLE) and o.get("Contact_Status") in ("", CONTACT_NOT_CONTACTED)),
         "awaiting_reply": count(lambda o: o.get("Contact_Status") == CONTACT_AWAITING),
         "pickup_pending": count(lambda o: o["Status"] in (STATUS_CONTACTED, STATUS_NOT_PICKED)),
