@@ -17,6 +17,14 @@
     <nav class="main-nav" aria-label="التنقل الرئيسي">
       <button class="nav-btn active" data-view="dashboard">لوحة التحكم</button>
       <button class="nav-btn" data-view="orders">جميع الطلبات</button>
+      <div class="nav-dropdown" data-nav-dropdown>
+        <button class="nav-btn nav-dropdown-toggle" type="button" aria-haspopup="true" aria-expanded="false">📦 النواقص <span class="nav-caret">▾</span></button>
+        <div class="nav-dropdown-menu" role="menu">
+          <button type="button" class="nav-dropdown-item" role="menuitem" data-shortages-filter="pharmacy">نواقص الصيدلية</button>
+          <button type="button" class="nav-dropdown-item" role="menuitem" data-shortages-filter="customer">طلبات العملاء</button>
+          <button type="button" class="nav-dropdown-item" role="menuitem" data-shortages-filter="all">الكل</button>
+        </div>
+      </div>
       <button class="nav-btn" data-view="whatsapp">💬 واتساب</button><button class="nav-btn" data-view="message-templates">✏️ قوالب الرسائل</button><button class="nav-btn" data-view="backups">🗄️ إدارة البيانات</button>
       <button class="nav-btn primary" data-view="new-order">+ طلب جديد</button>
       <a class="nav-btn logout-btn" href="{{ url_for('ezz_logout') }}">🚪 تسجيل الخروج</a>
@@ -29,12 +37,81 @@
   <div class="stats-grid" id="stats-grid"></div><section id="dashboard-results-panel" class="panel dashboard-results-panel hidden"><div class="panel-header"><div><h2 id="dashboard-results-title">الطلبات</h2><p id="dashboard-results-subtitle" class="panel-subtitle">اختر بطاقة من الأعلى لعرض الطلبات.</p></div><div class="dashboard-results-actions"><select id="dashboard-contact-filter"><option value="">كل حالات التواصل</option><option value="لم يتم التواصل">لم يتم التواصل</option><option value="بانتظار رد العميل">بانتظار رد العميل</option><option value="العميل موافق">العميل موافق</option><option value="العميل رفض">العميل رفض</option><option value="مؤجل">مؤجل</option></select><input id="dashboard-results-search" placeholder="ابحث داخل النتائج..."><button class="btn btn-secondary btn-sm" id="dashboard-results-close">إغلاق</button></div></div><div class="table-wrap"><table class="orders-table dashboard-orders-table"><thead><tr><th>رقم الطلب</th><th>العميل</th><th>المنتجات</th><th>تاريخ الطلب</th><th>الحالة</th><th>التواصل</th><th>المتابعة</th><th>الإجراء</th></tr></thead><tbody id="dashboard-results-body"></tbody></table></div><div class="table-footer" id="dashboard-results-count"></div></section><div class="panel"><div class="panel-header"><h2>🔴 متابعات اليوم</h2><input id="dashboard-search" placeholder="ابحث بالاسم أو الجوال أو المنتج..."></div><div id="followups-list" class="followups-list"></div></div>
 </section>
 <section id="view-orders" class="view"><div class="panel"><div class="panel-header"><h2>📋 جميع الطلبات</h2></div><div class="filters-bar"><input id="orders-search" placeholder="ابحث بالاسم أو الجوال أو المنتج أو رقم الطلب..."><select id="orders-status-filter"><option value="">كل الحالات</option></select><label>من: <input type="date" id="orders-date-from"></label><label>إلى: <input type="date" id="orders-date-to"></label><button class="btn btn-secondary" id="orders-clear-filters">إعادة تعيين</button></div><div class="table-wrap"><table class="orders-table"><thead><tr><th>رقم الطلب</th><th>العميل</th><th>الجوال</th><th>المنتجات</th><th>إجمالي الكمية</th><th>تاريخ الطلب</th><th>التوفر</th><th>الحالة</th><th>التواصل</th><th>آخر متابعة</th><th>موعد المتابعة</th><th>الإجراء</th></tr></thead><tbody id="orders-table-body"></tbody></table></div><div class="table-footer" id="orders-count"></div></div></section>
+<section id="view-shortages" class="view">
+  <div class="panel daily-shortages-panel">
+    <div class="panel-header daily-shortages-header">
+      <div>
+        <h2 id="daily-shortages-title">📦 النواقص</h2>
+        <p id="daily-shortages-subtitle" class="panel-subtitle">اختر نوع النواقص من القائمة في أعلى الصفحة.</p>
+      </div>
+      <div class="daily-shortages-actions">
+        <div id="pharmacy-shortages-limit-wrap" class="shortages-limit-control hidden">
+          <label for="pharmacy-shortages-limit">عرض</label>
+          <select id="pharmacy-shortages-limit" aria-label="عدد نواقص الصيدلية المعروضة">
+            <option value="20">20 نقص</option>
+            <option value="30">30 نقص</option>
+            <option value="all">الكل</option>
+          </select>
+        </div>
+        <button type="button" class="btn btn-primary btn-sm" id="add-pharmacy-shortage-btn">+ إضافة نقص صيدلية</button>
+        <button type="button" class="btn btn-secondary btn-sm" id="refresh-daily-shortages-btn">تحديث</button>
+      </div>
+    </div>
+    <div id="daily-shortages-summary" class="daily-shortages-summary"></div>
+    <div class="daily-shortages-table-wrap table-wrap">
+      <table class="orders-table daily-shortages-table">
+        <thead>
+          <tr>
+            <th>النوع</th>
+            <th>رقم الطلب</th>
+            <th>العميل</th>
+            <th>الهاتف</th>
+            <th>المنتج</th>
+            <th>الكمية</th>
+            <th>التاريخ</th>
+            <th>الحالة</th>
+            <th>الإجراء</th>
+          </tr>
+        </thead>
+        <tbody id="daily-shortages-table-body"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
 <section id="view-new-order" class="view"><div class="panel narrow new-order-panel"><div class="panel-header"><div><h2>➕ طلب جديد</h2><p class="panel-subtitle">أضف جميع منتجات العميل داخل نفس رقم الطلب، ويمكن إرفاق صورة لكل منتج.</p></div></div><form id="new-order-form" class="order-form"><div class="form-row"><label>اسم العميل <span class="req">*</span></label><input type="text" name="customer_name" required><span class="field-error" data-for="customer_name"></span></div><div class="form-row"><label>رقم الجوال <span class="req">*</span></label><input type="tel" name="phone" placeholder="05xxxxxxxx" required><span class="field-error" data-for="phone"></span></div><div class="products-section"><div class="products-title"><div><h3>🛍️ منتجات الطلب</h3><p class="section-hint">الصورة اختيارية، وتُحفظ مع المنتج داخل الطلب.</p></div><button type="button" class="btn btn-outline btn-sm" id="add-product-btn">+ إضافة منتج</button></div><div id="product-items"></div><div class="field-error" data-for="products"></div></div><div class="form-row"><label>تاريخ الطلب</label><input type="date" name="order_date"></div><div class="form-row"><label>ملاحظات عامة على الطلب</label><textarea name="notes" rows="3" placeholder="مثلاً: يفضل الاتصال بعد المغرب..."></textarea></div><div class="order-total-preview"><span>عدد المنتجات:</span><strong id="products-count">1</strong><span>إجمالي الكميات:</span><strong id="products-total">1</strong></div><div class="form-actions"><button type="submit" class="btn btn-primary">حفظ الطلب</button><button type="reset" class="btn btn-secondary">تفريغ</button></div><div id="new-order-success" class="form-success"></div></form></div></section>
 <section id="view-whatsapp" class="view"><div class="panel"><div class="panel-header"><div><h2>💬 واتساب بدون تكاليف</h2><p class="panel-subtitle">النظام يجهز الرسالة تلقائيًا ويفتح واتساب بالرسالة جاهزة. الإرسال النهائي يتم منك بضغطة واحدة.</p></div></div><div class="wa-grid"><div class="wa-card"><div class="wa-card-head"><div><h3>📦 رسالة النواقص للقروب</h3><p>اختر طلبًا واحدًا، مجموعة طلبات، أو الكل. ويمكن أيضًا استخدام العرض المجمع حسب المنتج.</p></div><button class="btn btn-primary" id="refresh-shortages-btn">تحديث</button></div><div id="shortages-summary" class="wa-summary">جارِ التحميل...</div><div class="shortage-toolbar"><button class="btn btn-outline btn-sm" id="shortages-select-all">☑ تحديد الكل</button><button class="btn btn-secondary btn-sm" id="shortages-clear-all">إلغاء التحديد</button><select id="shortages-mode"><option value="orders">حسب الطلب</option><option value="grouped">مجمعة حسب المنتج</option></select></div><div id="shortages-orders-list" class="shortages-orders-list"></div><textarea id="shortages-message" class="wa-message" rows="10" readonly></textarea><div class="wa-actions"><button class="btn btn-primary" id="copy-shortages-btn">📋 نسخ الرسالة</button><button class="btn btn-outline" id="open-wa-group-btn">💬 فتح واتساب</button></div></div><div class="wa-card"><div class="wa-card-head"><div><h3>👤 رسائل العملاء</h3><p>اختر طلبًا متوفرًا لفتح محادثة العميل برسالة جاهزة.</p></div><button class="btn btn-primary" id="refresh-wa-customers-btn">تحديث</button></div><div id="wa-customers-list" class="wa-customer-list"></div></div></div><div class="wa-note">ℹ️ هذا الحل لا يحتاج API مدفوعة. النظام يحاول فتح تطبيق WhatsApp Desktop مباشرة. في رسالة القروب يتم نسخ الرسالة أولًا، ثم تختار القروب وتلصقها وتضغط إرسال.</div></div></section>
 <section id="view-message-templates" class="view"><div class="panel"><div class="panel-header"><div><h2>✏️ قوالب الرسائل</h2><p class="panel-subtitle">غيّر نص الرسائل من هنا بدون تعديل الكود. المتغيرات بين الأقواس تُستبدل تلقائيًا ببيانات الطلب.</p></div><div class="form-actions"><button class="btn btn-secondary" id="message-templates-reset">↩️ استعادة النصوص الأصلية</button><button class="btn btn-primary" id="message-templates-save">💾 حفظ القوالب</button></div></div><div class="template-help"><strong>المتغيرات المتاحة:</strong> {اسم_العميل}، {اسم_الصيدلية}، {رقم_الطلب}، {التاريخ}، {المنتجات_المتوفرة}، {المنتجات_غير_المتوفرة}، {الإجمالي}، {الشعار}</div><div class="templates-grid"><div class="template-card"><label>💰 رسالة التأكد من السعر</label><textarea id="tpl-price-confirmation" rows="12"></textarea></div><div class="template-card"><label>✅ رسالة الطلب المتوفر</label><textarea id="tpl-available" rows="12"></textarea></div><div class="template-card"><label>🟠 رسالة الطلب المتوفر جزئيًا</label><textarea id="tpl-partial" rows="14"></textarea></div><div class="template-card"><label>❌ رسالة الطلب غير المتوفر</label><textarea id="tpl-unavailable" rows="12"></textarea></div><div class="template-card"><label>📦 رسالة النواقص</label><textarea id="tpl-shortage" rows="12"></textarea></div></div><div id="message-templates-status" class="form-success"></div></div></section>
 <section id="view-backups" class="view"><div class="panel"><div class="panel-header"><div><h2>🗄️ إدارة البيانات</h2><p class="panel-subtitle">الإصدار {{ app_version }} — هذه نسخة مستقلة ونظيفة. يمكنك استيراد بياناتك القديمة في أي وقت.</p></div><div class="backup-head-actions"><button class="btn btn-outline" id="import-data-btn">📥 استيراد بيانات قديمة</button><input id="import-data-file" type="file" accept=".xlsx,.zip" hidden>{% if session.get('role') in ['admin','administrator'] or session.get('username') in ['admin','administrator'] %}<button class="btn btn-outline" id="export-postrollback-btn" type="button">🛟 استخراج بيانات ما قبل الـRollback</button>{% endif %}<button class="btn btn-primary" id="create-backup-btn">إنشاء نسخة احتياطية الآن</button></div></div><div class="backup-notice">✅ هذه النسخة تستخدم مخزن بيانات مستقلًا عن الإصدارات السابقة. يمكنك استيراد ملف <b>Excel (.xlsx)</b> أو نسخة احتياطية <b>ZIP</b>. سيتم حفظ نسخة احتياطية تلقائية من الحالة الحالية قبل الاستيراد، وعند ZIP سيتم استيراد صور المنتجات أيضًا.</div><div class="panel danger-panel"><div><h3>⚠️ مسح جميع البيانات</h3><p>يحذف جميع الطلبات والصور والنسخ الاحتياطية وسجل العمليات والقوالب المحفوظة، ويعيد النظام لحالة نظيفة. ملفات البرنامج نفسها لا تُحذف.</p></div><button class="btn btn-danger" id="reset-all-data-btn">🗑️ مسح كل البيانات</button></div><div class="table-wrap"><table class="orders-table"><thead><tr><th>تاريخ النسخة</th><th>نوع النسخة</th><th>اسم الملف</th><th>الحجم</th><th>الإجراء</th></tr></thead><tbody id="backups-table-body"></tbody></table></div></div></section>
 </main>
 <footer class="app-footer"><div class="footer-inner"><span>صيدلية عز الصحة — رعاية من القلب</span><span class="footer-credit">تنفيذ وتطوير <strong>Khalid Abdelrahman</strong></span></div></footer>
+<div id="pharmacy-shortage-modal" class="modal-overlay hidden" aria-hidden="true">
+  <div class="modal small">
+    <div class="modal-header">
+      <h3>إضافة نقص صيدلية</h3>
+      <button class="modal-close" id="pharmacy-shortage-close-btn" type="button">✕</button>
+    </div>
+    <div class="modal-body">
+      <form id="pharmacy-shortage-form" class="order-form">
+        <div class="form-row">
+          <label for="pharmacy-shortage-product">اسم المنتج <span class="req">*</span></label>
+          <input id="pharmacy-shortage-product" name="product_name" type="text" required>
+        </div>
+        <div class="form-row">
+          <label for="pharmacy-shortage-quantity">الكمية <span class="req">*</span></label>
+          <input id="pharmacy-shortage-quantity" name="quantity" type="number" min="1" step="1" value="1" required>
+        </div>
+        <div class="form-row">
+          <label for="pharmacy-shortage-note">ملاحظة</label>
+          <textarea id="pharmacy-shortage-note" name="note" rows="3" placeholder="ملاحظة اختيارية"></textarea>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary">حفظ النقص</button>
+          <button type="button" class="btn btn-secondary" id="pharmacy-shortage-cancel-btn">إلغاء</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
 <div id="availability-modal" class="modal-overlay hidden" aria-hidden="true"><div class="modal"><div class="modal-header"><h3>تحديث توفر المنتجات</h3><button class="modal-close" id="availability-close-btn">✕</button></div><div class="modal-body"><div id="availability-items"></div><div class="form-actions"><button class="btn btn-primary" id="availability-save-btn">حفظ حالة المنتجات</button><button class="btn btn-secondary" id="availability-cancel-btn">إلغاء</button></div></div></div></div><div id="order-modal" class="modal-overlay hidden" aria-hidden="true"><div class="modal"><div class="modal-header"><h3 id="modal-title">تفاصيل الطلب</h3><button class="modal-close" id="modal-close-btn">✕</button></div><div class="modal-body" id="modal-body"></div></div></div></div><div id="postpone-modal" class="modal-overlay hidden"><div class="modal small"><div class="modal-header"><h3>تأجيل المتابعة</h3><button class="modal-close" id="postpone-close-btn">✕</button></div><div class="modal-body"><div class="postpone-options"><button class="btn btn-outline postpone-quick" data-days="1">غدًا</button><button class="btn btn-outline postpone-quick" data-days="2">بعد يومين</button><button class="btn btn-outline postpone-quick" data-days="3">بعد 3 أيام</button></div><div class="form-row"><label>أو اختر تاريخًا مخصصًا</label><input type="date" id="postpone-custom-date"></div><div class="form-actions"><button class="btn btn-primary" id="postpone-custom-confirm">تأكيد</button></div></div></div></div><div id="confirm-modal" class="modal-overlay hidden"><div class="modal small"><div class="modal-body"><p id="confirm-message" class="confirm-message"></p><div class="form-actions"><button class="btn btn-danger" id="confirm-yes-btn">تأكيد</button><button class="btn btn-secondary" id="confirm-no-btn">إلغاء</button></div></div></div></div><div id="toast-container" class="toast-container"></div>
 <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body></html>
