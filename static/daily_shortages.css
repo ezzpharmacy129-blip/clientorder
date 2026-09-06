@@ -412,3 +412,17 @@
     width:100%;
   }
 }
+
+@media(max-width:720px){
+.shortages-page .daily-shortages-table-wrap{overflow-x:auto;overflow-y:auto;scrollbar-width:thin}
+.shortages-page .daily-shortages-table{min-width:760px}
+.shortages-page .daily-shortages-table th,.shortages-page .daily-shortages-table td{padding:9px 8px}
+.shortages-page .daily-shortage-actions{display:grid;grid-template-columns:1fr;gap:6px}
+.shortages-page .daily-shortage-actions .btn{width:100%;min-width:0}
+}
+@media(max-width:520px){
+.shortages-page .daily-shortages-table{min-width:700px}
+.shortages-page .daily-shortages-table th,.shortages-page .daily-shortages-table td{font-size:11px;padding:8px 7px}
+.shortages-page .shortages-send-actions{display:grid;grid-template-columns:1fr}
+.shortages-page .shortage-send-btn{width:100%}
+}
