@@ -802,6 +802,54 @@ def _daily_shortage_auth():
         return None
     return jsonify({"error":"تسجيل الدخول مطلوب","authenticated":False}), 401
 
+def _shortages_payload():
+    """Build one normalized shortages payload used by the shortages UI and tests."""
+    ensure_pharmacy_shortage_schema()
+    customer_rows=[]
+    for order in db.get_all_orders():
+        for item in _customer_shortage_items(order):
+            customer_rows.append({
+                "type":"customer",
+                "order_id":order.get("Order_ID") or "",
+                "customer_name":order.get("Customer_Name") or "",
+                "phone":order.get("Phone") or "",
+                "product_name":item.get("Product_Name") or order.get("Product_Name") or "",
+                "quantity":item.get("Quantity") or order.get("Quantity") or 1,
+                "order_date":order.get("Order_Date") or order.get("Created_At") or "",
+                "status":"pending",
+            })
+    customer_rows.sort(key=lambda row:str(row.get("order_date") or ""),reverse=True)
+    pharmacy_rows=[r for r in list_pharmacy_shortages() if r.get("status") in {"pending","available"}]
+    pending_pharmacy=[r for r in pharmacy_rows if r.get("status")=="pending"]
+    available_pharmacy=[r for r in pharmacy_rows if r.get("status")=="available"]
+    return {
+        "customer":customer_rows,
+        "pharmacy":pending_pharmacy,
+        "pharmacy_available":available_pharmacy,
+        "all":customer_rows+pending_pharmacy,
+        "counts":{
+            "customer":len(customer_rows),
+            "pharmacy":len(pending_pharmacy),
+            "pharmacy_available":len(available_pharmacy),
+            "all":len(customer_rows)+len(pending_pharmacy),
+        },
+    }
+
+
+@app.get("/api/shortages")
+def api_shortages():
+    denied=_daily_shortage_auth()
+    if denied:return denied
+    try:
+        payload=_shortages_payload()
+        kind=(request.args.get("kind") or "all").strip().lower()
+        if kind not in {"all","customer","pharmacy","pharmacy_available"}:
+            return jsonify({"error":"نوع النواقص غير صحيح"}),400
+        return jsonify({"shortages":payload[kind],"counts":payload["counts"],"customer":payload["customer"],"pharmacy":payload["pharmacy"],"pharmacy_available":payload["pharmacy_available"]})
+    except Exception as e:
+        return jsonify({"error":f"تعذر قراءة النواقص: {e}"}),500
+
+
 @app.get("/api/pharmacy-shortages")
 def api_pharmacy_shortages():
     denied = _daily_shortage_auth()
