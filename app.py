@@ -219,7 +219,10 @@ def api_update_order(order_id):
     if data.get("status") in ALL_STATUSES: fields["Status"]=data["status"]
     products=data.get("products") if "products" in data or "product_name" in data or "quantity" in data else None
     if products is not None and "products" not in data: products=[{"product_name":data.get("product_name"),"quantity":data.get("quantity")}]
-    try: order=db.update_order(order_id,fields,products,_current_actor_name())
+    deleted_item_ids = data.get("deleted_item_ids") or []
+    if not isinstance(deleted_item_ids, list):
+        return jsonify({"error":"deleted_item_ids يجب أن تكون قائمة"}),400
+    try: order=db.update_order(order_id,fields,products,_current_actor_name(),deleted_item_ids=deleted_item_ids)
     except ValueError as e:return jsonify({"error":str(e)}),400
     except Exception as e:return jsonify({"error":f"تعذر تعديل الطلب: {e}"}),500
     if order is None:return jsonify({"error":"الطلب غير موجود"}),404

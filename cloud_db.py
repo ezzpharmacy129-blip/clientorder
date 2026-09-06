@@ -7,6 +7,7 @@ backend, all operational data, images, undo history and backups live in
 PostgreSQL, which makes the app safe for multiple devices and ephemeral
 web-server filesystems.
 """
+import base64
 import io
 import json
 import os
@@ -92,6 +93,18 @@ CREATE TABLE IF NOT EXISTS undo_history (
     user_name TEXT NOT NULL DEFAULT 'موظف'
 );
 CREATE INDEX IF NOT EXISTS idx_undo_order_id ON undo_history(order_id);
+
+CREATE TABLE IF NOT EXISTS undo_item_images (
+    undo_id TEXT NOT NULL REFERENCES undo_history(undo_id) ON DELETE CASCADE,
+    item_id TEXT NOT NULL,
+    image_path TEXT NOT NULL,
+    filename TEXT NOT NULL,
+    content_type TEXT NOT NULL,
+    data BYTEA NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (undo_id, item_id, image_path)
+);
+CREATE INDEX IF NOT EXISTS idx_undo_item_images_undo_id ON undo_item_images(undo_id);
 
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
@@ -338,9 +351,16 @@ class CloudDB:
     def _invalidate_undo(self, conn, order_id):
         conn.execute("UPDATE undo_history SET undone_at=%s WHERE order_id=%s AND COALESCE(undone_at,'')=''", (now_str(), str(order_id)))
 
-    def _add_undo(self, conn, order_id, action, snapshot, user):
-        conn.execute('INSERT INTO undo_history(undo_id,order_id,action,snapshot_json,created_at,undone_at,user_name) VALUES (%s,%s,%s,%s,%s,%s,%s)',
-                     (self._next_undo_id(conn), str(order_id), action, json.dumps(snapshot, ensure_ascii=False), now_str(), '', _clean_name(user)))
+    def _add_undo(self, conn, order_id, action, snapshot, user, image_item_ids=None):
+        undo_id=self._next_undo_id(conn)
+        conn.execute('INSERT INTO undo_history(undo_id,order_id,action,snapshot_json,created_at,undone_at,user_name) VALUES (%s,%s,%s,%s,%s,%s,%s)',(undo_id,str(order_id),action,json.dumps(snapshot,ensure_ascii=False),now_str(),'',_clean_name(user)))
+        wanted={str(x).strip() for x in (image_item_ids or set()) if str(x).strip()}
+        if not wanted: return undo_id
+        ph=','.join(['%s']*len(wanted))
+        rows=conn.execute(f'SELECT item_id,image_path,filename,content_type,data,created_at FROM item_images WHERE order_id=%s AND item_id IN ({ph})',(str(order_id),*sorted(wanted))).fetchall()
+        for row in rows:
+            conn.execute('INSERT INTO undo_item_images(undo_id,item_id,image_path,filename,content_type,data,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s)',(undo_id,str(row['item_id']),str(row['image_path']),str(row['filename']),str(row['content_type']),psycopg.Binary(bytes(row['data'])),str(row['created_at'])))
+        return undo_id
 
     def get_undo_info(self, order_id):
         with self._connect() as conn:
@@ -373,7 +393,7 @@ class CloudDB:
             self._log(conn, oid, 'إنشاء الطلب', '', STATUS_PENDING, f'تم تسجيل {len(clean_products)} منتج في الطلب', user)
         return self.get_order(oid)
 
-    def update_order(self, order_id, fields, products=None, user='موظف'):
+    def update_order(self, order_id, fields, products=None, user='موظف', deleted_item_ids=None):
         with self._connect() as conn:
             current = self._fetch_order(conn, order_id)
             if not current:
@@ -386,22 +406,67 @@ class CloudDB:
             if "Contact_Status" in updates:
                 raise ValueError("تغيير حالة التواصل مباشرة غير مسموح. استخدم إجراء حالة التواصل المناسب.")
             if products is not None:
-                clean_products = []
-                for p in products:
-                    try: qty = int(p.get('quantity', 0))
-                    except (TypeError, ValueError): qty = 0
-                    name = str(p.get('product_name', '')).strip()
-                    if name and qty > 0:
-                        clean_products.append({'product_name': name, 'quantity': qty})
-                if not clean_products:
-                    raise ValueError('يجب إضافة منتج واحد على الأقل')
-                updates['Product_Name'] = '، '.join(f"{p['product_name']} × {p['quantity']}" for p in clean_products)
-                updates['Quantity'] = sum(p['quantity'] for p in clean_products)
-                conn.execute('DELETE FROM order_items WHERE order_id=%s', (str(order_id),))
+                existing_items = self._fetch_items(conn, order_id)
+                existing_by_id = {str(item['Item_ID']): item for item in existing_items}
+                deleted_ids = {str(x).strip() for x in (deleted_item_ids or []) if str(x).strip()}
+                overlap = deleted_ids.intersection(existing_by_id)
+                unknown_deleted = deleted_ids.difference(existing_by_id)
+                if unknown_deleted:
+                    raise ValueError(f"لا يمكن حذف منتجات غير موجودة في الطلب: {', '.join(sorted(unknown_deleted))}")
+
+                resolved = []
+                seen_ids = set()
+                new_count = 0
+                for index, p in enumerate(products, 1):
+                    p = p or {}
+                    name = str(p.get('product_name') or '').strip()
+                    try:
+                        qty = int(p.get('quantity', 0))
+                    except (TypeError, ValueError):
+                        qty = 0
+                    if not name:
+                        raise ValueError(f"اسم المنتج رقم {index} مطلوب")
+                    if qty <= 0:
+                        raise ValueError(f"كمية المنتج رقم {index} يجب أن تكون أكبر من صفر")
+
+                    item_id = str(p.get('item_id') or p.get('Item_ID') or '').strip()
+                    if item_id:
+                        if item_id not in existing_by_id:
+                            raise ValueError(f"Item_ID غير موجود في هذا الطلب: {item_id}")
+                        if item_id in seen_ids:
+                            raise ValueError(f"تم تكرار Item_ID في المنتجات: {item_id}")
+                        if item_id in overlap:
+                            raise ValueError(f"لا يمكن تعديل وحذف نفس المنتج: {item_id}")
+                        seen_ids.add(item_id)
+                        resolved.append({'item_id': item_id, 'product_name': name, 'quantity': qty, 'is_new': False})
+                    else:
+                        new_count += 1
+                        resolved.append({'item_id': None, 'product_name': name, 'quantity': qty, 'is_new': True})
+
+                final_count = len(existing_items) - len(overlap) + new_count
+                if final_count <= 0:
+                    raise ValueError('لا يمكن حفظ الطلب بدون أي منتج. أضف منتجًا أو ألغِ حذف المنتج.')
+
+                self._add_undo(conn, order_id, 'تعديل بيانات الطلب', snapshot, user, image_item_ids=overlap)
                 ts = now_str()
-                for p in clean_products:
-                    conn.execute('INSERT INTO order_items(item_id,order_id,product_name,quantity,image_path,availability_status,available_price,discounted_price,unavailable_reason,availability_note,price_confirmation_required,available_at,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
-                                 (self._next_item_id(conn), str(order_id), p['product_name'], p['quantity'], '', 'بانتظار التوفر', '', '', '', '', '', '', ts))
+                for item in resolved:
+                    if item['is_new']:
+                        conn.execute('INSERT INTO order_items(item_id,order_id,product_name,quantity,image_path,availability_status,available_price,discounted_price,unavailable_reason,availability_note,price_confirmation_required,available_at,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+                                     (self._next_item_id(conn), str(order_id), item['product_name'], item['quantity'], '', 'بانتظار التوفر', '', '', '', '', '', '', ts))
+                    else:
+                        conn.execute('UPDATE order_items SET product_name=%s,quantity=%s WHERE item_id=%s AND order_id=%s',
+                                     (item['product_name'], item['quantity'], item['item_id'], str(order_id)))
+
+                for item_id in sorted(overlap):
+                    conn.execute('DELETE FROM order_items WHERE item_id=%s AND order_id=%s', (item_id, str(order_id)))
+
+                fresh_items = self._fetch_items(conn, order_id)
+                if not fresh_items:
+                    raise ValueError('لا يمكن حفظ الطلب بدون أي منتج')
+                updates['Product_Name'] = '، '.join(f"{i['Product_Name']} × {i['Quantity']}" for i in fresh_items)
+                updates['Quantity'] = sum(int(i.get('Quantity') or 0) for i in fresh_items)
+            else:
+                self._add_undo(conn, order_id, 'تعديل بيانات الطلب', snapshot, user)
             col_map = {
                 'Customer_Name':'customer_name','Phone':'phone','Notes':'notes','Order_Date':'order_date','Status':'status',
                 'Available_Date':'available_date','Contact_Status':'contact_status','Last_Contact_Date':'last_contact_date',
@@ -430,26 +495,48 @@ class CloudDB:
 
     def undo_last(self, order_id, user='موظف'):
         with self._connect() as conn:
-            row = conn.execute("SELECT * FROM undo_history WHERE order_id=%s AND COALESCE(undone_at,'')='' ORDER BY created_at DESC LIMIT 1", (str(order_id),)).fetchone()
-            current = self._fetch_order(conn, order_id)
-            if not row:
-                return {'error': 'لا يوجد إجراء يمكن التراجع عنه لهذا الطلب', 'code': 409}
-            if not current:
-                return {'error': 'الطلب غير موجود', 'code': 404}
-            snapshot = json.loads(row['snapshot_json'])
-            order_data = snapshot.get('order', {})
+            row=conn.execute("SELECT * FROM undo_history WHERE order_id=%s AND COALESCE(undone_at,'')='' ORDER BY created_at DESC LIMIT 1",(str(order_id),)).fetchone()
+            current=self._fetch_order(conn,order_id)
+            if not row: return {'error':'لا يوجد إجراء يمكن التراجع عنه لهذا الطلب','code':409}
+            if not current: return {'error':'الطلب غير موجود','code':404}
+            snapshot=json.loads(row['snapshot_json']); order_data=snapshot.get('order',{})
+            image_rows=conn.execute('SELECT item_id,image_path,filename,content_type,data,created_at FROM undo_item_images WHERE undo_id=%s ORDER BY item_id,image_path',(row['undo_id'],)).fetchall()
+            images_by_item={}
+            for image in image_rows: images_by_item.setdefault(str(image['item_id']),[]).append(image)
             sets=[]; params=[]
-            for key, dbkey in [('Customer_Name','customer_name'),('Phone','phone'),('Product_Name','product_name'),('Quantity','quantity'),('Order_Date','order_date'),('Available_Date','available_date'),('Status','status'),('Contact_Status','contact_status'),('Last_Contact_Date','last_contact_date'),('Next_Followup_Date','next_followup_date'),('Pickup_Date','pickup_date'),('Notes','notes'),('Created_At','created_at')]:
-                sets.append(f'{dbkey}=%s'); params.append(order_data.get(key, ''))
+            for key,dbkey in [('Customer_Name','customer_name'),('Phone','phone'),('Product_Name','product_name'),('Quantity','quantity'),('Order_Date','order_date'),('Available_Date','available_date'),('Status','status'),('Contact_Status','contact_status'),('Last_Contact_Date','last_contact_date'),('Next_Followup_Date','next_followup_date'),('Pickup_Date','pickup_date'),('Notes','notes'),('Created_At','created_at')]:
+                sets.append(f'{dbkey}=%s'); params.append(order_data.get(key,''))
             sets.append('updated_at=%s'); params.append(now_str()); params.append(str(order_id))
-            conn.execute(f"UPDATE orders SET {', '.join(sets)} WHERE order_id=%s", params)
-            conn.execute('DELETE FROM order_items WHERE order_id=%s', (str(order_id),))
-            for item in snapshot.get('items', []):
-                conn.execute('INSERT INTO order_items(item_id,order_id,product_name,quantity,image_path,availability_status,available_price,discounted_price,unavailable_reason,availability_note,price_confirmation_required,available_at,created_at,customer_decision) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
-                             tuple(item.get(k, '') for k in ('Item_ID','Order_ID','Product_Name','Quantity','Image_Path','Availability_Status','Available_Price','Discounted_Price','Unavailable_Reason','Availability_Note','Price_Confirmation_Required','Available_At','Created_At','Customer_Decision')))
-            conn.execute('UPDATE undo_history SET undone_at=%s WHERE undo_id=%s', (now_str(), row['undo_id']))
-            self._log(conn, order_id, f"تراجع عن: {row['action']}", current['Status'], order_data.get('Status',''), 'تم التراجع عن آخر تغيير للمستخدم', user)
-            return {'order': self._refresh_order_in_conn(conn, order_id), 'undone_action': row['action']}
+            conn.execute(f"UPDATE orders SET {', '.join(sets)} WHERE order_id=%s",params)
+            snapshot_items=snapshot.get('items',[]) or []
+            current_items=self._fetch_items(conn,order_id)
+            current_by_id={str(i.get('Item_ID')):i for i in current_items if i.get('Item_ID')}
+            snapshot_by_id={str(i.get('Item_ID')):i for i in snapshot_items if i.get('Item_ID')}
+            for item_id in sorted(set(current_by_id)-set(snapshot_by_id)):
+                conn.execute('DELETE FROM order_items WHERE item_id=%s AND order_id=%s',(item_id,str(order_id)))
+            fields=('Product_Name','Quantity','Image_Path','Availability_Status','Available_Price','Discounted_Price','Unavailable_Reason','Availability_Note','Price_Confirmation_Required','Available_At','Created_At','Customer_Decision')
+            for item_id,item in snapshot_by_id.items():
+                values=tuple(item.get(k,'') for k in fields)
+                if item_id in current_by_id:
+                    conn.execute('UPDATE order_items SET product_name=%s,quantity=%s,image_path=%s,availability_status=%s,available_price=%s,discounted_price=%s,unavailable_reason=%s,availability_note=%s,price_confirmation_required=%s,available_at=%s,created_at=%s,customer_decision=%s WHERE item_id=%s AND order_id=%s',values+(item_id,str(order_id)))
+                    expected=str(item.get('Image_Path') or ''); actual=str(current_by_id[item_id].get('Image_Path') or '')
+                    if expected != actual and expected and item_id not in images_by_item:
+                        raise ValueError(f'لا يمكن التراجع بأمان عن الصورة المرتبطة بالمنتج {item_id}: بيانات الصورة السابقة غير محفوظة')
+                    if not expected and actual:
+                        conn.execute('DELETE FROM item_images WHERE order_id=%s AND item_id=%s',(str(order_id),item_id))
+                else:
+                    conn.execute('INSERT INTO order_items(item_id,order_id,product_name,quantity,image_path,availability_status,available_price,discounted_price,unavailable_reason,availability_note,price_confirmation_required,available_at,created_at,customer_decision) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',(item_id,str(order_id),item.get('Product_Name',''),item.get('Quantity',1),item.get('Image_Path',''),item.get('Availability_Status','بانتظار التوفر'),item.get('Available_Price',''),item.get('Discounted_Price',''),item.get('Unavailable_Reason',''),item.get('Availability_Note',''),item.get('Price_Confirmation_Required',''),item.get('Available_At',''),item.get('Created_At') or now_str(),item.get('Customer_Decision','')))
+                    if item.get('Image_Path') and item_id not in images_by_item:
+                        raise ValueError(f'لا يمكن التراجع بأمان عن الصورة المرتبطة بالمنتج {item_id}: بيانات الصورة السابقة غير محفوظة')
+            for item_id,images in images_by_item.items():
+                if item_id not in snapshot_by_id:
+                    raise ValueError(f'صورة Undo مرتبطة بمنتج غير موجود في snapshot: {item_id}')
+                conn.execute('DELETE FROM item_images WHERE order_id=%s AND item_id=%s',(str(order_id),item_id))
+                for image in images:
+                    conn.execute('INSERT INTO item_images(image_path,order_id,item_id,filename,content_type,data,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s)',(str(image['image_path']),str(order_id),item_id,str(image['filename']),str(image['content_type']),psycopg.Binary(bytes(image['data'])),str(image['created_at'])))
+            conn.execute('UPDATE undo_history SET undone_at=%s WHERE undo_id=%s',(now_str(),row['undo_id']))
+            self._log(conn,order_id,f"تراجع عن: {row['action']}",current['Status'],order_data.get('Status',''),'تم التراجع عن آخر تغيير للمستخدم',user)
+            return {'order':self._refresh_order_in_conn(conn,order_id),'undone_action':row['action']}
 
     def _action(self, order_id, name, allowed_from, fields, note, user):
         with self._connect() as conn:
@@ -674,6 +761,9 @@ class CloudDB:
         with self._connect() as conn:
             item=conn.execute('SELECT product_name,image_path FROM order_items WHERE item_id=%s AND order_id=%s',(str(item_id),str(order_id))).fetchone()
             if not item: return None
+            snapshot=self._snapshot(conn, order_id)
+            self._invalidate_undo(conn, order_id)
+            self._add_undo(conn, order_id, 'إضافة صورة للمنتج', snapshot, user, image_item_ids={str(item_id)})
             if item['image_path']:
                 conn.execute('DELETE FROM item_images WHERE image_path=%s',(item['image_path'],))
             rel=f"{order_id}/{item_id}_{uuid.uuid4().hex[:10]}{ext}"
@@ -696,6 +786,9 @@ class CloudDB:
             item=conn.execute('SELECT image_path,product_name FROM order_items WHERE item_id=%s AND order_id=%s',(str(item_id),str(order_id))).fetchone()
             if not item: return False
             if not item['image_path']: return True
+            snapshot=self._snapshot(conn, order_id)
+            self._invalidate_undo(conn, order_id)
+            self._add_undo(conn, order_id, 'حذف صورة المنتج', snapshot, user, image_item_ids={str(item_id)})
             conn.execute('DELETE FROM item_images WHERE image_path=%s',(item['image_path'],))
             conn.execute('UPDATE order_items SET image_path=%s WHERE item_id=%s',('',str(item_id)))
             self._log(conn,order_id,'حذف صورة المنتج','','',f"تم حذف صورة المنتج {item['product_name']}",user)
@@ -705,7 +798,7 @@ class CloudDB:
         # Save a cloud backup first, then clear operational data while retaining message templates.
         self.create_manual_backup(reason='auto')
         with self._connect() as conn:
-            conn.execute('TRUNCATE activity_log, undo_history, item_images, order_items, orders')
+            conn.execute('TRUNCATE activity_log, undo_item_images, undo_history, item_images, order_items, orders')
         return {'success':True}
 
     def _workbook_bytes(self):
@@ -713,12 +806,14 @@ class CloudDB:
         wi=wb.create_sheet('Order_Items'); wi.append(ITEM_HEADERS)
         wl=wb.create_sheet('Activity_Log'); wl.append(LOG_HEADERS)
         wu=wb.create_sheet('Undo_History'); wu.append(UNDO_HEADERS)
+        wui=wb.create_sheet('Undo_Item_Images'); wui.append(['Undo_ID','Item_ID','Image_Path','Filename','Content_Type','Data_Base64','Created_At'])
         wsset=wb.create_sheet('Settings'); wsset.append(SETTINGS_HEADERS)
         with self._connect() as conn:
             order_rows=conn.execute('SELECT * FROM orders ORDER BY created_at').fetchall()
             item_rows=conn.execute('SELECT * FROM order_items ORDER BY created_at,item_id').fetchall()
             log_rows=conn.execute('SELECT * FROM activity_log ORDER BY created_at').fetchall()
             undo_rows=conn.execute('SELECT * FROM undo_history ORDER BY created_at').fetchall()
+            undo_image_rows=conn.execute('SELECT undo_id,item_id,image_path,filename,content_type,data,created_at FROM undo_item_images ORDER BY undo_id,item_id,image_path').fetchall()
             settings=conn.execute('SELECT key,value FROM settings ORDER BY key').fetchall()
         for r in order_rows:
             d=_row_to_order(r); ws.append([d[h] for h in ORDERS_HEADERS])
@@ -728,6 +823,8 @@ class CloudDB:
             wl.append([r['log_id'],r['order_id'],r['action'],r['old_status'],r['new_status'],r['note'],r['created_at'],r['user_name']])
         for r in undo_rows:
             wu.append([r['undo_id'],r['order_id'],r['action'],r['snapshot_json'],r['created_at'],r['undone_at'],r['user_name']])
+        for r in undo_image_rows:
+            wui.append([r['undo_id'],r['item_id'],r['image_path'],r['filename'],r['content_type'],base64.b64encode(bytes(r['data'])).decode('ascii'),r['created_at']])
         for r in settings:
             wsset.append([r['key'],r['value']])
         bio=io.BytesIO(); wb.save(bio); wb.close(); return bio.getvalue()
@@ -792,30 +889,207 @@ class CloudDB:
             images={k[8:]:zf.read(v) for k,v in names.items() if k.startswith('uploads/') and not k.endswith('/')}
         self._replace_from_xlsx(xlsx, images)
 
+    def _validate_import_payload(self, orders, items, logs, undos, settings, images=None, undo_images=None):
+        order_ids = set()
+        for row in orders:
+            oid = str(row.get('Order_ID') or '').strip()
+            if not oid:
+                raise ValueError('بيانات الاستيراد تحتوي طلبًا بدون Order_ID')
+            if oid in order_ids:
+                raise ValueError(f'تكرار Order_ID في ملف الاستيراد: {oid}')
+            order_ids.add(oid)
+            customer = str(row.get('Customer_Name') or '').strip()
+            phone = str(row.get('Phone') or '').strip()
+            if not customer:
+                raise ValueError(f'الطلب {oid} بدون اسم عميل')
+            if not phone:
+                raise ValueError(f'الطلب {oid} بدون رقم هاتف')
+            status = str(row.get('Status') or '').strip() or STATUS_PENDING
+            contact = str(row.get('Contact_Status') or '').strip() or (
+                CONTACT_AWAITING if status in (STATUS_CONTACTED, STATUS_NOT_PICKED) else CONTACT_NOT_CONTACTED
+            )
+            if status not in ALL_STATUSES:
+                raise ValueError(f'حالة الطلب غير صحيحة للطلب {oid}: {status}')
+            if contact not in ALL_CONTACT_STATUSES:
+                raise ValueError(f'حالة التواصل غير صحيحة للطلب {oid}: {contact}')
+            raw_quantity = row.get('Quantity')
+            if raw_quantity not in ('', None):
+                try:
+                    quantity = int(raw_quantity)
+                except (TypeError, ValueError):
+                    raise ValueError(f'كمية الطلب غير صحيحة للطلب {oid}')
+                if quantity < 0:
+                    raise ValueError(f'كمية الطلب لا يمكن أن تكون سالبة للطلب {oid}')
+
+        item_ids = set()
+        item_by_id = {}
+        referenced_images = set()
+        valid_item_statuses = {'بانتظار التوفر', 'متوفر', 'غير متوفر'}
+        for row in items:
+            iid = str(row.get('Item_ID') or '').strip()
+            oid = str(row.get('Order_ID') or '').strip()
+            if not iid:
+                raise ValueError('بيانات الاستيراد تحتوي عنصرًا بدون Item_ID')
+            if iid in item_ids:
+                raise ValueError(f'تكرار Item_ID في ملف الاستيراد: {iid}')
+            if not oid or oid not in order_ids:
+                raise ValueError(f'العنصر {iid} يشير إلى Order_ID غير موجود: {oid}')
+            product = str(row.get('Product_Name') or '').strip()
+            if not product:
+                raise ValueError(f'العنصر {iid} بدون اسم منتج')
+            try:
+                quantity = int(row.get('Quantity'))
+            except (TypeError, ValueError):
+                raise ValueError(f'كمية العنصر غير صحيحة: {iid}')
+            if quantity <= 0:
+                raise ValueError(f'كمية العنصر يجب أن تكون أكبر من صفر: {iid}')
+            availability = str(row.get('Availability_Status') or '').strip() or 'بانتظار التوفر'
+            if availability not in valid_item_statuses:
+                raise ValueError(f'حالة توفر غير صحيحة للعنصر {iid}: {availability}')
+            image_path = str(row.get('Image_Path') or '').replace('\\', '/').lstrip('/')
+            if image_path:
+                referenced_images.add(image_path)
+            item_ids.add(iid)
+            item_by_id[iid] = (oid, image_path)
+
+        log_ids = set()
+        for row in logs:
+            lid = str(row.get('Log_ID') or '').strip()
+            oid = str(row.get('Order_ID') or '').strip()
+            if not lid:
+                raise ValueError('سجل Activity_Log بدون Log_ID')
+            if lid in log_ids:
+                raise ValueError(f'تكرار Log_ID في ملف الاستيراد: {lid}')
+            if oid not in order_ids:
+                raise ValueError(f'سجل Activity_Log يشير إلى طلب غير موجود: {oid}')
+            log_ids.add(lid)
+
+        undo_ids = set()
+        for row in undos:
+            uid = str(row.get('Undo_ID') or '').strip()
+            oid = str(row.get('Order_ID') or '').strip()
+            if not uid:
+                raise ValueError('سجل Undo_History بدون Undo_ID')
+            if uid in undo_ids:
+                raise ValueError(f'تكرار Undo_ID في ملف الاستيراد: {uid}')
+            if oid not in order_ids:
+                raise ValueError(f'سجل Undo_History يشير إلى طلب غير موجود: {oid}')
+            raw_snapshot = str(row.get('Snapshot_JSON') or '').strip()
+            try:
+                snapshot = json.loads(raw_snapshot)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                raise ValueError(f'Snapshot_JSON غير صالح لسجل Undo: {uid}')
+            if not isinstance(snapshot, dict) or not isinstance(snapshot.get('order'), dict) or not isinstance(snapshot.get('items'), list):
+                raise ValueError(f'Snapshot_JSON غير مكتمل لسجل Undo: {uid}')
+            snap_oid = str(snapshot['order'].get('Order_ID') or snapshot['order'].get('order_id') or '').strip()
+            if snap_oid and snap_oid != oid:
+                raise ValueError(f'Snapshot_JSON لا يطابق Order_ID لسجل Undo: {uid}')
+            undo_ids.add(uid)
+
+        setting_keys = set()
+        for row in settings:
+            key = str(row.get('Key') or '').strip()
+            if not key:
+                continue
+            if key in setting_keys:
+                raise ValueError(f'تكرار مفتاح Settings في ملف الاستيراد: {key}')
+            setting_keys.add(key)
+
+        if undo_images:
+            seen_undo_images = set()
+            undo_id_set = undo_ids
+            item_id_set = item_ids
+            for row in undo_images:
+                uid = str(row.get('Undo_ID') or '').strip()
+                iid = str(row.get('Item_ID') or '').strip()
+                path = str(row.get('Image_Path') or '').replace('\\', '/').lstrip('/')
+                filename = str(row.get('Filename') or '').strip()
+                content_type = str(row.get('Content_Type') or '').strip()
+                token = (uid, iid, path)
+                if token in seen_undo_images:
+                    raise ValueError(f'تكرار صورة Undo: {uid}/{iid}/{path}')
+                if uid not in undo_id_set:
+                    raise ValueError(f'صورة Undo تشير إلى Undo_ID غير موجود: {uid}')
+                if iid not in item_id_set:
+                    raise ValueError(f'صورة Undo تشير إلى Item_ID غير موجود: {iid}')
+                if not path or not filename or not content_type:
+                    raise ValueError(f'بيانات صورة Undo ناقصة: {uid}/{iid}')
+                raw = str(row.get('Data_Base64') or '').strip()
+                try:
+                    data = base64.b64decode(raw, validate=True)
+                except Exception:
+                    raise ValueError(f'Data_Base64 غير صالح لصورة Undo: {uid}/{iid}')
+                if not data:
+                    raise ValueError(f'بيانات صورة Undo فارغة: {uid}/{iid}')
+                if len(data) > MAX_IMAGE_SIZE:
+                    raise ValueError(f'حجم صورة Undo أكبر من 10 ميجابايت: {uid}/{iid}')
+                seen_undo_images.add(token)
+
+        if images is None:
+            if referenced_images:
+                raise ValueError('ملف Excel يحتوي Image_Path بدون ملف صور مرفق')
+            return
+
+        normalized_images = {}
+        for raw_path, data in images.items():
+            path = str(raw_path or '').replace('\\', '/').lstrip('/')
+            if not path or path in normalized_images:
+                raise ValueError('مسار صورة مكرر أو فارغ في ملف الاستيراد')
+            if not isinstance(data, (bytes, bytearray)) or not data:
+                raise ValueError(f'ملف الصورة فارغ: {path}')
+            if len(data) > MAX_IMAGE_SIZE:
+                raise ValueError(f'حجم الصورة أكبر من 10 ميجابايت: {path}')
+            parts = path.split('/')
+            if len(parts) != 2 or not parts[0] or not parts[1] or parts[0] not in order_ids:
+                raise ValueError(f'مسار الصورة غير مرتبط بطلب صالح: {path}')
+            filename = os.path.basename(path)
+            stem = os.path.splitext(filename)[0]
+            iid = stem.split('_', 1)[0]
+            if iid not in item_by_id or item_by_id[iid][0] != parts[0]:
+                raise ValueError(f'الصورة لا ترتبط بعنصر صالح: {path}')
+            normalized_images[path] = data
+
+        image_paths = set(normalized_images)
+        if image_paths != referenced_images:
+            missing = sorted(referenced_images - image_paths)
+            extra = sorted(image_paths - referenced_images)
+            details = []
+            if missing:
+                details.append('صور مفقودة: ' + ', '.join(missing))
+            if extra:
+                details.append('صور غير مرتبطة: ' + ', '.join(extra))
+            raise ValueError('حزمة الصور غير متطابقة مع بيانات Order_Items: ' + ' | '.join(details))
+
     def _replace_from_xlsx(self, xlsx_bytes, images=None):
-        wb=load_workbook(io.BytesIO(xlsx_bytes),read_only=True,data_only=False)
-        if 'Orders' not in wb.sheetnames: wb.close(); raise ValueError('ملف البيانات لا يحتوي ورقة Orders المطلوبة')
-        orders=self._read_sheet_dicts(wb['Orders'])
-        if not any(any(k in r for k in ('Order_ID','Customer_Name','Phone')) for r in orders):
-            wb.close(); raise ValueError('ملف البيانات لا يبدو كملف طلبات صالح')
-        items=self._read_sheet_dicts(wb['Order_Items']) if 'Order_Items' in wb.sheetnames else []
-        logs=self._read_sheet_dicts(wb['Activity_Log']) if 'Activity_Log' in wb.sheetnames else []
-        undos=self._read_sheet_dicts(wb['Undo_History']) if 'Undo_History' in wb.sheetnames else []
-        settings=self._read_sheet_dicts(wb['Settings']) if 'Settings' in wb.sheetnames else []
+        wb = load_workbook(io.BytesIO(xlsx_bytes), read_only=True, data_only=False)
+        if 'Orders' not in wb.sheetnames:
+            wb.close()
+            raise ValueError('ملف البيانات لا يحتوي ورقة Orders المطلوبة')
+        orders = self._read_sheet_dicts(wb['Orders'])
+        required = {'Order_ID', 'Customer_Name', 'Phone'}
+        if not orders or not required.issubset(set(orders[0].keys())):
+            wb.close()
+            raise ValueError('ملف البيانات لا يبدو كملف طلبات صالح')
+        items = self._read_sheet_dicts(wb['Order_Items']) if 'Order_Items' in wb.sheetnames else []
+        logs = self._read_sheet_dicts(wb['Activity_Log']) if 'Activity_Log' in wb.sheetnames else []
+        undos = self._read_sheet_dicts(wb['Undo_History']) if 'Undo_History' in wb.sheetnames else []
+        settings = self._read_sheet_dicts(wb['Settings']) if 'Settings' in wb.sheetnames else []
+        undo_images = self._read_sheet_dicts(wb['Undo_Item_Images']) if 'Undo_Item_Images' in wb.sheetnames else []
         wb.close()
+
+        self._validate_import_payload(orders, items, logs, undos, settings, images, undo_images)
+
         with self._connect() as conn:
-            conn.execute('TRUNCATE activity_log, undo_history, item_images, order_items, orders')
+            conn.execute('TRUNCATE activity_log, undo_item_images, undo_history, item_images, order_items, orders')
             for r in orders:
-                oid=str(r.get('Order_ID') or '').strip()
-                if not oid: continue
-                status=r.get('Status') or STATUS_PENDING
-                contact=r.get('Contact_Status') or (CONTACT_AWAITING if status in (STATUS_CONTACTED,STATUS_NOT_PICKED) else CONTACT_NOT_CONTACTED)
+                oid = str(r.get('Order_ID') or '').strip()
+                status = r.get('Status') or STATUS_PENDING
+                contact = r.get('Contact_Status') or (CONTACT_AWAITING if status in (STATUS_CONTACTED, STATUS_NOT_PICKED) else CONTACT_NOT_CONTACTED)
                 conn.execute('INSERT INTO orders(order_id,customer_name,phone,product_name,quantity,order_date,available_date,status,contact_status,last_contact_date,next_followup_date,pickup_date,notes,created_at,updated_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
                              (oid,str(r.get('Customer_Name') or ''),str(r.get('Phone') or ''),str(r.get('Product_Name') or ''),int(r.get('Quantity') or 0),str(r.get('Order_Date') or ''),str(r.get('Available_Date') or ''),status,contact,str(r.get('Last_Contact_Date') or ''),str(r.get('Next_Followup_Date') or ''),str(r.get('Pickup_Date') or ''),str(r.get('Notes') or ''),str(r.get('Created_At') or now_str()),str(r.get('Updated_At') or now_str())))
             for r in items:
-                iid=str(r.get('Item_ID') or '').strip()
-                oid=str(r.get('Order_ID') or '').strip()
-                if not iid or not oid: continue
+                iid = str(r.get('Item_ID') or '').strip()
+                oid = str(r.get('Order_ID') or '').strip()
                 conn.execute('INSERT INTO order_items(item_id,order_id,product_name,quantity,image_path,availability_status,available_price,discounted_price,unavailable_reason,availability_note,price_confirmation_required,available_at,created_at,customer_decision) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
                              (iid,oid,str(r.get('Product_Name') or ''),int(r.get('Quantity') or 1),str(r.get('Image_Path') or ''),str(r.get('Availability_Status') or 'بانتظار التوفر'),str(r.get('Available_Price') or ''),str(r.get('Discounted_Price') or ''),str(r.get('Unavailable_Reason') or ''),str(r.get('Availability_Note') or ''),str(r.get('Price_Confirmation_Required') or ''),str(r.get('Available_At') or ''),str(r.get('Created_At') or now_str()),str(r.get('Customer_Decision') or '')))
             for r in logs:
@@ -824,22 +1098,40 @@ class CloudDB:
             for r in undos:
                 conn.execute('INSERT INTO undo_history(undo_id,order_id,action,snapshot_json,created_at,undone_at,user_name) VALUES (%s,%s,%s,%s,%s,%s,%s)',
                              (str(r.get('Undo_ID') or uuid.uuid4().hex),str(r.get('Order_ID') or ''),str(r.get('Action') or ''),str(r.get('Snapshot_JSON') or '{}'),str(r.get('Created_At') or now_str()),str(r.get('Undone_At') or ''),str(r.get('User') or 'موظف')))
+            for r in undo_images:
+                raw = base64.b64decode(str(r.get('Data_Base64') or '').strip(), validate=True)
+                conn.execute('INSERT INTO undo_item_images(undo_id,item_id,image_path,filename,content_type,data,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s)',
+                             (str(r.get('Undo_ID') or ''),str(r.get('Item_ID') or ''),str(r.get('Image_Path') or ''),str(r.get('Filename') or ''),str(r.get('Content_Type') or ''),psycopg.Binary(raw),str(r.get('Created_At') or now_str())))
             for r in settings:
-                k=str(r.get('Key') or '').strip()
+                k = str(r.get('Key') or '').strip()
                 if k:
                     conn.execute('INSERT INTO settings(key,value) VALUES (%s,%s) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value',(k,str(r.get('Value') or '')))
             if images:
-                for path,data in images.items():
-                    path=path.replace('\\','/').lstrip('/')
-                    m=re.match(r'^([^/]+)/([^/]+)',path)
-                    if not m: continue
-                    oid=m.group(1); filename=os.path.basename(path)
-                    iid=filename.split('_',1)[0]
-                    item=conn.execute('SELECT item_id FROM order_items WHERE item_id=%s AND order_id=%s',(iid,oid)).fetchone()
-                    if not item: continue
-                    ext=os.path.splitext(filename)[1].lower(); ctype={'jpg':'image/jpeg','jpeg':'image/jpeg','png':'image/png','webp':'image/webp'}.get(ext.lstrip('.'),'application/octet-stream')
-                    conn.execute('INSERT INTO item_images(image_path,order_id,item_id,filename,content_type,data,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s) ON CONFLICT(image_path) DO UPDATE SET data=EXCLUDED.data,content_type=EXCLUDED.content_type,filename=EXCLUDED.filename',
+                for path, data in images.items():
+                    path = path.replace('\\','/').lstrip('/')
+                    oid, filename = path.split('/', 1)
+                    iid = os.path.splitext(filename)[0].split('_', 1)[0]
+                    ext = os.path.splitext(filename)[1].lower()
+                    ctype = {'jpg':'image/jpeg','jpeg':'image/jpeg','png':'image/png','webp':'image/webp'}.get(ext.lstrip('.'),'application/octet-stream')
+                    conn.execute('INSERT INTO item_images(image_path,order_id,item_id,filename,content_type,data,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s)',
                                  (path,oid,iid,filename,ctype,psycopg.Binary(data),now_str()))
+
+    def _validate_xlsx_source(self, xlsx_bytes, images=None):
+        wb = load_workbook(io.BytesIO(xlsx_bytes), read_only=True, data_only=False)
+        try:
+            if 'Orders' not in wb.sheetnames:
+                raise ValueError('ملف البيانات لا يحتوي ورقة Orders المطلوبة')
+            orders = self._read_sheet_dicts(wb['Orders'])
+            required = {'Order_ID', 'Customer_Name', 'Phone'}
+            if not orders or not required.issubset(set(orders[0].keys())):
+                raise ValueError('ملف البيانات لا يبدو كملف طلبات صالح')
+            items = self._read_sheet_dicts(wb['Order_Items']) if 'Order_Items' in wb.sheetnames else []
+            logs = self._read_sheet_dicts(wb['Activity_Log']) if 'Activity_Log' in wb.sheetnames else []
+            undos = self._read_sheet_dicts(wb['Undo_History']) if 'Undo_History' in wb.sheetnames else []
+            settings = self._read_sheet_dicts(wb['Settings']) if 'Settings' in wb.sheetnames else []
+        finally:
+            wb.close()
+        self._validate_import_payload(orders, items, logs, undos, settings, images)
 
     def import_legacy_data(self, source_path):
         source_path=os.path.abspath(source_path)
@@ -859,7 +1151,8 @@ class CloudDB:
             images=None
         else:
             raise ValueError('اختر ملف Excel (.xlsx) أو نسخة احتياطية (.zip)')
-        backup=self.create_manual_backup(reason='auto') if self.list_backups() else None
+        self._validate_xlsx_source(xlsx, images)
+        backup=self.create_manual_backup(reason='auto')
         self._replace_from_xlsx(xlsx, images)
         return {'success':True,'backup':backup,'order_count':len(self.get_all_orders())}
 
