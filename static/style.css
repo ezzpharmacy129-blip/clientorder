@@ -128,34 +128,3 @@ input,select,textarea{min-height:42px;padding:10px var(--space-3);color:var(--te
 @media print{.app-header,.main-nav,.btn,.toast-container,.modal-overlay{display:none!important}body{background:#fff;color:#000}.app-main{max-width:none;padding:0}.panel,.stat-card{box-shadow:none;break-inside:avoid}}
 /* EZZ_CORE_USERS_DASHBOARD_CSS_V5 */
 .users-view{max-width:100%}.users-admin-panel{margin-top:18px}.users-admin-card{background:#fbfeff;border:1px solid var(--border);border-radius:12px;padding:16px;margin-top:14px}.users-admin-form{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;align-items:end}.users-admin-form .form-row{display:flex;flex-direction:column;gap:6px}.users-admin-form label{font-weight:700;font-size:12px}.users-admin-note{font-size:12px;color:var(--muted);margin:0 0 14px}.users-admin-table-wrap{overflow:auto}.users-admin-table{width:100%;border-collapse:collapse;min-width:760px}.users-admin-table th,.users-admin-table td{border-bottom:1px solid var(--border);padding:10px;text-align:right;vertical-align:middle}.users-admin-table th{background:#f4fafb;color:var(--navy);font-size:12px}.users-admin-table td{font-size:13px}.users-admin-badge{display:inline-block;padding:4px 9px;border-radius:999px;font-size:11px;font-weight:800}.users-admin-badge.active{background:#e7f8ef;color:#18734a}.users-admin-badge.inactive{background:#fff0ef;color:#a12d2d}.users-admin-badge.admin{background:#eaf2ff;color:#244c97}.users-admin-badge.employee{background:#f3f5f7;color:#5b6872}.users-admin-actions{display:flex;gap:6px;flex-wrap:wrap}.users-admin-empty{padding:28px;text-align:center;color:var(--muted)}@media(max-width:900px){.users-admin-form{grid-template-columns:1fr 1fr}}@media(max-width:600px){.users-admin-form{grid-template-columns:1fr}}
-
-
-/* ===== Shortages navigation dropdown + compact daily shortages ===== */
-.nav-dropdown{position:relative;display:flex;align-items:center}
-.nav-dropdown-toggle{display:inline-flex;align-items:center;gap:5px}
-.nav-caret{font-size:10px;transition:transform .16s ease}
-.nav-dropdown.open .nav-caret{transform:rotate(180deg)}
-.nav-dropdown-menu{position:absolute;top:calc(100% + 8px);right:0;min-width:190px;padding:6px;background:#fff;border:1px solid var(--border);border-radius:12px;box-shadow:0 14px 34px rgba(21,63,122,.14);opacity:0;visibility:hidden;transform:translateY(-5px);transition:opacity .16s ease,transform .16s ease,visibility .16s ease;z-index:40}
-.nav-dropdown.open .nav-dropdown-menu{opacity:1;visibility:visible;transform:translateY(0)}
-.nav-dropdown-item{width:100%;border:0;background:transparent;color:var(--text);text-align:right;padding:10px 12px;border-radius:9px;cursor:pointer;font:inherit;font-size:13px;font-weight:700}
-.nav-dropdown-item:hover,.nav-dropdown-item.active{background:#eef9fa;color:var(--primary-dark)}
-.daily-shortages-panel{padding:17px}
-.daily-shortages-header{margin-bottom:10px}
-.daily-shortages-actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
-.shortages-limit-control{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:12px;font-weight:700}
-.shortages-limit-control select{padding:7px 9px;font-size:12px;background:#fff}
-.daily-shortages-summary{padding:8px 10px;margin-bottom:8px;border:1px solid #dbecee;border-radius:9px;background:#f7fcfd;color:var(--primary-dark);font-size:12px;font-weight:800}
-.daily-shortages-table-wrap{max-height:calc(100vh - 235px);min-height:220px;overflow:auto;border:1px solid var(--border);border-radius:12px}
-.daily-shortages-table{min-width:960px}
-.daily-shortages-table th,.daily-shortages-table td{padding:8px 9px;vertical-align:middle}
-.daily-shortages-table th{position:sticky;top:0;z-index:2}
-.daily-shortages-table td{font-size:12px}
-.daily-shortages-table .status-badge{font-size:10px;padding:4px 8px}
-.shortage-type{display:inline-flex;align-items:center;justify-content:center;padding:4px 8px;border-radius:999px;font-size:10px;font-weight:800;white-space:nowrap}
-.shortage-type-pharmacy{background:#eaf8ef;color:#1c7040}
-.shortage-type-customer{background:#eaf5fc;color:#23638c}
-.daily-shortage-note{margin-top:2px;color:var(--muted);font-size:10px;max-width:240px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.daily-shortage-actions{display:flex;gap:5px;align-items:center;flex-wrap:wrap}
-.daily-shortages-table tr:hover td{background:#fbfeff}
-@media(max-width:900px){.nav-dropdown-menu{right:auto;left:0}.daily-shortages-table-wrap{max-height:calc(100vh - 275px)}}
-@media(max-width:720px){.nav-dropdown{flex:0 0 auto}.nav-dropdown-toggle{flex:0 0 auto}.daily-shortages-panel{padding:12px}.daily-shortages-table-wrap{max-height:calc(100vh - 300px);min-height:200px}.daily-shortages-actions{width:100%}.shortages-limit-control{margin-right:auto}}
