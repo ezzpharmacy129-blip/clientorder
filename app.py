@@ -153,7 +153,10 @@ def api_reset_all_data():
     if confirmation != "حذف كل البيانات":
         return jsonify({"error":"للتأكيد اكتب: حذف كل البيانات"}),400
     try:
-        return jsonify(db.reset_all_data(_current_actor_name()))
+        result = db.reset_all_data(_current_actor_name())
+        audit = (app.extensions.get("ezz_auth") or {}).get("audit")
+        if callable(audit): audit(action="Reset Data", note="تم مسح بيانات النظام بالكامل")
+        return jsonify(result)
     except Exception as e:
         return jsonify({"error":f"تعذر مسح البيانات: {e}"}),500
 
@@ -219,7 +222,10 @@ def api_update_order(order_id):
     if data.get("status") in ALL_STATUSES: fields["Status"]=data["status"]
     products=data.get("products") if "products" in data or "product_name" in data or "quantity" in data else None
     if products is not None and "products" not in data: products=[{"product_name":data.get("product_name"),"quantity":data.get("quantity")}]
-    try: order=db.update_order(order_id,fields,products,_current_actor_name())
+    deleted_item_ids = data.get("deleted_item_ids") or []
+    if not isinstance(deleted_item_ids, list):
+        return jsonify({"error":"deleted_item_ids يجب أن تكون قائمة"}),400
+    try: order=db.update_order(order_id,fields,products,_current_actor_name(),deleted_item_ids=deleted_item_ids)
     except ValueError as e:return jsonify({"error":str(e)}),400
     except Exception as e:return jsonify({"error":f"تعذر تعديل الطلب: {e}"}),500
     if order is None:return jsonify({"error":"الطلب غير موجود"}),404
@@ -241,7 +247,7 @@ def api_upload_item_image(order_id, item_id):
     if not f or not f.filename:
         return jsonify({"error":"لم يتم اختيار صورة"}),400
     try:
-        rel = db.set_item_image(order_id, item_id, f.stream, f.filename, request.content_length)
+        rel = db.set_item_image(order_id, item_id, f.stream, f.filename, request.content_length, _current_actor_name())
     except ValueError as e:
         return jsonify({"error":str(e)}),400
     except Exception as e:
@@ -253,7 +259,7 @@ def api_upload_item_image(order_id, item_id):
 @app.delete("/api/orders/<order_id>/items/<item_id>/image")
 def api_delete_item_image(order_id, item_id):
     try:
-        ok=db.delete_item_image(order_id,item_id)
+        ok=db.delete_item_image(order_id,item_id,_current_actor_name())
     except Exception as e:
         return jsonify({"error":f"تعذر حذف الصورة: {e}"}),500
     if not ok:return jsonify({"error":"المنتج غير موجود"}),404
@@ -636,7 +642,7 @@ def api_open_whatsapp_order(order_id):
     app_url = f"whatsapp://send?phone={phone}&text=" + quote(message)
     web_url = f"https://wa.me/{phone}?text=" + quote(message)
     try:
-        db.set_contact_status(order_id, CONTACT_AWAITING, "تم تجهيز رسالة WhatsApp للعميل، بانتظار الرد")
+        db.set_contact_status(order_id, CONTACT_AWAITING, "تم تجهيز رسالة WhatsApp للعميل، بانتظار الرد", _current_actor_name())
     except Exception:
         pass
     return jsonify({"success":True,"message":message,"url":app_url,"web_url":web_url})
@@ -916,6 +922,8 @@ def api_import_data():
         os.close(fd)
         f.save(temp_path)
         result = db.import_legacy_data(temp_path)
+        audit = (app.extensions.get("ezz_auth") or {}).get("audit")
+        if callable(audit): audit(action="Import Data", note=f"تم استيراد الملف {os.path.basename(f.filename)}")
         return jsonify({"success":True, "message":"تم استيراد البيانات بنجاح", **result})
     except ValueError as e:
         return jsonify({"error":str(e)}),400
@@ -934,7 +942,11 @@ def api_backups(): return jsonify({"backups":db.list_backups()})
 def api_backup():
     try: name=db.create_manual_backup()
     except Exception as e:return jsonify({"error":f"تعذر إنشاء النسخة: {e}"}),500
-    return (jsonify({"success":True,"filename":name}),200) if name else (jsonify({"error":"تعذر إنشاء النسخة"}),500)
+    if name:
+        audit = (app.extensions.get("ezz_auth") or {}).get("audit")
+        if callable(audit): audit(action="Create Backup", note=f"تم إنشاء النسخة {name}")
+        return jsonify({"success":True,"filename":name}),200
+    return jsonify({"error":"تعذر إنشاء النسخة"}),500
 
 @app.post("/api/backups/restore")
 def api_restore():
@@ -943,7 +955,11 @@ def api_restore():
     try: ok=db.restore_backup(fn)
     except ValueError as e:return jsonify({"error":str(e)}),400
     except Exception as e:return jsonify({"error":f"تعذر الاستعادة: {e}"}),500
-    return (jsonify({"success":True}),200) if ok else (jsonify({"error":"النسخة غير موجودة"}),404)
+    if ok:
+        audit = (app.extensions.get("ezz_auth") or {}).get("audit")
+        if callable(audit): audit(action="Restore Backup", note=f"تم استعادة النسخة {fn}")
+        return jsonify({"success":True}),200
+    return jsonify({"error":"النسخة غير موجودة"}),404
 
 
 # Register the PostgreSQL Excel export endpoint directly in the Flask app.

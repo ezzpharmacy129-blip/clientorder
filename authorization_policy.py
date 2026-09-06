@@ -3,7 +3,6 @@
 Normal operational actions remain available to authenticated employees.
 Administrative/destructive actions require the admin role. Enforcement is server-side.
 """
-from functools import wraps
 from flask import jsonify, request
 
 
@@ -17,10 +16,6 @@ ADMIN_PREFIXES = (
     "/api/admin/",
 )
 
-def _current_user(app):
-    auth = app.extensions.get("ezz_auth") or {}
-    provider = auth.get("current_user")
-    return provider() if callable(provider) else None
 
 def is_admin_required(path, method):
     method = str(method or "").upper()
@@ -32,6 +27,29 @@ def is_admin_required(path, method):
     if method == "DELETE" and path.startswith("/api/orders/") and "/items/" not in path and not path.endswith("/image"):
         return True
     return False
+
+
+def _current_user(app):
+    auth = app.extensions.get("ezz_auth") or {}
+    provider = auth.get("current_user")
+    return provider() if callable(provider) else None
+
+
+def _is_order_delete(path, method):
+    method = str(method or "").upper()
+    path = str(path or "")
+    return method == "DELETE" and path.startswith("/api/orders/") and "/items/" not in path and not path.endswith("/image")
+
+
+def _validate_destructive_confirmation():
+    if not _is_order_delete(request.path, request.method):
+        return None
+    data = request.get_json(silent=True) or {}
+    confirmation = str(data.get("confirmation") or "").strip()
+    if confirmation != "حذف الطلب":
+        return jsonify({"error": "للتأكيد اكتب: حذف الطلب"}), 400
+    return None
+
 
 def install_authorization(app):
     if getattr(app, "_ezz_authorization_policy_installed", False):
@@ -48,7 +66,8 @@ def install_authorization(app):
             return jsonify({"error": "تسجيل الدخول مطلوب", "authenticated": False}), 401
         if user.get("role") != "admin":
             return jsonify({"error": "غير مصرح لك بهذا الإجراء"}), 403
-        return None
+
+        return _validate_destructive_confirmation()
 
     app.extensions["ezz_authorization"] = {
         "is_admin_required": is_admin_required,
