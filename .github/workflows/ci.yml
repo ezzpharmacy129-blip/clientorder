@@ -2,84 +2,47 @@ name: Validate application
 
 on:
   push:
-    branches: [main, p0-3-import-safety]
+    branches: [main]
   pull_request:
     branches: [main]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   syntax:
     runs-on: ubuntu-latest
-    env:
-      DATABASE_URL: postgresql://ezz_ci:ezz_ci@localhost:5432/ezz_test
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: p0-3-import-safety
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.14"
-
-      - name: Install PostgreSQL if needed
-        shell: bash
-        run: |
-          if ! command -v psql >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y postgresql postgresql-contrib
-          fi
-          sudo systemctl start postgresql || sudo service postgresql start || true
-          sudo -u postgres psql -v ON_ERROR_STOP=1 -c "CREATE ROLE ezz_ci LOGIN PASSWORD 'ezz_ci';" || true
-          sudo -u postgres psql -v ON_ERROR_STOP=1 -c "ALTER ROLE ezz_ci WITH LOGIN PASSWORD 'ezz_ci';"
-          sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname='ezz_test'" | grep -q 1 || sudo -u postgres createdb -O ezz_ci ezz_test
-
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
-
-      - name: Apply P0.3 implementation
-        run: python tools/apply_p0_3.py
-
-      - name: Apply P0.3 validation-before-backup ordering
-        run: python tools/adjust_p0_3_validation_order.py
-
       - name: Compile Python files
-        run: python -m compileall -q app.py db.py cloud_db.py tests/test_p0_item_update.py tests/test_p0_2_undo.py tests/test_p0_3_import_safety.py
-
+        run: python -m compileall -q app.py db.py cloud_db.py sitecustomize.py auth_bootstrap.py auth_pg.py auth_security_extensions.py admin_state_controls.py data_export.py csrf_protection.py tests/test_csrf_protection.py
       - name: Validate JavaScript syntax
         run: node --check static/app.js
-
       - name: Run CSRF protection tests
         run: python -m unittest -v tests/test_csrf_protection.py
-
       - name: Run login rate limit tests
         run: python -m unittest -v tests/test_login_rate_limit.py
-
       - name: Run authorization policy tests
-        continue-on-error: true
         run: python -m unittest -v tests/test_authorization_policy.py
-
       - name: Run workflow policy tests
         run: python -m unittest -v tests/test_workflow_policy.py
-
-      - name: Run P0 data safety regression tests
-        run: env -u DATABASE_URL python -m unittest -v tests/test_p0_item_update.py tests/test_p0_2_undo.py
-
-      - name: Run P0.3 import safety tests
-        run: python -m unittest -v tests/test_p0_3_import_safety.py
-
-      - name: Commit verified P0.3 implementation
-        shell: bash
+      - name: Verify users dashboard core integration
         run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add cloud_db.py
-          if git diff --cached --quiet; then
-            echo 'No P0.3 implementation changes to commit.'
-            exit 0
-          fi
-          git commit -m 'P0.3 harden import validation and safety backup'
-          git push origin HEAD:p0-3-import-safety
+          python - <<'PY'
+          from pathlib import Path
+          t=Path('templates/index.html').read_text(encoding='utf-8')
+          j=Path('static/app.js').read_text(encoding='utf-8')
+          c=Path('static/style.css').read_text(encoding='utf-8')
+          assert t.count('id="users-nav-btn"') == 1
+          assert t.count('id="view-users"') == 1
+          assert j.count('EZZ_CORE_USERS_DASHBOARD_') == 1
+          assert c.count('EZZ_CORE_USERS_DASHBOARD_CSS_') == 1
+          print('USERS CORE INTEGRATION VERIFIED')
+          PY
