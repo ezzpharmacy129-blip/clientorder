@@ -31,15 +31,12 @@
     return parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : String(value);
   });
 
-  const api = window.apiFetch || (async (url, options = {}) => {
-    const response = await fetch(url, {
-      credentials: "same-origin",
-      ...options
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.error || "حدث خطأ أثناء الاتصال بالخادم");
-    return data;
-  });
+  const api = (...args) => {
+    if (typeof window.apiFetch !== "function") {
+      return Promise.reject(new Error("طبقة الاتصال غير جاهزة، أعد تحميل الصفحة ثم حاول مرة أخرى."));
+    }
+    return window.apiFetch(...args);
+  };
 
   const notify = window.toast || ((message) => alert(message));
 
