@@ -1,4 +1,4 @@
-#ezz-ai-side-chat{position:fixed;left:18px;bottom:18px;z-index:9999;font-family:Tahoma,Arial,sans-serif}
+#ezz-ai-side-chat{position:fixed;left:18px;bottom:18px;z-index: var(--z-ai);font-family:Tahoma,Arial,sans-serif}
 #ezz-ai-toggle{width:58px;height:58px;border:0;border-radius:50%;cursor:pointer;background:linear-gradient(135deg,#20a6b1,#0c6d78);color:#fff;font-size:23px;box-shadow:0 12px 28px rgba(21,63,122,.25)}
 .ezz-ai-panel{display:none;width:min(390px,calc(100vw - 28px));height:min(640px,calc(100vh - 105px));margin-bottom:10px;background:#fff;border:1px solid #dce8ee;border-radius:18px;box-shadow:0 18px 55px rgba(21,63,122,.22);overflow:hidden}
 .ezz-ai-panel.open{display:flex;flex-direction:column}.ezz-ai-head{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;color:#fff;background:linear-gradient(135deg,#153f7a,#20a6b1)}
