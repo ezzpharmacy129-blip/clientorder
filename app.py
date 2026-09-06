@@ -292,6 +292,74 @@ def api_postpone(order_id):
 @app.post("/api/orders/<order_id>/cancel")
 def api_cancel(order_id): return result_response(db.cancel_order(order_id,str((request.get_json(silent=True) or {}).get("note") or "")))
 
+
+ACTION_CENTER_LABELS = {
+    "overdue": "متأخرة",
+    "needs_supply": "تحتاج توفير",
+    "awaiting_reply": "تنتظر رد العميل",
+    "today": "متابعة اليوم",
+}
+
+def _action_center_item(order, today):
+    status = str(order.get("Status") or "").strip()
+    contact = str(order.get("Contact_Status") or "").strip()
+    next_followup = str(order.get("Next_Followup_Date") or "").strip()
+
+    if status in CLOSED_STATUSES:
+        return None
+
+    if ((contact == CONTACT_AWAITING) or status in (STATUS_CONTACTED, STATUS_NOT_PICKED)) and next_followup and next_followup < today:
+        hint = "موعد المتابعة تجاوز اليوم"
+        try:
+            due = date.fromisoformat(next_followup)
+            now = date.fromisoformat(today)
+            hint = f"متأخر منذ {max(1, (now - due).days)} يوم"
+        except ValueError:
+            pass
+        return {"action_key":"overdue","priority":0,"next_action":"متابعة عاجلة","action_hint":hint}
+
+    if next_followup == today and (contact == CONTACT_AWAITING or status in (STATUS_CONTACTED, STATUS_NOT_PICKED)):
+        return {"action_key":"today","priority":1,"next_action":"متابعة العميل","action_hint":"موعد المتابعة اليوم"}
+
+    if contact == CONTACT_AWAITING:
+        return {"action_key":"awaiting_reply","priority":2,"next_action":"انتظار رد العميل","action_hint":"الرسالة أُرسلت وننتظر رد العميل"}
+
+    if status == STATUS_PENDING:
+        return {"action_key":"needs_supply","priority":3,"next_action":"متابعة التوفير","action_hint":"يوجد منتج أو أكثر بانتظار التوفر"}
+
+    return None
+
+@app.get("/api/action-center")
+def api_action_center():
+    orders = db.get_all_orders()
+    today = today_str()
+    grouped = {key: [] for key in ACTION_CENTER_LABELS}
+    for order in orders:
+        item = _action_center_item(order, today)
+        if not item:
+            continue
+        row = dict(order)
+        row.update(item)
+        grouped[item["action_key"]].append(row)
+
+    for key in grouped:
+        grouped[key].sort(key=lambda x: (
+            int(x.get("priority", 99)),
+            str(x.get("Next_Followup_Date") or "9999-99-99"),
+            str(x.get("Created_At") or ""),
+        ))
+
+    flat = []
+    for key in ("overdue", "today", "awaiting_reply", "needs_supply"):
+        flat.extend(grouped[key])
+
+    return jsonify({
+        "summary": {key: len(grouped[key]) for key in ACTION_CENTER_LABELS},
+        "total_actionable": len(flat),
+        "items": flat[:50],
+        "updated_at": datetime.now(ZoneInfo("Asia/Riyadh")).strftime("%Y-%m-%d %H:%M:%S"),
+    })
+
 @app.get("/api/dashboard")
 def api_dashboard():
     orders=db.get_all_orders(); today=today_str()
