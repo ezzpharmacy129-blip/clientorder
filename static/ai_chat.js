@@ -13,8 +13,7 @@
     yes.onclick=async()=>{
       yes.disabled=true;no.disabled=true;text.textContent="جاري تنفيذ العملية...";
       try{
-        const r=await fetch("/api/ai/execute",{method:"POST",headers:{"Content-Type":"application/json","X-CSRF-Token":document.querySelector('meta[name="csrf-token"]')?.content||""},credentials:"same-origin",body:JSON.stringify({confirmation_token:d.confirmation_token})});
-        const x=await r.json();if(!r.ok)throw new Error(x.error||"تعذر تنفيذ العملية");
+        const x=await window.apiFetch("/api/ai/execute",{method:"POST",body:JSON.stringify({confirmation_token:d.confirmation_token})});
         text.textContent=x.answer||"تم تنفيذ العملية بنجاح ✅";
       }catch(e){text.textContent=e.message}
     };
@@ -23,8 +22,7 @@
   function remember(role,content){history.push({role,content});if(history.length>12)history.splice(0,history.length-12)}
   async function ask(q){q=(q||"").trim();if(!q)return;add(q,"user");remember("user",q);input.value="";send.disabled=true;const wait=add("جاري قراءة النظام...","bot");
     try{
-      const r=await fetch("/api/ai/chat",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({message:q,history:history.slice(0,-1),page:location.pathname})});
-      const d=await r.json();if(!r.ok)throw new Error(d.error||"تعذر الاتصال بالمساعد");
+      const d=await window.apiFetch("/api/ai/chat",{method:"POST",body:JSON.stringify({message:q,history:history.slice(0,-1),page:location.pathname})});
       if(d.confirmation_required){wait.remove();add(d.answer||"قبل تنفيذ العملية التالية، يرجى تأكيدها.","bot");addConfirmation(d);remember("assistant",d.answer||"");}
       else {wait.textContent=d.answer||"لم تصل نتيجة.";remember("assistant",d.answer||"");}
     }catch(e){wait.textContent=e.message}
