@@ -32,7 +32,32 @@
 <main class="app-main">
 <section id="view-dashboard" class="view active" data-dashboard-version="2">
   <div class="today-banner"><div class="today-brand-copy"><div class="eyebrow">صيدلية عز الصحة</div><strong>متابعة الطلبات… برعاية من القلب</strong><span>كل طلب في مكانه، وكل عميل له متابعة واضحة.</span></div><div class="today-meta"><div>📅 اليوم: <span id="today-date">--</span></div><div id="today-summary">جارِ التحميل...</div></div></div>
-  <div class="stats-grid" id="stats-grid"></div><section id="dashboard-results-panel" class="panel dashboard-results-panel hidden"><div class="panel-header"><div><h2 id="dashboard-results-title">الطلبات</h2><p id="dashboard-results-subtitle" class="panel-subtitle">اختر بطاقة من الأعلى لعرض الطلبات.</p></div><div class="dashboard-results-actions"><select id="dashboard-contact-filter"><option value="">كل حالات التواصل</option><option value="لم يتم التواصل">لم يتم التواصل</option><option value="بانتظار رد العميل">بانتظار رد العميل</option><option value="العميل موافق">العميل موافق</option><option value="العميل رفض">العميل رفض</option><option value="مؤجل">مؤجل</option></select><input id="dashboard-results-search" placeholder="ابحث داخل النتائج..."><button class="btn btn-secondary btn-sm" id="dashboard-results-close">إغلاق</button></div></div><div class="table-wrap"><table class="orders-table dashboard-orders-table"><thead><tr><th>رقم الطلب</th><th>العميل</th><th>المنتجات</th><th>تاريخ الطلب</th><th>الحالة</th><th>التواصل</th><th>المتابعة</th><th>الإجراء</th></tr></thead><tbody id="dashboard-results-body"></tbody></table></div><div class="table-footer" id="dashboard-results-count"></div></section><div class="panel"><div class="panel-header"><h2>🔴 متابعات اليوم</h2><input id="dashboard-search" placeholder="ابحث بالاسم أو الجوال أو المنتج..."></div><div id="followups-list" class="followups-list"></div></div>
+
+  <section id="action-center" class="action-center panel" aria-labelledby="action-center-title">
+    <div class="action-center-header">
+      <div>
+        <div class="action-center-kicker">⚡ مركز العمل</div>
+        <h2 id="action-center-title">تحتاج إجراء الآن</h2>
+        <p id="action-center-subtitle" class="panel-subtitle">جاري تجهيز قائمة العمل...</p>
+      </div>
+      <button type="button" class="btn btn-secondary btn-sm" id="action-center-refresh">تحديث</button>
+    </div>
+    <div class="action-center-grid">
+      <button type="button" class="action-tile action-overdue" data-action-filter="overdue" aria-pressed="false">
+        <span class="action-tile-icon">🔴</span><strong id="action-count-overdue">0</strong><span>متأخرة</span>
+      </button>
+      <button type="button" class="action-tile action-supply" data-action-filter="needs_supply" aria-pressed="false">
+        <span class="action-tile-icon">📦</span><strong id="action-count-supply">0</strong><span>تحتاج توفير</span>
+      </button>
+      <button type="button" class="action-tile action-reply" data-action-filter="awaiting_reply" aria-pressed="false">
+        <span class="action-tile-icon">🟡</span><strong id="action-count-reply">0</strong><span>تنتظر رد العميل</span>
+      </button>
+      <button type="button" class="action-tile action-today" data-action-filter="today" aria-pressed="false">
+        <span class="action-tile-icon">🔵</span><strong id="action-count-today">0</strong><span>متابعة اليوم</span>
+      </button>
+    </div>
+    <div id="action-center-list" class="action-center-list"></div>
+  </section>  <div class="stats-grid" id="stats-grid"></div><section id="dashboard-results-panel" class="panel dashboard-results-panel hidden"><div class="panel-header"><div><h2 id="dashboard-results-title">الطلبات</h2><p id="dashboard-results-subtitle" class="panel-subtitle">اختر بطاقة من الأعلى لعرض الطلبات.</p></div><div class="dashboard-results-actions"><select id="dashboard-contact-filter"><option value="">كل حالات التواصل</option><option value="لم يتم التواصل">لم يتم التواصل</option><option value="بانتظار رد العميل">بانتظار رد العميل</option><option value="العميل موافق">العميل موافق</option><option value="العميل رفض">العميل رفض</option><option value="مؤجل">مؤجل</option></select><input id="dashboard-results-search" placeholder="ابحث داخل النتائج..."><button class="btn btn-secondary btn-sm" id="dashboard-results-close">إغلاق</button></div></div><div class="table-wrap"><table class="orders-table dashboard-orders-table"><thead><tr><th>رقم الطلب</th><th>العميل</th><th>المنتجات</th><th>تاريخ الطلب</th><th>الحالة</th><th>التواصل</th><th>المتابعة</th><th>الإجراء</th></tr></thead><tbody id="dashboard-results-body"></tbody></table></div><div class="table-footer" id="dashboard-results-count"></div></section><div class="panel"><div class="panel-header"><h2>🔴 متابعات اليوم</h2><input id="dashboard-search" placeholder="ابحث بالاسم أو الجوال أو المنتج..."></div><div id="followups-list" class="followups-list"></div></div>
 </section>
 <section id="view-shortages" class="view shortages-page">
   <div class="panel daily-shortages-panel">
