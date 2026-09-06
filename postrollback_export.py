@@ -18,12 +18,8 @@ def _sheet(ws, headers, rows):
 def install_postrollback_export(app):
     if "export_postrollback" in app.view_functions: return
 
-    # This is the single startup integration point called by app.py.
-    # It enables PostgreSQL authentication and the central server-side
-    # authorization policy before the first request is served.
-    from production_security_bootstrap import install_production_security
-    install_production_security(app)
-
+    # Startup security is installed once by gunicorn.conf.py in post-fork startup.
+    # Keep this exporter focused on registering the export route and its feature APIs.
     @app.get("/api/data/export-postrollback", endpoint="export_postrollback")
     def export_postrollback():
         if not session.get("authenticated") and not session.get("user_id"):
