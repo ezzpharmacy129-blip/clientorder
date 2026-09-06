@@ -31,18 +31,27 @@ jobs:
           from pathlib import Path
           source=Path('cloud_db.py').read_text(encoding='utf-8')
           tree=ast.parse(source)
-          undo=next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name=='undo_last')
-          sql=[]
-          for n in ast.walk(undo):
-              if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr=='execute' and n.args and isinstance(n.args[0],ast.Constant) and isinstance(n.args[0].value,str):
-                  sql.append(n.args[0].value.upper())
-          assert 'DELETE FROM ORDER_ITEMS WHERE ORDER_ID=%S' not in sql
-          assert 'UPDATE ORDER_ITEMS SET PRODUCT_NAME=%S,QUANTITY=%S,IMAGE_PATH=' in sql
-          assert any(s.startswith('DELETE FROM ORDER_ITEMS WHERE ITEM_ID=%S AND ORDER_ID=%S') for s in sql)
+          def method(name):
+              return next(n for n in ast.walk(tree) if isinstance(n,ast.FunctionDef) and n.name==name)
+          def sql_literals(node):
+              out=[]
+              for n in ast.walk(node):
+                  if isinstance(n,ast.Call) and isinstance(n.func,ast.Attribute) and n.func.attr=='execute' and n.args and isinstance(n.args[0],ast.Constant) and isinstance(n.args[0].value,str):
+                      out.append(n.args[0].value.upper())
+              return out
+          undo_sql=sql_literals(method('undo_last'))
+          update_source=ast.get_source_segment(source, method('update_order')) or ''
+          image_add_source=ast.get_source_segment(source, method('set_item_image')) or ''
+          image_del_source=ast.get_source_segment(source, method('delete_item_image')) or ''
+          assert not any(s.startswith('DELETE FROM ORDER_ITEMS WHERE ORDER_ID=') for s in undo_sql), 'undo_last must not delete all order_items'
+          assert any(s.startswith('UPDATE ORDER_ITEMS SET PRODUCT_NAME=%S,QUANTITY=%S,IMAGE_PATH=') for s in undo_sql), 'undo_last must reconcile existing items by update'
+          assert any(s.startswith('DELETE FROM ORDER_ITEMS WHERE ITEM_ID=%S AND ORDER_ID=%S') for s in undo_sql), 'undo_last must only delete items absent from snapshot'
           assert 'CREATE TABLE IF NOT EXISTS undo_item_images' in source
-          assert 'image_item_ids=overlap' in source
-          assert "'إضافة صورة للمنتج'" in source
-          assert "'حذف صورة المنتج'" in source
+          assert 'image_item_ids=overlap' in update_source
+          assert "self._add_undo(conn, order_id, 'إضافة صورة للمنتج'" in image_add_source
+          assert "self._add_undo(conn, order_id, 'حذف صورة المنتج'" in image_del_source
+          assert 'snapshot=self._snapshot(conn, order_id)' in image_add_source
+          assert 'snapshot=self._snapshot(conn, order_id)' in image_del_source
           print('P0.2 SOURCE GUARDS: PASS')
           PY
       - name: P0.1 and P0.2 regression tests
