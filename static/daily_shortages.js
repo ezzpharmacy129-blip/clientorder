@@ -61,7 +61,7 @@
       product: value(row, "product_name", "Product_Name") || "—",
       quantity: Number(value(row, "quantity", "Quantity")) || 1,
       date: value(row, "order_date", "Order_Date", "created_at", "Created_At") || "",
-      status: value(row, "status", "Status") || "بانتظار التوفير"
+      status: value(row, "status", "Status") || "بانتظار التوفر"
     }));
   }
 
@@ -76,7 +76,7 @@
       quantity: Number(value(item, "quantity", "Quantity")) || 1,
       date: value(item, "created_at", "Created_At") || "",
       statusKey: String(value(item, "status", "Status") || "pending").toLowerCase() === "available" ? "available" : "pending",
-      status: String(value(item, "status", "Status") || "pending").toLowerCase() === "available" ? "تم التوفير" : "بانتظار التوفير",
+      status: String(value(item, "status", "Status") || "pending").toLowerCase() === "available" ? "تم التوفير" : "بانتظار التوفر",
       note: value(item, "note", "Note") || "",
       createdBy: value(item, "created_by", "Created_By") || "موظف"
     }));
@@ -164,7 +164,7 @@
     body.innerHTML = rows.map(row => {
       const status = row.type === "pharmacy"
         ? `<span class="status-badge ${row.status === "تم التوفير" ? "status-picked" : "status-pending"}">${esc(row.status)}</span>`
-        : `<span class="status-badge status-pending">بانتظار التوفير</span>`;
+        : `<span class="status-badge status-pending">بانتظار التوفر</span>`;
       const action = row.type === "pharmacy" ? pharmacyAction(row) : customerAction(row);
 
       if (state.filter === "pharmacy" || state.filter === "pharmacy_available") {
