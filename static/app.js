@@ -71,15 +71,8 @@ const statCards=[
 let dashboardAllOrders=[],dashboardFilterKey=null;
 function dashboardFilterLabel(key){return statCards.find(x=>x[2]===key)?.[1]||'الطلبات'}
 function dashboardFilterOrders(orders,key){
-  const today=todayISO();
-  if(key==='all') return orders;
-  if(key==='pending') return orders.filter(o=>o.Status==='بانتظار التوفر');
-  if(key==='available') return orders.filter(o=>['متوفر - يحتاج اتصال','متوفر جزئيًا - يحتاج اتصال','غير متوفر - يحتاج اتصال'].includes(o.Status) && (o.Contact_Status==='لم يتم التواصل' || !o.Contact_Status));
-  if(key==='awaiting_reply') return orders.filter(o=>o.Contact_Status==='بانتظار رد العميل');
-  if(key==='pickup_pending') return orders.filter(o=>['تم التواصل - بانتظار الاستلام','لم يستلم'].includes(o.Status));
-  if(key==='picked_up') return orders.filter(o=>o.Status==='تم الاستلام');
-  if(key==='today_followup') return orders.filter(o=>((['متوفر - يحتاج اتصال','متوفر جزئيًا - يحتاج اتصال','غير متوفر - يحتاج اتصال'].includes(o.Status) && (o.Contact_Status==='لم يتم التواصل' || !o.Contact_Status)) || o.Contact_Status==='بانتظار رد العميل' || ['تم التواصل - بانتظار الاستلام','لم يستلم'].includes(o.Status)) && String(o.Next_Followup_Date||'')===today);
-  if(key==='overdue') return orders.filter(o=>((o.Contact_Status==='بانتظار رد العميل') || ['تم التواصل - بانتظار الاستلام','لم يستلم'].includes(o.Status)) && String(o.Next_Followup_Date||'') && String(o.Next_Followup_Date)<today);
+  const serverFilters=window.dashboardStats?.dashboard_filters;
+  if(serverFilters && Array.isArray(serverFilters[key])) return serverFilters[key];
   return orders;
 }
 function renderDashboardCards(stats){
