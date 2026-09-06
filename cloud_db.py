@@ -20,6 +20,7 @@ from openpyxl import Workbook, load_workbook
 import psycopg
 from psycopg.rows import dict_row
 
+from workflow_policy import validate_pickup, validate_not_picked
 from db import (
     ALL_CONTACT_STATUSES, ALL_STATUSES, CLOSED_STATUSES,
     CONTACT_ACCEPTED, CONTACT_AWAITING, CONTACT_NOT_CONTACTED, CONTACT_POSTPONED, CONTACT_REJECTED,
@@ -380,6 +381,10 @@ class CloudDB:
             snapshot = self._snapshot(conn, order_id)
             self._invalidate_undo(conn, order_id)
             updates = dict(fields or {})
+            if "Status" in updates:
+                raise ValueError("تغيير حالة الطلب مباشرة غير مسموح. استخدم إجراء الحالة المناسب حتى يتم التحقق من قواعد سير الطلب.")
+            if "Contact_Status" in updates:
+                raise ValueError("تغيير حالة التواصل مباشرة غير مسموح. استخدم إجراء حالة التواصل المناسب.")
             if products is not None:
                 clean_products = []
                 for p in products:
@@ -466,7 +471,7 @@ class CloudDB:
                 conn.execute(f"UPDATE orders SET {', '.join(sets)} WHERE order_id=%s", params)
             new_status = fields.get('Status', old)
             self._log(conn, order_id, name, old, new_status, note, user)
-            if name in {'تسجيل توفر الطلب','تم الاتصال بالعميل','تأجيل المتابعة','تسليم الطلب للعميل','إلغاء الطلب'}:
+            if name in {'تسجيل توفر الطلب','تم الاتصال بالعميل','تأجيل المتابعة','تسليم الطلب للعميل','العميل لم يستلم الطلب','إلغاء الطلب'}:
                 self._add_undo(conn, order_id, name, snapshot, user)
             return {'order': self._refresh_order_in_conn(conn, order_id)}
 
@@ -610,10 +615,37 @@ class CloudDB:
 
     def mark_pickup(self, order_id, force=False, user='موظف'):
         order=self.get_order(order_id)
-        if not order: return {'error':'الطلب غير موجود','code':404}
-        if order['Status'] in CLOSED_STATUSES and not force:
-            return {'error':'هذا الطلب مغلق بالفعل. أكّد العملية للمتابعة.','code':409,'needs_confirmation':True}
-        return self._action(order_id,'تسليم الطلب للعميل',None,{'Status':STATUS_PICKED_UP,'Pickup_Date':now_str(),'Next_Followup_Date':''},'استلم العميل الطلب',user)
+        if not order:
+            return {'error':'الطلب غير موجود','code':404}
+        items=order.get('Items') or []
+        error=validate_pickup(order, items)
+        if error:
+            return {'error':error,'code':409}
+        return self._action(
+            order_id,
+            'تسليم الطلب للعميل',
+            {STATUS_CONTACTED, STATUS_NOT_PICKED},
+            {'Status':STATUS_PICKED_UP,'Pickup_Date':now_str(),'Next_Followup_Date':''},
+            'استلم العميل الطلب',
+            user,
+        )
+
+    def mark_not_picked(self, order_id, user='موظف'):
+        order=self.get_order(order_id)
+        if not order:
+            return {'error':'الطلب غير موجود','code':404}
+        items=order.get('Items') or []
+        error=validate_not_picked(order, items)
+        if error:
+            return {'error':error,'code':409}
+        return self._action(
+            order_id,
+            'العميل لم يستلم الطلب',
+            {STATUS_PICKED_UP},
+            {'Status':STATUS_NOT_PICKED,'Pickup_Date':'','Contact_Status':CONTACT_AWAITING,'Next_Followup_Date':add_days(today_str(),1)},
+            'تم تصحيح حالة الاستلام: العميل لم يستلم الطلب',
+            user,
+        )
 
     def postpone(self, order_id, days=None, custom_date=None, user='موظف'):
         nxt=custom_date or add_days(today_str(),days or 1)
