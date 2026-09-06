@@ -131,7 +131,7 @@
           ? state.customerRows.length
           : state.customerRows.length + state.pharmacyRows.length;
 
-    title.textContent = "📦 " + labels[state.filter];
+    title.textContent = state.filter === "all" ? "النواقص" : "📦 " + labels[state.filter];
     subtitle.textContent =
       state.filter === "all"
         ? "جميع النواقص الحالية في مكان واحد."
@@ -151,6 +151,11 @@
       state.filter === "pharmacy" && state.limit !== "all"
         ? "عرض " + rows.length + " من أصل " + total + " نقص"
         : "عدد النتائج: " + rows.length;
+
+    const pharmacyCount = document.getElementById("pharmacy-shortages-tab-count");
+    const customerCount = document.getElementById("customer-shortages-tab-count");
+    if (pharmacyCount) pharmacyCount.textContent = state.pharmacyRows.length;
+    if (customerCount) customerCount.textContent = state.customerRows.length;
 
     syncFilterButtons();
 
