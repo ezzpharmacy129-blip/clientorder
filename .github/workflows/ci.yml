@@ -37,6 +37,8 @@ jobs:
         run: python -m unittest -v tests/test_p0_6_audit_traceability.py
       - name: Run P1.1 Orders Core contract tests
         run: python -m unittest -v tests/test_p1_1_orders_core_contract.py
+      - name: Run P1.3 dashboard source tests
+        run: python -m unittest -v tests/test_p1_3_dashboard_source.py
       - name: Run workflow policy tests
         run: python -m unittest -v tests/test_workflow_policy.py
       - name: Verify P0 authorization files
