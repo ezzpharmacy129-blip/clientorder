@@ -208,7 +208,7 @@ function renumberProducts(){document.querySelectorAll(".product-row").forEach((r
 function updateProductTotals(){const rows=[...document.querySelectorAll(".product-row")];document.getElementById("products-count").textContent=rows.length;document.getElementById("products-total").textContent=rows.reduce((n,r)=>n+(parseInt(r.querySelector(".product-qty").value)||0),0)}
 function productsPayload(){return [...document.querySelectorAll(".product-row")].map(r=>({product_name:r.querySelector(".product-name").value.trim(),quantity:parseInt(r.querySelector(".product-qty").value)||0}))}
 async function uploadOrderImages(order,files){let uploaded=0,failed=0;for(let i=0;i<files.length;i++){const file=files[i];if(!file)continue;const item=order.Items?.[i];if(!item?.Item_ID){failed++;continue}const fd=new FormData();fd.append('image',file);try{await apiFetch(`/api/orders/${order.Order_ID}/items/${item.Item_ID}/image`,{method:'POST',body:fd});uploaded++}catch(e){failed++;toast(`تعذر حفظ صورة المنتج رقم ${i+1}: ${e.message}`,'error')}}return {uploaded,failed}}
-function waUrl(phone,message){const p=String(phone||'').replace(/\D/g,'');return `whatsapp://send?phone=${p}&text=${encodeURIComponent(message)}`}
+
 let shortageOrders=[];
 function buildShortageMessage(selected,mode='orders'){
   const orders=selected||[]; const pharmacy='صيدلية عز الصحة';
