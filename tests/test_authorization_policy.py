@@ -15,10 +15,13 @@ class AuthorizationPolicyTests(unittest.TestCase):
             ("POST", "/api/backups/restore"),
             ("POST", "/api/import-data"),
             ("PUT", "/api/message-templates"),
-            ("POST", "/api/message-templates/reset"),
             ("DELETE", "/api/orders/ORD-1"),
         ]:
             self.assertTrue(is_admin_required(path, method))
+
+    def test_message_templates_remain_available_to_employees(self):
+        self.assertFalse(is_admin_required("/api/message-templates", "PUT"))
+        self.assertFalse(is_admin_required("/api/message-templates/reset", "POST"))
 
     def test_normal_employee_operations_are_not_admin_only(self):
         for method, path in [
