@@ -1,10 +1,24 @@
 # Gunicorn configuration for Render.
-# Register the existing PostgreSQL export module after the worker loads app.
+# PostgreSQL authentication, authorization and CSRF are initialized before workers serve requests.
 
 bind = "0.0.0.0:10000"
 workers = 1
 threads = 4
 timeout = 120
+
+
+def on_starting(server):
+    from app import app
+    from db import db
+    if db.__class__.__module__ != "cloud_db":
+        raise RuntimeError("Render production requires the CloudDB/PostgreSQL backend")
+    from auth_pg import install_auth
+    install_auth(app, db)
+    from authorization_policy import install_authorization
+    install_authorization(app)
+    from auth_security_extensions import install_security_extensions
+    install_security_extensions(app, db)
+    server.log.info("Ezz Pharmacy production authentication and authorization initialized")
 
 
 def post_worker_init(worker):
