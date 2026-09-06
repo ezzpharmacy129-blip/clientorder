@@ -17,6 +17,13 @@ def _sheet(ws, headers, rows):
 
 def install_postrollback_export(app):
     if "export_postrollback" in app.view_functions: return
+
+    # This is the single startup integration point called by app.py.
+    # It enables PostgreSQL authentication and the central server-side
+    # authorization policy before the first request is served.
+    from production_security_bootstrap import install_production_security
+    install_production_security(app)
+
     @app.get("/api/data/export-postrollback", endpoint="export_postrollback")
     def export_postrollback():
         if not session.get("authenticated") and not session.get("user_id"):
@@ -98,4 +105,5 @@ def install_postrollback_export(app):
             return jsonify({"customer":customer})
         except ValueError as exc:return jsonify({"error":str(exc)}),400
         except Exception as exc:
-            app.logger.exception("VIP customer status update failed"); return jsonify({"error":f"تعذر تحديث حالة العرض: {exc}"}),500
+            app.logger.exception("VIP customer status failed")
+            return jsonify({"error":f"تعذر تحديث حالة العرض: {exc}"}),500
