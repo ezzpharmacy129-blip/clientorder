@@ -55,7 +55,9 @@ function renderDashboardCards(stats){
   const wrap=document.getElementById('stats-grid');
   wrap.innerHTML=statCards.map(([k,l,key])=>{
     const active=dashboardFilterKey===key?' active':'';
-    return `<button type="button" class="stat-card${active}" data-dashboard-filter="${key}" aria-pressed="${dashboardFilterKey===key}"><div class="stat-value">${stats[k]??0}</div><div class="stat-label">${l}</div><span class="stat-hint">اضغط لعرض الطلبات</span></button>`;
+    const criticalMap={overdue:'overdue',awaiting_reply:'waiting'};
+    const statusAttr=criticalMap[key]?` data-status="${criticalMap[key]}"`:'';
+    return `<button type="button" class="stat-card${active}"${statusAttr} data-dashboard-filter="${key}" aria-pressed="${dashboardFilterKey===key}"><div class="stat-value">${stats[k]??0}</div><div class="stat-label">${l}</div><span class="stat-hint">اضغط لعرض الطلبات</span></button>`;
   }).join('');
   wrap.querySelectorAll('[data-dashboard-filter]').forEach(b=>b.onclick=()=>toggleDashboardFilter(b.dataset.dashboardFilter));
 }
