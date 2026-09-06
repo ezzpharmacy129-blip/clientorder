@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="preconnect" href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap">
 <link rel="stylesheet" href="{{ url_for('static', filename='style.min.css') }}?v=20260906-ui2">
-<link rel="stylesheet" href="{{ url_for('static', filename='daily_shortages.css') }}?v=20260906-shortages-ui-v4">
+<link rel="stylesheet" href="{{ url_for('static', filename='daily_shortages.css') }}?v=20260906-shortages-ui-v5">
 <link rel="stylesheet" href="{{ url_for('static', filename='ai_chat.css') }}?v=20260905-ai">
 </head>
 <body>
@@ -52,7 +52,13 @@
             <option value="all">الكل</option>
           </select>
         </div>
-        <button type="button" class="btn btn-primary btn-sm" id="send-shortages-btn">📤 إرسال النواقص</button>
+
+        <div class="shortages-send-actions" aria-label="إرسال النواقص">
+          <button type="button" class="btn btn-secondary btn-sm shortage-send-btn" data-send-shortages="pharmacy">📦 إرسال نواقص الصيدلية</button>
+          <button type="button" class="btn btn-secondary btn-sm shortage-send-btn" data-send-shortages="customer">👥 إرسال طلبات العملاء</button>
+          <button type="button" class="btn btn-primary btn-sm shortage-send-btn" data-send-shortages="all">📤 إرسال الكل</button>
+        </div>
+
         <button type="button" class="btn btn-primary btn-sm" id="add-pharmacy-shortage-btn">+ إضافة نقص صيدلية</button>
         <button type="button" class="btn btn-secondary btn-sm" id="refresh-daily-shortages-btn">تحديث</button>
       </div>
