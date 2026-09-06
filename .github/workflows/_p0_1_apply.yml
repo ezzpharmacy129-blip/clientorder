@@ -1,26 +1,29 @@
 name: P0.1 temporary patch runner
 
 on:
-  push:
-    branches: [p0-1-data-safe-item-update]
+  pull_request:
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: write
 
 jobs:
   patch-and-test:
+    if: github.event.pull_request.head.ref == 'p0-1-data-safe-item-update' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    if: github.event.head_commit.message != 'feat: close P0.1 data-safe item updates'
     steps:
-      - name: Checkout
+      - name: Checkout branch head
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.14"
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
-      - name: Apply fail-closed P0.1 patch
+      - name: Apply fail-closed P0.1 patch when needed
         shell: bash
         run: |
           python - <<'PY'
@@ -29,6 +32,12 @@ jobs:
           cloud_path = Path('cloud_db.py')
           app_path = Path('app.py')
           text = cloud_path.read_text(encoding='utf-8')
+          app = app_path.read_text(encoding='utf-8')
+
+          if "deleted_item_ids=deleted_item_ids" in app and "UPDATE order_items SET product_name=%s,quantity=%s" in text:
+              print('P0.1 patch already present; no mutation required.')
+              raise SystemExit(0)
+
           old_sig = "    def update_order(self, order_id, fields, products=None, user='موظف'):\n"
           new_sig = "    def update_order(self, order_id, fields, products=None, user='موظف', deleted_item_ids=None):\n"
           if text.count(old_sig) != 1:
@@ -43,7 +52,6 @@ jobs:
           text = text.replace(old_block, new_block, 1)
           cloud_path.write_text(text, encoding='utf-8')
 
-          app = app_path.read_text(encoding='utf-8')
           old_call = "    try: order=db.update_order(order_id,fields,products,_current_actor_name())\n"
           new_call = "    deleted_item_ids = data.get(\"deleted_item_ids\") or []\n    if not isinstance(deleted_item_ids, list):\n        return jsonify({\"error\":\"deleted_item_ids يجب أن تكون قائمة\"}),400\n    try: order=db.update_order(order_id,fields,products,_current_actor_name(),deleted_item_ids=deleted_item_ids)\n"
           if app.count(old_call) != 1:
@@ -55,7 +63,8 @@ jobs:
       - name: Add P0.1 regression tests
         shell: bash
         run: |
-          cat > tests/test_p0_item_update.py <<'PY'
+          if [ ! -f tests/test_p0_item_update.py ]; then
+            cat > tests/test_p0_item_update.py <<'PY'
           import ast
           import unittest
           from pathlib import Path
@@ -66,20 +75,10 @@ jobs:
               def test_update_order_no_longer_deletes_all_items(self):
                   source = (ROOT / 'cloud_db.py').read_text(encoding='utf-8')
                   tree = ast.parse(source)
-                  method = next(
-                      node for node in ast.walk(tree)
-                      if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-                      and node.name == 'update_order'
-                  )
-                  calls = [
-                      node for node in ast.walk(method)
-                      if isinstance(node, ast.Call)
-                      and isinstance(node.func, ast.Attribute)
-                      and node.func.attr == 'execute'
-                  ]
+                  method = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == 'update_order')
                   sql_literals = []
-                  for call in calls:
-                      if not call.args:
+                  for call in ast.walk(method):
+                      if not isinstance(call, ast.Call) or not isinstance(call.func, ast.Attribute) or call.func.attr != 'execute' or not call.args:
                           continue
                       arg = call.args[0]
                       if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
@@ -101,24 +100,25 @@ jobs:
           if __name__ == '__main__':
               unittest.main()
           PY
+          fi
 
-      - name: Static checks
+      - name: Static and regression checks
         run: |
-          python -m compileall -q app.py db.py cloud_db.py
+          python -m compileall -q app.py db.py cloud_db.py tests/test_p0_item_update.py
           node --check static/app.js
           python -m unittest -v tests/test_p0_item_update.py
-
-      - name: Inspect diff
-        run: |
           git diff --check
-          git diff -- cloud_db.py app.py tests/test_p0_item_update.py
 
       - name: Commit verified P0.1 change and remove temporary runner
         shell: bash
         run: |
+          if git diff --quiet -- cloud_db.py app.py tests/test_p0_item_update.py; then
+            echo "No P0.1 code changes to commit."
+            exit 0
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           rm -f .github/workflows/_p0_1_apply.yml
           git add cloud_db.py app.py tests/test_p0_item_update.py .github/workflows/_p0_1_apply.yml
           git commit -m "feat: close P0.1 data-safe item updates"
-          git push
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
