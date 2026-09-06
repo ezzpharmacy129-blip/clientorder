@@ -373,7 +373,7 @@ class CloudDB:
             self._log(conn, oid, 'إنشاء الطلب', '', STATUS_PENDING, f'تم تسجيل {len(clean_products)} منتج في الطلب', user)
         return self.get_order(oid)
 
-    def update_order(self, order_id, fields, products=None, user='موظف'):
+    def update_order(self, order_id, fields, products=None, user='موظف', deleted_item_ids=None):
         with self._connect() as conn:
             current = self._fetch_order(conn, order_id)
             if not current:
@@ -386,22 +386,64 @@ class CloudDB:
             if "Contact_Status" in updates:
                 raise ValueError("تغيير حالة التواصل مباشرة غير مسموح. استخدم إجراء حالة التواصل المناسب.")
             if products is not None:
-                clean_products = []
-                for p in products:
-                    try: qty = int(p.get('quantity', 0))
-                    except (TypeError, ValueError): qty = 0
-                    name = str(p.get('product_name', '')).strip()
-                    if name and qty > 0:
-                        clean_products.append({'product_name': name, 'quantity': qty})
-                if not clean_products:
-                    raise ValueError('يجب إضافة منتج واحد على الأقل')
-                updates['Product_Name'] = '، '.join(f"{p['product_name']} × {p['quantity']}" for p in clean_products)
-                updates['Quantity'] = sum(p['quantity'] for p in clean_products)
-                conn.execute('DELETE FROM order_items WHERE order_id=%s', (str(order_id),))
+                existing_items = self._fetch_items(conn, order_id)
+                existing_by_id = {str(item['Item_ID']): item for item in existing_items}
+                deleted_ids = {str(x).strip() for x in (deleted_item_ids or []) if str(x).strip()}
+                overlap = deleted_ids.intersection(existing_by_id)
+                unknown_deleted = deleted_ids.difference(existing_by_id)
+                if unknown_deleted:
+                    raise ValueError(f"لا يمكن حذف منتجات غير موجودة في الطلب: {', '.join(sorted(unknown_deleted))}")
+
+                resolved = []
+                seen_ids = set()
+                new_count = 0
+                for index, p in enumerate(products, 1):
+                    p = p or {}
+                    name = str(p.get('product_name') or '').strip()
+                    try:
+                        qty = int(p.get('quantity', 0))
+                    except (TypeError, ValueError):
+                        qty = 0
+                    if not name:
+                        raise ValueError(f"اسم المنتج رقم {index} مطلوب")
+                    if qty <= 0:
+                        raise ValueError(f"كمية المنتج رقم {index} يجب أن تكون أكبر من صفر")
+
+                    item_id = str(p.get('item_id') or p.get('Item_ID') or '').strip()
+                    if item_id:
+                        if item_id not in existing_by_id:
+                            raise ValueError(f"Item_ID غير موجود في هذا الطلب: {item_id}")
+                        if item_id in seen_ids:
+                            raise ValueError(f"تم تكرار Item_ID في المنتجات: {item_id}")
+                        if item_id in overlap:
+                            raise ValueError(f"لا يمكن تعديل وحذف نفس المنتج: {item_id}")
+                        seen_ids.add(item_id)
+                        resolved.append({'item_id': item_id, 'product_name': name, 'quantity': qty, 'is_new': False})
+                    else:
+                        new_count += 1
+                        resolved.append({'item_id': None, 'product_name': name, 'quantity': qty, 'is_new': True})
+
+                final_count = len(existing_items) - len(overlap) + new_count
+                if final_count <= 0:
+                    raise ValueError('لا يمكن حفظ الطلب بدون أي منتج. أضف منتجًا أو ألغِ حذف المنتج.')
+
                 ts = now_str()
-                for p in clean_products:
-                    conn.execute('INSERT INTO order_items(item_id,order_id,product_name,quantity,image_path,availability_status,available_price,discounted_price,unavailable_reason,availability_note,price_confirmation_required,available_at,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
-                                 (self._next_item_id(conn), str(order_id), p['product_name'], p['quantity'], '', 'بانتظار التوفر', '', '', '', '', '', '', ts))
+                for item in resolved:
+                    if item['is_new']:
+                        conn.execute('INSERT INTO order_items(item_id,order_id,product_name,quantity,image_path,availability_status,available_price,discounted_price,unavailable_reason,availability_note,price_confirmation_required,available_at,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+                                     (self._next_item_id(conn), str(order_id), item['product_name'], item['quantity'], '', 'بانتظار التوفر', '', '', '', '', '', '', ts))
+                    else:
+                        conn.execute('UPDATE order_items SET product_name=%s,quantity=%s WHERE item_id=%s AND order_id=%s',
+                                     (item['product_name'], item['quantity'], item['item_id'], str(order_id)))
+
+                for item_id in sorted(overlap):
+                    conn.execute('DELETE FROM order_items WHERE item_id=%s AND order_id=%s', (item_id, str(order_id)))
+
+                fresh_items = self._fetch_items(conn, order_id)
+                if not fresh_items:
+                    raise ValueError('لا يمكن حفظ الطلب بدون أي منتج')
+                updates['Product_Name'] = '، '.join(f"{i['Product_Name']} × {i['Quantity']}" for i in fresh_items)
+                updates['Quantity'] = sum(int(i.get('Quantity') or 0) for i in fresh_items)
             col_map = {
                 'Customer_Name':'customer_name','Phone':'phone','Notes':'notes','Order_Date':'order_date','Status':'status',
                 'Available_Date':'available_date','Contact_Status':'contact_status','Last_Contact_Date':'last_contact_date',
