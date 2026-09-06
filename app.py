@@ -279,6 +279,9 @@ def api_contact_status(order_id):
 @app.post("/api/orders/<order_id>/pickup")
 def api_pickup(order_id): return result_response(db.mark_pickup(order_id,bool((request.get_json(silent=True) or {}).get("force"))))
 
+@app.post("/api/orders/<order_id>/not-picked")
+def api_not_picked(order_id): return result_response(db.mark_not_picked(order_id))
+
 @app.post("/api/orders/<order_id>/postpone")
 def api_postpone(order_id):
     data=request.get_json(silent=True) or {}; days=data.get("days"); custom=data.get("custom_date")
