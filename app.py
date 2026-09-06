@@ -527,10 +527,7 @@ def _customer_shortage_items(order):
     if pending_items:
         return pending_items
 
-    if str(order.get("Status") or "").strip() == STATUS_PENDING:
-        return active_items
-
-    # Legacy order records can have no item rows at all.
+    # Legacy order records may have no item rows at all.
     if not items and str(order.get("Status") or "").strip() == STATUS_PENDING:
         return [{
             "Item_ID": "",
@@ -539,6 +536,11 @@ def _customer_shortage_items(order):
             "Availability_Status": STATUS_PENDING,
             "Customer_Decision": "",
         }]
+
+    # If the order itself is still pending but item-level statuses are stale,
+    # treat all non-rejected items as customer shortages.
+    if str(order.get("Status") or "").strip() == STATUS_PENDING:
+        return active_items
 
     return []
 
