@@ -7,6 +7,7 @@ backend, all operational data, images, undo history and backups live in
 PostgreSQL, which makes the app safe for multiple devices and ephemeral
 web-server filesystems.
 """
+import base64
 import io
 import json
 import os
@@ -805,12 +806,14 @@ class CloudDB:
         wi=wb.create_sheet('Order_Items'); wi.append(ITEM_HEADERS)
         wl=wb.create_sheet('Activity_Log'); wl.append(LOG_HEADERS)
         wu=wb.create_sheet('Undo_History'); wu.append(UNDO_HEADERS)
+        wui=wb.create_sheet('Undo_Item_Images'); wui.append(['Undo_ID','Item_ID','Image_Path','Filename','Content_Type','Data_Base64','Created_At'])
         wsset=wb.create_sheet('Settings'); wsset.append(SETTINGS_HEADERS)
         with self._connect() as conn:
             order_rows=conn.execute('SELECT * FROM orders ORDER BY created_at').fetchall()
             item_rows=conn.execute('SELECT * FROM order_items ORDER BY created_at,item_id').fetchall()
             log_rows=conn.execute('SELECT * FROM activity_log ORDER BY created_at').fetchall()
             undo_rows=conn.execute('SELECT * FROM undo_history ORDER BY created_at').fetchall()
+            undo_image_rows=conn.execute('SELECT undo_id,item_id,image_path,filename,content_type,data,created_at FROM undo_item_images ORDER BY undo_id,item_id,image_path').fetchall()
             settings=conn.execute('SELECT key,value FROM settings ORDER BY key').fetchall()
         for r in order_rows:
             d=_row_to_order(r); ws.append([d[h] for h in ORDERS_HEADERS])
@@ -820,6 +823,8 @@ class CloudDB:
             wl.append([r['log_id'],r['order_id'],r['action'],r['old_status'],r['new_status'],r['note'],r['created_at'],r['user_name']])
         for r in undo_rows:
             wu.append([r['undo_id'],r['order_id'],r['action'],r['snapshot_json'],r['created_at'],r['undone_at'],r['user_name']])
+        for r in undo_image_rows:
+            wui.append([r['undo_id'],r['item_id'],r['image_path'],r['filename'],r['content_type'],base64.b64encode(bytes(r['data'])).decode('ascii'),r['created_at']])
         for r in settings:
             wsset.append([r['key'],r['value']])
         bio=io.BytesIO(); wb.save(bio); wb.close(); return bio.getvalue()
@@ -884,7 +889,7 @@ class CloudDB:
             images={k[8:]:zf.read(v) for k,v in names.items() if k.startswith('uploads/') and not k.endswith('/')}
         self._replace_from_xlsx(xlsx, images)
 
-    def _validate_import_payload(self, orders, items, logs, undos, settings, images=None):
+    def _validate_import_payload(self, orders, items, logs, undos, settings, images=None, undo_images=None):
         order_ids = set()
         for row in orders:
             oid = str(row.get('Order_ID') or '').strip()
@@ -990,6 +995,36 @@ class CloudDB:
                 raise ValueError(f'تكرار مفتاح Settings في ملف الاستيراد: {key}')
             setting_keys.add(key)
 
+        if undo_images:
+            seen_undo_images = set()
+            undo_id_set = undo_ids
+            item_id_set = item_ids
+            for row in undo_images:
+                uid = str(row.get('Undo_ID') or '').strip()
+                iid = str(row.get('Item_ID') or '').strip()
+                path = str(row.get('Image_Path') or '').replace('\\', '/').lstrip('/')
+                filename = str(row.get('Filename') or '').strip()
+                content_type = str(row.get('Content_Type') or '').strip()
+                token = (uid, iid, path)
+                if token in seen_undo_images:
+                    raise ValueError(f'تكرار صورة Undo: {uid}/{iid}/{path}')
+                if uid not in undo_id_set:
+                    raise ValueError(f'صورة Undo تشير إلى Undo_ID غير موجود: {uid}')
+                if iid not in item_id_set:
+                    raise ValueError(f'صورة Undo تشير إلى Item_ID غير موجود: {iid}')
+                if not path or not filename or not content_type:
+                    raise ValueError(f'بيانات صورة Undo ناقصة: {uid}/{iid}')
+                raw = str(row.get('Data_Base64') or '').strip()
+                try:
+                    data = base64.b64decode(raw, validate=True)
+                except Exception:
+                    raise ValueError(f'Data_Base64 غير صالح لصورة Undo: {uid}/{iid}')
+                if not data:
+                    raise ValueError(f'بيانات صورة Undo فارغة: {uid}/{iid}')
+                if len(data) > MAX_IMAGE_SIZE:
+                    raise ValueError(f'حجم صورة Undo أكبر من 10 ميجابايت: {uid}/{iid}')
+                seen_undo_images.add(token)
+
         if images is None:
             if referenced_images:
                 raise ValueError('ملف Excel يحتوي Image_Path بدون ملف صور مرفق')
@@ -1039,9 +1074,10 @@ class CloudDB:
         logs = self._read_sheet_dicts(wb['Activity_Log']) if 'Activity_Log' in wb.sheetnames else []
         undos = self._read_sheet_dicts(wb['Undo_History']) if 'Undo_History' in wb.sheetnames else []
         settings = self._read_sheet_dicts(wb['Settings']) if 'Settings' in wb.sheetnames else []
+        undo_images = self._read_sheet_dicts(wb['Undo_Item_Images']) if 'Undo_Item_Images' in wb.sheetnames else []
         wb.close()
 
-        self._validate_import_payload(orders, items, logs, undos, settings, images)
+        self._validate_import_payload(orders, items, logs, undos, settings, images, undo_images)
 
         with self._connect() as conn:
             conn.execute('TRUNCATE activity_log, undo_item_images, undo_history, item_images, order_items, orders')
@@ -1062,6 +1098,10 @@ class CloudDB:
             for r in undos:
                 conn.execute('INSERT INTO undo_history(undo_id,order_id,action,snapshot_json,created_at,undone_at,user_name) VALUES (%s,%s,%s,%s,%s,%s,%s)',
                              (str(r.get('Undo_ID') or uuid.uuid4().hex),str(r.get('Order_ID') or ''),str(r.get('Action') or ''),str(r.get('Snapshot_JSON') or '{}'),str(r.get('Created_At') or now_str()),str(r.get('Undone_At') or ''),str(r.get('User') or 'موظف')))
+            for r in undo_images:
+                raw = base64.b64decode(str(r.get('Data_Base64') or '').strip(), validate=True)
+                conn.execute('INSERT INTO undo_item_images(undo_id,item_id,image_path,filename,content_type,data,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s)',
+                             (str(r.get('Undo_ID') or ''),str(r.get('Item_ID') or ''),str(r.get('Image_Path') or ''),str(r.get('Filename') or ''),str(r.get('Content_Type') or ''),psycopg.Binary(raw),str(r.get('Created_At') or now_str())))
             for r in settings:
                 k = str(r.get('Key') or '').strip()
                 if k:
