@@ -1,0 +1,64 @@
+name: P0.2 atomic repair and verify
+
+on:
+  push:
+    branches: [p0-2-data-safe-undo]
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Restore known-good P0.2 cloud_db and patch cleanup dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          git show 8eefba4333d7f7962d93b8765e1a542aecf36f9f:cloud_db.py > cloud_db.py
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('cloud_db.py')
+          s=p.read_text(encoding='utf-8')
+          old="TRUNCATE activity_log, undo_history, item_images, order_items, orders"
+          new="TRUNCATE activity_log, undo_item_images, undo_history, item_images, order_items, orders"
+          if s.count(old)!=2:
+              raise SystemExit(f'FAIL CLOSED: expected exactly 2 cleanup statements, found {s.count(old)}')
+          p.write_text(s.replace(old,new),encoding='utf-8')
+          PY
+      - name: Validate source and tests
+        run: |
+          python -m compileall -q app.py db.py cloud_db.py tests/test_p0_item_update.py tests/test_p0_2_undo.py
+          node --check static/app.js
+          python -m unittest -v tests/test_p0_item_update.py tests/test_p0_2_undo.py
+          git diff --check
+          python - <<'PY'
+          from pathlib import Path
+          s=Path('cloud_db.py').read_text(encoding='utf-8')
+          assert s.count('TRUNCATE activity_log, undo_item_images, undo_history, item_images, order_items, orders')==2
+          assert 'CREATE TABLE IF NOT EXISTS undo_item_images' in s
+          assert "image_item_ids=overlap" in s
+          assert "def undo_last" in s
+          u=s[s.index('    def undo_last('):s.index('    def _action(',s.index('    def undo_last('))]
+          assert 'DELETE FROM order_items WHERE order_id=%s' not in u
+          assert 'DELETE FROM order_items WHERE item_id=%s AND order_id=%s' in u
+          assert 'UPDATE order_items SET product_name=%s,quantity=%s,image_path=' in u
+          print('P0.2 FINAL SOURCE CHECKS: PASS')
+          PY
+      - name: Commit repaired P0.2 and remove temporary verifier
+        run: |
+          git rm .github/workflows/p0_2_repair_final.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add cloud_db.py tests/test_p0_2_undo.py .github/workflows/p0_2_repair_final.yml
+          git commit -m 'fix: finalize P0.2 data-safe undo [skip ci]'
+          git push origin HEAD:p0-2-data-safe-undo
