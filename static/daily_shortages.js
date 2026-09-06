@@ -170,8 +170,9 @@
     syncFilterButtons();
 
     if (!rows.length) {
+      const colspan = state.filter === "pharmacy" ? 5 : state.filter === "customer" ? 7 : 9;
       body.innerHTML =
-        '<tr><td colspan="" + (state.filter === "pharmacy" ? "5" : state.filter === "customer" ? "7" : "9") + " class="empty-state">لا توجد نواقص ضمن هذا التصنيف ✅</td></tr>';
+        '<tr><td colspan="' + colspan + '" class="empty-state">لا توجد نواقص ضمن هذا التصنيف ✅</td></tr>';
       return;
     }
 
