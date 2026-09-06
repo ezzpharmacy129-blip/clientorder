@@ -520,7 +520,7 @@ def api_dashboard():
             (o.get("Contact_Status") == CONTACT_AWAITING or o["Status"] in (STATUS_CONTACTED, STATUS_NOT_PICKED))
             and str(o.get("Next_Followup_Date") or "")
             and str(o.get("Next_Followup_Date")) < today
-        ],
+        )],
     }
     return jsonify({
         **stats,
