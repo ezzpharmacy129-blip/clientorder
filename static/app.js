@@ -178,7 +178,7 @@ function renderActionCenter(){
   list.innerHTML=visible.map(function(o){
     const meta=ACTION_CENTER_META[o.action_key]||ACTION_CENTER_META.today;
     const age=actionAge(o);
-    const shortageCount=(o.Items||[]).filter(function(i){return String(i.Availability_Status||"").trim()==="بانتظار التوفر";}).length;
+    const shortageCount=Number(o.shortage_count||0);
     let primary="";
     if(o.action_key==="needs_supply"){
       primary='<button type="button" class="btn btn-primary btn-sm action-availability-btn" data-id="'+esc(o.Order_ID)+'">'+meta.cta+'</button>';
