@@ -662,7 +662,7 @@ class CloudDB:
             conn.execute('DELETE FROM orders WHERE order_id=%s',(str(order_id),))
         return True
 
-    def set_item_image(self, order_id, item_id, source_stream, filename, content_length=None):
+    def set_item_image(self, order_id, item_id, source_stream, filename, content_length=None, user="موظف"):
         ext=os.path.splitext(filename or '')[1].lower()
         if ext not in ALLOWED_IMAGE_EXTS:
             raise ValueError('صيغة الصورة غير مدعومة. استخدم JPG أو PNG أو WEBP')
@@ -681,7 +681,7 @@ class CloudDB:
             conn.execute('INSERT INTO item_images(image_path,order_id,item_id,filename,content_type,data,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s)',
                          (rel,str(order_id),str(item_id),os.path.basename(filename),content_type,psycopg.Binary(data),now_str()))
             conn.execute('UPDATE order_items SET image_path=%s WHERE item_id=%s',(rel,str(item_id)))
-            self._log(conn,order_id,'إضافة صورة للمنتج','','',f"تم إرفاق صورة بالمنتج {item['product_name']}",'موظف')
+            self._log(conn,order_id,'إضافة صورة للمنتج','','',f"تم إرفاق صورة بالمنتج {item['product_name']}",user)
         return rel
 
     def get_uploaded_image(self, path):
@@ -691,14 +691,14 @@ class CloudDB:
         if not row: return None
         return {'data':bytes(row['data']),'content_type':row['content_type'],'filename':row['filename']}
 
-    def delete_item_image(self, order_id, item_id):
+    def delete_item_image(self, order_id, item_id, user="موظف"):
         with self._connect() as conn:
             item=conn.execute('SELECT image_path,product_name FROM order_items WHERE item_id=%s AND order_id=%s',(str(item_id),str(order_id))).fetchone()
             if not item: return False
             if not item['image_path']: return True
             conn.execute('DELETE FROM item_images WHERE image_path=%s',(item['image_path'],))
             conn.execute('UPDATE order_items SET image_path=%s WHERE item_id=%s',('',str(item_id)))
-            self._log(conn,order_id,'حذف صورة المنتج','','',f"تم حذف صورة المنتج {item['product_name']}",'موظف')
+            self._log(conn,order_id,'حذف صورة المنتج','','',f"تم حذف صورة المنتج {item['product_name']}",user)
         return True
 
     def reset_all_data(self, user='موظف'):
