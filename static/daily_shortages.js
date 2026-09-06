@@ -98,7 +98,7 @@
       item.classList.toggle("active", item === activeItem);
     });
 
-    toggle?.classList.toggle("active", true);
+    toggle?.classList.toggle("active", document.getElementById("view-shortages")?.classList.contains("active") === true);
     toggle?.setAttribute("aria-expanded", "false");
     dropdown?.classList.remove("open");
   }
