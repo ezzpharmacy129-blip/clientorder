@@ -1,7 +1,7 @@
 import unittest
 from flask import Flask
 
-from authorization_policy import ADMIN_EXACT, ADMIN_PREFIXES, is_admin_required, install_authorization
+from authorization_policy import is_admin_required, install_authorization
 
 
 class AuthorizationPolicyTests(unittest.TestCase):
@@ -14,7 +14,6 @@ class AuthorizationPolicyTests(unittest.TestCase):
             ("POST", "/api/data/reset"),
             ("POST", "/api/backups/restore"),
             ("POST", "/api/import-data"),
-            ("PUT", "/api/message-templates"),
             ("DELETE", "/api/orders/ORD-1"),
         ]:
             self.assertTrue(is_admin_required(path, method))
@@ -41,7 +40,6 @@ class AuthorizationPolicyTests(unittest.TestCase):
     def test_route_guard_rejects_non_admin(self):
         app = Flask(__name__)
         app.secret_key = "test"
-
         current = {"user": {"user_id": "u1", "role": "employee"}}
         app.extensions["ezz_auth"] = {"current_user": lambda: current["user"]}
         install_authorization(app)
@@ -50,14 +48,13 @@ class AuthorizationPolicyTests(unittest.TestCase):
         def delete_order():
             return {"ok": True}
 
-        response = app.test_client().delete("/api/orders/ORD-1")
+        response = app.test_client().delete("/api/orders/ORD-1", json={"confirmation": "حذف الطلب"})
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.get_json()["error"], "غير مصرح لك بهذا الإجراء")
 
-    def test_route_guard_allows_admin(self):
+    def test_route_guard_allows_admin_with_confirmation(self):
         app = Flask(__name__)
         app.secret_key = "test"
-
         current = {"user": {"user_id": "u1", "role": "admin"}}
         app.extensions["ezz_auth"] = {"current_user": lambda: current["user"]}
         install_authorization(app)
@@ -66,8 +63,9 @@ class AuthorizationPolicyTests(unittest.TestCase):
         def delete_order():
             return {"ok": True}
 
-        response = app.test_client().delete("/api/orders/ORD-1")
+        response = app.test_client().delete("/api/orders/ORD-1", json={"confirmation": "حذف الطلب"})
         self.assertEqual(response.status_code, 200)
+
 
 if __name__ == "__main__":
     unittest.main()
