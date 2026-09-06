@@ -26,9 +26,11 @@
   function normalizeCustomerRows(orders) {
     const rows = [];
     (orders || []).forEach(order => {
-      const pending = (order.Items || []).filter(
-        item => item.Availability_Status === "بانتظار التوفير"
-      );
+      const pending = (order.Items || []).filter(item => {
+        const availability = String(item.Availability_Status || "بانتظار التوفير").trim();
+        const decision = String(item.Customer_Decision || "").trim().toLowerCase();
+        return availability === "بانتظار التوفير" && decision !== "rejected";
+      });
       if (pending.length) {
         pending.forEach(item => rows.push({
           type: "customer",
@@ -40,7 +42,7 @@
           date: order.Order_Date || order.Created_At || "",
           status: "بانتظار التوفير"
         }));
-      } else if (order.Status === "بانتظار التوفير") {
+      } else if (String(order.Status || "").trim() === "بانتظار التوفير") {
         rows.push({
           type: "customer",
           orderId: order.Order_ID || "—",
@@ -334,10 +336,10 @@
     }
   }
 
-  async function sendCurrentShortages() {
+  async function sendShortages(kind) {
     try {
       const result = await callApi(
-        "/api/pharmacy-shortages/whatsapp?kind=" + encodeURIComponent(state.filter)
+        "/api/pharmacy-shortages/whatsapp?kind=" + encodeURIComponent(kind)
       );
 
       try {
@@ -355,8 +357,8 @@
 
       notify(
         "تم تجهيز رسالة " +
-        (state.filter === "pharmacy" ? "نواقص الصيدلية" :
-         state.filter === "customer" ? "طلبات العملاء" : "كل النواقص") +
+        (kind === "pharmacy" ? "نواقص الصيدلية" :
+         kind === "customer" ? "طلبات العملاء" : "كل النواقص") +
         " ونسخها."
       );
     } catch (error) {
@@ -477,7 +479,9 @@
       render();
     });
 
-    document.getElementById("send-shortages-btn")?.addEventListener("click", sendCurrentShortages);
+    document.querySelectorAll("[data-send-shortages]").forEach(button => {
+      button.addEventListener("click", () => sendShortages(button.dataset.sendShortages));
+    });
     document.getElementById("add-pharmacy-shortage-btn")?.addEventListener("click", () => openForm());
     document.getElementById("pharmacy-shortage-close-btn")?.addEventListener("click", closeForm);
     document.getElementById("pharmacy-shortage-cancel-btn")?.addEventListener("click", closeForm);
