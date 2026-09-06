@@ -90,6 +90,18 @@ def validate_order_payload(data, partial=False):
 APP_VERSION = "1.3.1 Cloud"
 
 
+def _current_actor_name():
+    provider = getattr(db, "_auth_user_provider", None)
+    if provider:
+        try:
+            user = provider()
+            if user:
+                return str(user.get("name") or user.get("username") or "موظف")
+        except Exception:
+            pass
+    return str(session.get("username") or "موظف")
+
+
 @app.route("/")
 def index():
     return render_template("index.html", settings=db.get_settings(), app_version=APP_VERSION)
@@ -141,7 +153,7 @@ def api_reset_all_data():
     if confirmation != "حذف كل البيانات":
         return jsonify({"error":"للتأكيد اكتب: حذف كل البيانات"}),400
     try:
-        return jsonify(db.reset_all_data())
+        return jsonify(db.reset_all_data(_current_actor_name()))
     except Exception as e:
         return jsonify({"error":f"تعذر مسح البيانات: {e}"}),500
 
@@ -190,7 +202,7 @@ def api_create_order():
     if errors: return jsonify({"errors":errors}),400
     products,_=validate_products(data)
     try:
-        order=db.create_order(data["customer_name"].strip(), clean_phone(data["phone"]), products, str(data.get("notes") or "").strip(), str(data.get("order_date") or "").strip() or None)
+        order=db.create_order(data["customer_name"].strip(), clean_phone(data["phone"]), products, str(data.get("notes") or "").strip(), str(data.get("order_date") or "").strip() or None, _current_actor_name())
     except Exception as e:
         return jsonify({"error":f"تعذر حفظ الطلب: {e}"}),500
     return jsonify({"order":order}),201
@@ -207,7 +219,7 @@ def api_update_order(order_id):
     if data.get("status") in ALL_STATUSES: fields["Status"]=data["status"]
     products=data.get("products") if "products" in data or "product_name" in data or "quantity" in data else None
     if products is not None and "products" not in data: products=[{"product_name":data.get("product_name"),"quantity":data.get("quantity")}]
-    try: order=db.update_order(order_id,fields,products)
+    try: order=db.update_order(order_id,fields,products,_current_actor_name())
     except ValueError as e:return jsonify({"error":str(e)}),400
     except Exception as e:return jsonify({"error":f"تعذر تعديل الطلب: {e}"}),500
     if order is None:return jsonify({"error":"الطلب غير موجود"}),404
@@ -216,7 +228,7 @@ def api_update_order(order_id):
 @app.route("/api/orders/<order_id>", methods=["DELETE"])
 def api_delete_order(order_id):
     try:
-        ok=db.delete_order(order_id)
+        ok=db.delete_order(order_id,_current_actor_name())
     except Exception as e:
         return jsonify({"error":f"تعذر حذف الطلب: {e}"}),500
     if not ok:return jsonify({"error":"الطلب غير موجود"}),404
@@ -257,42 +269,42 @@ def api_availability(order_id):
     updates=data.get("items") or []
     if not isinstance(updates,list) or not updates:
         return jsonify({"error":"أرسل حالة توفر المنتجات"}),400
-    return result_response(db.set_availability(order_id, updates, data.get("available_date") or None))
+    return result_response(db.set_availability(order_id, updates, data.get("available_date") or None, _current_actor_name()))
 
 @app.post("/api/orders/<order_id>/available")
 def api_available_compat(order_id):
-    return result_response(db.mark_available(order_id,(request.get_json(silent=True) or {}).get("available_date") or None))
+    return result_response(db.mark_available(order_id,(request.get_json(silent=True) or {}).get("available_date") or None, _current_actor_name()))
 
 @app.post("/api/orders/<order_id>/undo")
-def api_undo(order_id): return result_response(db.undo_last(order_id))
+def api_undo(order_id): return result_response(db.undo_last(order_id,_current_actor_name()))
 
 @app.post("/api/orders/<order_id>/contact")
 def api_contact(order_id):
     data=request.get_json(silent=True) or {}
     try: days=int(data.get("followup_days",2))
     except (TypeError,ValueError): days=2
-    return result_response(db.mark_contacted(order_id,days))
+    return result_response(db.mark_contacted(order_id,days,_current_actor_name()))
 
 @app.post("/api/orders/<order_id>/contact-status")
 def api_contact_status(order_id):
     data=request.get_json(silent=True) or {}
-    return result_response(db.set_contact_status(order_id, str(data.get("contact_status") or ""), str(data.get("note") or ""), rejected_item_ids=data.get("rejected_item_ids") or []))
+    return result_response(db.set_contact_status(order_id, str(data.get("contact_status") or ""), str(data.get("note") or ""), _current_actor_name(), rejected_item_ids=data.get("rejected_item_ids") or []))
 
 @app.post("/api/orders/<order_id>/pickup")
-def api_pickup(order_id): return result_response(db.mark_pickup(order_id,bool((request.get_json(silent=True) or {}).get("force"))))
+def api_pickup(order_id): return result_response(db.mark_pickup(order_id,bool((request.get_json(silent=True) or {}).get("force")),_current_actor_name()))
 
 @app.post("/api/orders/<order_id>/not-picked")
-def api_not_picked(order_id): return result_response(db.mark_not_picked(order_id))
+def api_not_picked(order_id): return result_response(db.mark_not_picked(order_id,_current_actor_name()))
 
 @app.post("/api/orders/<order_id>/postpone")
 def api_postpone(order_id):
     data=request.get_json(silent=True) or {}; days=data.get("days"); custom=data.get("custom_date")
     try: days=int(days) if days is not None else None
     except (TypeError,ValueError): return jsonify({"error":"قيمة الأيام غير صحيحة"}),400
-    return result_response(db.postpone(order_id,days,custom or None))
+    return result_response(db.postpone(order_id,days,custom or None,_current_actor_name()))
 
 @app.post("/api/orders/<order_id>/cancel")
-def api_cancel(order_id): return result_response(db.cancel_order(order_id,str((request.get_json(silent=True) or {}).get("note") or "")))
+def api_cancel(order_id): return result_response(db.cancel_order(order_id,str((request.get_json(silent=True) or {}).get("note") or ""),_current_actor_name()))
 
 
 ACTION_CENTER_LABELS = {
