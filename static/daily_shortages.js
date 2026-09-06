@@ -180,7 +180,7 @@
       if (row.type === "pharmacy") {
         action =
           (row.status === "تم التوفير"
-            ? '<button type="button" class="btn btn-secondary btn-sm ps-undo" data-id="' + escLocal(row.shortageId) + '">↩️ تراجع</button>'
+            ? '<button type="button" class="btn btn-secondary btn-sm ps-undo" data-id="' + escLocal(row.shortageId) + '">↩ تراجع</button>'
             : '<button type="button" class="btn btn-primary btn-sm ps-available" data-id="' + escLocal(row.shortageId) + '">تم التوفير</button>') +
           '<button type="button" class="btn btn-outline btn-sm ps-edit" data-id="' + escLocal(row.shortageId) + '">تعديل</button>';
       } else {
@@ -189,14 +189,34 @@
           escLocal(row.orderId) + '">التفاصيل</button>';
       }
 
+      if (state.filter === "pharmacy") {
+        return '<tr>' +
+          '<td>' + escLocal(row.product) + (row.note ? '<div class="daily-shortage-note">' + escLocal(row.note) + '</div>' : '') + '</td>' +
+          '<td>' + escLocal(row.quantity) + '</td>' +
+          '<td>' + dateLocal(row.date) + '</td>' +
+          '<td>' + status + '</td>' +
+          '<td><div class="daily-shortage-actions">' + action + '</div></td>' +
+        '</tr>';
+      }
+
+      if (state.filter === "customer") {
+        return '<tr>' +
+          '<td><strong>' + escLocal(row.orderId) + '</strong></td>' +
+          '<td>' + escLocal(row.customer) + '</td>' +
+          '<td dir="ltr">' + escLocal(row.phone) + '</td>' +
+          '<td><strong>' + escLocal(row.product) + '</strong></td>' +
+          '<td>' + escLocal(row.quantity) + '</td>' +
+          '<td>' + dateLocal(row.date) + '</td>' +
+          '<td><div class="daily-shortage-actions">' + action + '</div></td>' +
+        '</tr>';
+      }
+
       return '<tr>' +
         '<td>' + type + '</td>' +
         '<td><strong>' + escLocal(row.orderId) + '</strong></td>' +
         '<td>' + escLocal(row.customer) + '</td>' +
         '<td dir="ltr">' + escLocal(row.phone) + '</td>' +
-        '<td><strong>' + escLocal(row.product) + '</strong>' +
-          (row.note ? '<div class="daily-shortage-note">' + escLocal(row.note) + '</div>' : '') +
-        '</td>' +
+        '<td><strong>' + escLocal(row.product) + '</strong></td>' +
         '<td>' + escLocal(row.quantity) + '</td>' +
         '<td>' + dateLocal(row.date) + '</td>' +
         '<td>' + status + '</td>' +
