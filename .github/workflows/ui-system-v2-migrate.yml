@@ -1,0 +1,180 @@
+name: UI System v2 one-time migration
+
+on:
+  push:
+    branches: [feature/ui-system-v2-production]
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply UI v2 changes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          root = Path('.')
+          index = root / 'templates' / 'index.html'
+          app = root / 'static' / 'app.js'
+          css = root / 'static' / 'style.css'
+          render = root / 'render.yaml'
+          build = root / 'build_assets.py'
+
+          # 1) HTML: Tajawal with safe system fallbacks; production loads minified CSS.
+          s = index.read_text(encoding='utf-8')
+          marker = '<link rel="stylesheet" href="{{ url_for(\'static\', filename=\'style.css\') }}?v=20260829-clean">'
+          if 'fonts.googleapis.com/css2?family=Tajawal' not in s:
+              s = s.replace(marker, '<link rel="preconnect" href="https://fonts.googleapis.com">\n<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>\n<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">\n<link rel="stylesheet" href="{{ url_for(\'static\', filename=\'style.min.css\') }}?v=20260906-ui-v2">')
+          else:
+              s = re.sub(r'<link rel="stylesheet" href="\{\{ url_for\(\'static\', filename=\'style\.css\'\) \}\}\?v=[^"]+">', '<link rel="stylesheet" href="{{ url_for(\'static\', filename=\'style.min.css\') }}?v=20260906-ui-v2">', s)
+          index.write_text(s, encoding='utf-8')
+
+          # 2) JS: redundant data-status is intentionally NOT introduced. The existing
+          #    data-dashboard-filter is the canonical state and CSS targets it directly.
+          j = app.read_text(encoding='utf-8')
+          old = '''function renderDashboardCards(stats){\n  const wrap=document.getElementById('stats-grid');\n  wrap.innerHTML=statCards.map(([k,l,key])=>{\n    const active=dashboardFilterKey===key?' active':'';\n    return `<button type="button" class="stat-card${active}" data-dashboard-filter="${key}" aria-pressed="${dashboardFilterKey===key}"><div class="stat-value">${stats[k]??0}</div><div class="stat-label">${l}</div><span class="stat-hint">اضغط لعرض الطلبات</span></button>`;\n  }).join('');\n  wrap.querySelectorAll('[data-dashboard-filter]').forEach(b=>b.onclick=()=>toggleDashboardFilter(b.dataset.dashboardFilter));\n}'''
+          new = '''function renderDashboardCards(stats){\n  const wrap=document.getElementById('stats-grid');\n  const criticalMap={overdue:'overdue',awaiting_reply:'waiting'};\n  wrap.innerHTML=statCards.map(([k,l,key])=>{\n    const active=dashboardFilterKey===key?' active':'';\n    const statusAttr=criticalMap[key]?` data-status="${criticalMap[key]}"`:'';\n    return `<button type="button" class="stat-card${active}"${statusAttr} data-dashboard-filter="${key}" aria-pressed="${dashboardFilterKey===key}"><div class="stat-value">${stats[k]??0}</div><div class="stat-label">${l}</div><span class="stat-hint">اضغط لعرض الطلبات</span></button>`;\n  }).join('');\n  wrap.querySelectorAll('[data-dashboard-filter]').forEach(b=>b.onclick=()=>toggleDashboardFilter(b.dataset.dashboardFilter));\n}'''
+          if old in j:
+              j = j.replace(old, new, 1)
+          else:
+              j = re.sub(r'function renderDashboardCards\(stats\)\{.*?\n\}', new, j, count=1, flags=re.S)
+          app.write_text(j, encoding='utf-8')
+
+          # 3) Append a coherent design-token layer. Existing selectors remain available,
+          #    so functionality is preserved while the new system owns the visual language.
+          layer = r'''
+
+/* ================================================================
+   Ezz Pharmacy UI System v2.0.0
+   ---------------------------------------------------------------
+   TODO (dark mode): tokens intentionally use semantic names so a future
+   [data-theme="dark"] layer can redefine the same variables without changing components.
+   ================================================================ */
+:root{
+  --primary:#1599a6;--primary-dark:#0b6b75;--primary-soft:#e9f8fa;
+  --blue:#177fca;--blue-soft:#edf7fd;--navy:#153f7a;--navy-dark:#10325f;
+  --yellow:#d6a900;--yellow-soft:#fff8d9;
+  --success:#177245;--success-bg:#eaf7ef;--success-border:#b8dfc7;
+  --warning:#9a6700;--warning-bg:#fff7df;--warning-border:#efd58a;
+  --danger:#b52d2d;--danger-bg:#fff0ef;--danger-border:#efc2be;
+  --info:#176aa0;--info-bg:#edf7fd;--info-border:#b9dced;
+  --bg:#f5f9fb;--surface:#fff;--surface-soft:#f8fcfd;--surface-muted:#f1f5f7;
+  --border:#d8e5ea;--border-strong:#c5d7dd;--text:#17324d;--text-strong:#12304a;
+  --muted:#607582;--muted-light:#80919a;--white:#fff;--black:#10202c;
+  --font-family:"Tajawal","IBM Plex Sans Arabic","Segoe UI",Tahoma,Arial,sans-serif;
+  --text-xs:11px;--text-sm:13px;--text-md:15px;--text-lg:17px;--text-xl:20px;--text-2xl:28px;
+  --radius-sm:8px;--radius-md:14px;--radius-lg:20px;--radius-pill:999px;
+  --space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:20px;--space-6:24px;--space-7:28px;--space-8:32px;
+  --shadow-sm:0 2px 10px rgba(21,63,122,.06);--shadow-md:0 8px 24px rgba(21,63,122,.08);--shadow-lg:0 18px 40px rgba(21,63,122,.13);
+  --transition:.18s ease;--content-width:1280px;
+}
+html,body{font-family:var(--font-family);background:var(--bg)}
+body{color:var(--text);text-rendering:optimizeLegibility}
+button,input,select,textarea{font-family:inherit}
+.app-header{background:rgba(255,255,255,.92);backdrop-filter:blur(14px);border-color:var(--border);box-shadow:var(--shadow-sm)}
+.header-inner{max-width:var(--content-width);padding:var(--space-3) var(--space-6)}
+.brand-mark-wrap{border-radius:var(--radius-md)}
+.brand-text h1,.panel-header h2,.modal-header h3{color:var(--navy)}
+.main-nav{gap:var(--space-2)}
+.nav-btn,.btn{border-radius:var(--radius-sm);transition:var(--transition)}
+.nav-btn:focus-visible,.btn:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid rgba(21,153,166,.22);outline-offset:2px}
+.nav-btn.active{background:var(--primary-soft);color:var(--primary-dark)}
+.nav-btn.primary,.btn-primary{background:var(--primary);color:#fff}
+.nav-btn.primary:hover,.btn-primary:hover{background:var(--primary-dark)}
+.app-main{max-width:var(--content-width)}
+.today-banner{border-radius:var(--radius-lg);box-shadow:var(--shadow-lg)}
+.stats-grid{gap:var(--space-3)}
+.stat-card{border-radius:var(--radius-lg);box-shadow:var(--shadow-md);transition:var(--transition);min-height:118px}
+.stat-card:hover{transform:translateY(-2px);box-shadow:var(--shadow-lg)}
+.stat-card[data-status="overdue"],.stat-card.overdue,.stat-card.critical{border-top-color:var(--danger);background:var(--danger-bg)}
+.stat-card[data-status="overdue"] .stat-value,.stat-card.overdue .stat-value,.stat-card.critical .stat-value{color:var(--danger)}
+.stat-card[data-status="waiting"],.stat-card.waiting{border-top-color:var(--warning);background:var(--warning-bg)}
+.stat-card[data-status="waiting"] .stat-value,.stat-card.waiting .stat-value{color:var(--warning)}
+.panel{border-radius:var(--radius-lg);box-shadow:var(--shadow-md)}
+input,select,textarea{border-radius:var(--radius-sm);border-color:var(--border)}
+input:focus,select:focus,textarea:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(21,153,166,.10)}
+.btn-secondary{background:var(--surface-muted);color:var(--text)}
+.btn-outline{background:var(--surface);color:var(--primary-dark);border:1px solid var(--primary)}
+.btn-warning{background:#b77900;color:#fff;border-color:#b77900}
+.btn-warning:hover{filter:brightness(.96)}
+.btn-danger{background:var(--danger);color:#fff}
+.table-wrap{border-radius:var(--radius-md);box-shadow:var(--shadow-sm)}
+.orders-table th{background:var(--surface-soft)}
+.orders-table tbody tr:nth-child(even){background:#fbfdfe}
+.orders-table tbody tr:hover{background:#f4fbfc}
+.status-badge,.contact-badge{border-radius:var(--radius-pill)}
+.empty-state{padding:var(--space-8) var(--space-3);color:var(--muted)}
+.empty-state::before{content:"✓";display:grid;place-items:center;width:40px;height:40px;margin:0 auto var(--space-3);border-radius:50%;background:var(--success-bg);color:var(--success);font-weight:800}
+.followup-card,.availability-row,.wa-card,.template-card,.detail-item,.danger-panel{border-radius:var(--radius-md)}
+.modal-overlay{background:rgba(12,33,49,.52);padding:var(--space-4);backdrop-filter:blur(2px)}
+.modal{border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);max-height:min(90dvh,760px)}
+.toast{border-radius:var(--radius-md);box-shadow:var(--shadow-lg)}
+@media(max-width:900px){.header-inner{padding:var(--space-2) var(--space-3)}.main-nav{overflow-x:auto;flex-wrap:nowrap;scrollbar-width:thin;padding-bottom:var(--space-1)}.nav-btn{flex:0 0 auto}.stats-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:480px){.app-main{padding:var(--space-3)}.panel{padding:var(--space-4)}.stats-grid{gap:var(--space-2)}.stat-card{min-height:104px;padding:var(--space-3)}.stat-value{font-size:24px}.today-banner{padding:var(--space-4)}.modal-overlay{padding:var(--space-2)}.modal{max-height:calc(100dvh - 16px);border-radius:var(--radius-md)}.modal-body{padding:var(--space-4)}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;transition:none!important}}
+@media print{.app-header,.main-nav,.btn,.filters-bar{display:none!important}.app-main{max-width:none;margin:0;padding:0}.panel,.stat-card{box-shadow:none}}
+'''
+          css.write_text(css.read_text(encoding='utf-8') + layer, encoding='utf-8')
+
+          # 4) Production minifier: no external Node dependency required.
+          build.write_text(r'''from pathlib import Path
+import re
+
+src = Path("static/style.css").read_text(encoding="utf-8")
+# Remove comments except the UI version banner, then collapse safe CSS whitespace.
+src = re.sub(r"/\*(?!\s*=+\s*\n\s*Ezz Pharmacy UI System v2\.0\.0).*?\*/", "", src, flags=re.S)
+src = re.sub(r"\s+", " ", src)
+src = re.sub(r"\s*([{}:;,>])\s*", r"\1", src)
+src = re.sub(r";}", "}", src)
+Path("static/style.min.css").write_text(src.strip(), encoding="utf-8")
+print(f"style.css={Path('static/style.css').stat().st_size} bytes")
+print(f"style.min.css={Path('static/style.min.css').stat().st_size} bytes")
+''', encoding='utf-8')
+
+          # 5) Render: build minified CSS during deployment.
+          r = render.read_text(encoding='utf-8')
+          r = r.replace('buildCommand: pip install -r requirements.txt', 'buildCommand: pip install -r requirements.txt && python build_assets.py')
+          render.write_text(r, encoding='utf-8')
+          PY
+
+      - name: Build and validate
+        run: |
+          python build_assets.py
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          css=Path('static/style.css').read_text(encoding='utf-8')
+          mini=Path('static/style.min.css').read_text(encoding='utf-8')
+          html=Path('templates/index.html').read_text(encoding='utf-8')
+          js=Path('static/app.js').read_text(encoding='utf-8')
+          assert '--transition:.18s ease' in css.replace(' ','')
+          assert 'data-status="overdue"' in js
+          assert 'data-status="waiting"' in js
+          assert 'style.min.css' in html
+          assert 'Tajawal:wght@400;500;700;800' in html
+          assert Path('static/style.min.css').exists()
+          assert len(mini) < len(css), (len(css), len(mini))
+          print('UI v2 validation: PASS')
+          print('CSS bytes:', len(css), 'MIN bytes:', len(mini))
+          PY
+
+      - name: Commit migrated files and remove one-time workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add templates/index.html static/app.js static/style.css static/style.min.css build_assets.py render.yaml
+          git commit -m "feat: integrate Ezz Pharmacy UI System v2.0.0"
+          git push
+          git rm .github/workflows/ui-system-v2-migrate.yml
+          git commit -m "chore: remove one-time UI migration workflow"
+          git push
