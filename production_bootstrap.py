@@ -18,6 +18,7 @@ def install_production_security(app, db):
     from auth_security_extensions import install_security_extensions
     from admin_recovery import install_admin_recovery
     from login_diagnostics import install_login_diagnostics
+    from one_time_admin_password_sync import sync_admin_password
 
     install_auth(app, db)
     install_authorization(app)
@@ -25,13 +26,18 @@ def install_production_security(app, db):
     install_admin_recovery(app, db)
     install_login_diagnostics(app, db)
 
+    # Explicit, temporary admin credential synchronization. This is inert unless
+    # ADMIN_PASSWORD_FORCE_SYNC=1 is set in the production environment.
+    sync_admin_password(app, db)
+
     # Read-only startup diagnostic. Never logs passwords or hashes.
     try:
         auth_ext = app.extensions.get("ezz_auth") or {}
         verify_password = auth_ext.get("verify_password")
-        admin_username = "admin"
-        admin_password = __import__("os").environ.get("ADMIN_PASSWORD", "")
-        recovery_password = __import__("os").environ.get("ADMIN_RECOVERY_PASSWORD", "")
+        import os
+        admin_username = os.environ.get("ADMIN_USERNAME", "admin").strip() or "admin"
+        admin_password = os.environ.get("ADMIN_PASSWORD", "")
+        recovery_password = os.environ.get("ADMIN_RECOVERY_PASSWORD", "")
         with db._connect() as conn:
             row = conn.execute(
                 "SELECT username, role, active, password_hash, last_login, session_version "
