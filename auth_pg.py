@@ -368,26 +368,36 @@ def install_auth(app, db):
 
     @app.get("/admin/audit")
     def admin_audit():
+        user=str(request.args.get("user") or "").strip()
+        action=str(request.args.get("action") or "").strip()
+        order_id=str(request.args.get("order_id") or "").strip()
+        q=str(request.args.get("q") or "").strip()
+        try: page=max(1,int(request.args.get("page",1))); page_size=max(1,min(100,int(request.args.get("page_size",50))))
+        except (TypeError,ValueError): page,page_size=1,50
         try:
-            rows = db.get_activity_log(None)
+            data=db.get_activity_log_page(user=user,action=action,order_id=order_id,q=q,page=page,page_size=page_size)
         except Exception:
-            rows = []
-        body = "<div class='admin-actions'><a href='/admin'>لوحة الإدارة</a><a href='/admin/users'>إدارة المستخدمين</a><a href='/'>العودة للنظام</a></div><div class='panel'><h2>Audit Log</h2><table><tr><th>التاريخ</th><th>المستخدم</th><th>العملية</th><th>الطلب</th><th>التفاصيل</th></tr>"
-        for r in rows[:1000]:
-            detail = r.get("Note", "")
-            if r.get("Old_Status") or r.get("New_Status"):
-                detail += (" — " if detail else "") + f"{r.get('Old_Status') or '—'} ← {r.get('New_Status') or '—'}"
-            body += f"<tr><td>{esc(r.get('Created_At'))}</td><td>{esc(r.get('User'))}</td><td>{esc(r.get('Action'))}</td><td>{esc(r.get('Order_ID'))}</td><td>{esc(detail)}</td></tr>"
-        return admin_html("Audit Log", body + "</table></div>")
+            data={"rows":[],"count":0,"page":1,"pages":1}
+        rows=data.get("rows",[])
+        query_parts=[]
+        if user: query_parts.append(f"user={html.escape(user)}")
+        if action: query_parts.append(f"action={html.escape(action)}")
+        if order_id: query_parts.append(f"order_id={html.escape(order_id)}")
+        if q: query_parts.append(f"q={html.escape(q)}")
+        qs="&".join(query_parts)
+        nav=""
+        if data.get("pages",1)>1:
+            prev=max(1,data["page"]-1); nxt=min(data["pages"],data["page"]+1)
+            prefix=("&"+qs) if qs else ""
+            nav=f"<div class='admin-actions'><a href='/admin/audit?page={prev}&page_size={page_size}{prefix}'>السابق</a><span>صفحة {data['page']} من {data['pages']} — {data['count']} سجل</span><a href='/admin/audit?page={nxt}&page_size={page_size}{prefix}'>التالي</a></div>"
+        body = "<div class='admin-actions'><a href='/admin'>لوحة الإدارة</a><a href='/admin/users'>إدارة المستخدمين</a><a href='/'>العودة للنظام</a></div>"
+        body += f"<div class='panel'><h2>Audit Log</h2><form method='get' class='form-grid'><input name='q' value='{html.escape(q)}' placeholder='بحث في التفاصيل أو الطلب أو المستخدم'><input name='user' value='{html.escape(user)}' placeholder='المستخدم'><input name='action' value='{html.escape(action)}' placeholder='العملية'><input name='order_id' value='{html.escape(order_id)}' placeholder='رقم الطلب'><button type='submit'>بحث وتصفية</button><a href='/admin/audit'>مسح الفلاتر</a></form></div>"
+        body += "<div class='panel'><table><tr><th>التاريخ</th><th>المستخدم</th><th>العملية</th><th>الطلب</th><th>قبل</th><th>بعد</th><th>التفاصيل</th></tr>"
+        for r in rows:
+            body += f"<tr><td>{esc(r.get('Created_At'))}</td><td>{esc(r.get('User'))}</td><td>{esc(r.get('Action'))}</td><td>{esc(r.get('Order_ID'))}</td><td>{esc(r.get('Old_Status') or '—')}</td><td>{esc(r.get('New_Status') or '—')}</td><td>{esc(r.get('Note') or '')}</td></tr>"
+        body += "</table></div>"+nav
+        return admin_html("Audit Log", body)
 
-    @app.before_request
-    def admin_destructive_guard():
-        if request.path in ("/api/data/reset", "/api/backups/restore"):
-            user = current_user()
-            if not user:
-                return jsonify({"error": "تسجيل الدخول مطلوب", "authenticated": False}), 401
-            if user.get("role") != "admin":
-                return jsonify({"error": "غير مصرح لك بهذا الإجراء"}), 403
 
     @app.after_request
     def auth_headers(response):
