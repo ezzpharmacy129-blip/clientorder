@@ -76,8 +76,6 @@ async function loadDashboard(){
       document.getElementById('today-summary').innerHTML=`لديك <strong>${data.available}</strong> طلبات جاهزة للتواصل، <strong>${data.awaiting_reply}</strong> بانتظار رد العميل، <strong>${data.overdue}</strong> متابعات متأخرة`;
 
       document.dispatchEvent(new CustomEvent('ezz:dashboard-data',{detail:data}));
-      const followupTarget=document.getElementById('followups-list');
-      if(followupTarget) renderFollowupsList(data.followups||[]);
       if(dashboardFilterKey) renderDashboardResults();
       dashboardLoadedOnce=true;
     }catch(e){
@@ -90,24 +88,6 @@ async function loadDashboard(){
   return dashboardLoadPromise;
 }
 
-
-function renderFollowupsList(followups){
-  const c=document.getElementById("followups-list");
-  if(!c)return;
-  if(!followups.length){
-    c.innerHTML='<div class="empty-state">لا توجد متابعات مطلوبة اليوم 🎉</div>';
-    return;
-  }
-  c.innerHTML=followups.map(o=>{
-    const k=o._followup_kind;
-    const tag=k==='overdue'?'🔴 متابعة متأخرة':k==='needs_call'?'🟠 يحتاج اتصال':'🔵 متابعة اليوم';
-    const btn=k==='needs_call'
-      ? '<button class="btn btn-primary btn-sm act-contact" data-id="'+esc(o.Order_ID)+'">تم الاتصال</button>'
-      : '<button class="btn btn-primary btn-sm act-pickup" data-id="'+esc(o.Order_ID)+'">تم الاستلام</button><button class="btn btn-outline btn-sm act-postpone" data-id="'+esc(o.Order_ID)+'">تأجيل</button>';
-    return '<div class="followup-card kind-'+esc(k)+'"><div class="followup-info"><div class="followup-tag">'+tag+'</div><div class="fi-name">'+esc(o.Customer_Name)+'</div><div class="fi-meta">'+productsSummary(o)+'<br>'+esc(o.Phone)+'</div></div><div class="followup-actions"><button class="btn btn-outline btn-sm act-wa" data-id="'+esc(o.Order_ID)+'">💬 إرسال الرسالة</button>'+phoneLinks(o.Phone)+btn+'<button class="btn btn-secondary btn-sm act-details" data-id="'+esc(o.Order_ID)+'">التفاصيل</button></div></div>';
-  }).join("");
-  attachActions(c);
-}
 
 function productsSummary(o){if(Array.isArray(o.Items)&&o.Items.length)return o.Items.map(i=>`${esc(i.Product_Name)} × ${i.Quantity}${i.Image_Path?' 📷':''}`).join("<br>");return esc(o.Product_Name)}
 function imageHtml(item,compact=false){if(!item?.Image_Path)return `<div class="no-image">لا توجد صورة</div>`;const u=`/uploads/${encodeURIComponent(item.Image_Path).replace(/%2F/g,'/')}`;return `<a href="${u}" target="_blank" rel="noopener" class="product-image-link"><img class="product-thumb ${compact?'compact':''}" src="${u}" alt="${esc(item.Product_Name)}"></a>`}
@@ -376,10 +356,6 @@ document.addEventListener("DOMContentLoaded",()=>{
   document.getElementById("dashboard-results-close")?.addEventListener("click",()=>{
     dashboardFilterKey=null; closeDashboardResults(); renderDashboardCards(window.dashboardStats||{});
   });
-  document.getElementById("dashboard-search")?.addEventListener("input",e=>{
-    clearTimeout(window._s); window._s=setTimeout(()=>loadFollowups(e.target.value.trim()),250);
-  });
-
   document.getElementById("refresh-shortages-btn")?.addEventListener("click",loadShortages);
   document.getElementById("shortages-select-all")?.addEventListener("click",()=>selectAllShortages(true));
   document.getElementById("shortages-clear-all")?.addEventListener("click",()=>selectAllShortages(false));
