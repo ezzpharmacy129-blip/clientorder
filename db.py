@@ -367,6 +367,19 @@ class ExcelDB:
         page=max(1,int(page or 1)); page_size=max(1,min(100,int(page_size or 20))); start=(page-1)*page_size
         return {"orders":orders[start:start+page_size],"count":total,"total":total,"page":page,"page_size":page_size,"pages":max(1,(total+page_size-1)//page_size)}
 
+    def dashboard_action_summary(self, today):
+        orders=self.get_all_orders()
+        closed={"تم الاستلام","ملغي"}
+        def active(o): return o.get("Status") not in closed
+        overdue=today_count=0
+        awaiting=needs_supply=0
+        for o in orders:
+            if active(o) and str(o.get("Next_Followup_Date") or "") < today and (o.get("Contact_Status")=="بانتظار رد العميل" or o.get("Status") in ("تم التواصل - بانتظار الاستلام","لم يستلم")): overdue+=1
+            if active(o) and str(o.get("Next_Followup_Date") or "") == today: today_count+=1
+            awaiting += int(o.get("Contact_Status")=="بانتظار رد العميل")
+            needs_supply += int(o.get("Status")=="بانتظار التوفر" or any(str(i.get("Availability_Status") or "")=="بانتظار التوفر" and str(i.get("Customer_Decision") or "").lower()!="rejected" for i in (o.get("Items") or [])))
+        return {"overdue":overdue,"today":today_count,"awaiting_reply":awaiting,"needs_supply":needs_supply}
+
     def dashboard_summary(self, today):
         orders = self.get_all_orders()
         def pending(o):
