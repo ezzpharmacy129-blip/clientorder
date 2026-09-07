@@ -246,7 +246,36 @@ function addProductRow(name="",qty=1){const wrap=document.getElementById("produc
 function renumberProducts(){document.querySelectorAll(".product-row").forEach((r,i)=>r.querySelector(".product-number").textContent=i+1)}
 function updateProductTotals(){const rows=[...document.querySelectorAll(".product-row")];document.getElementById("products-count").textContent=rows.length;document.getElementById("products-total").textContent=rows.reduce((n,r)=>n+(parseInt(r.querySelector(".product-qty").value)||0),0)}
 function productsPayload(){return [...document.querySelectorAll(".product-row")].map(r=>({product_name:r.querySelector(".product-name").value.trim(),quantity:parseInt(r.querySelector(".product-qty").value)||0}))}
-async function uploadOrderImages(order,files){let uploaded=0,failed=0;for(let i=0;i<files.length;i++){const file=files[i];if(!file)continue;const item=order.Items?.[i];if(!item?.Item_ID){failed++;continue}const fd=new FormData();fd.append('image',file);try{await apiFetch(`/api/orders/${order.Order_ID}/items/${item.Item_ID}/image`,{method:'POST',body:fd});uploaded++}catch(e){failed++;toast(`تعذر حفظ صورة المنتج رقم ${i+1}: ${e.message}`,'error')}}return {uploaded,failed}}
+async function uploadOrderImages(order,files){
+  const tasks=[];
+  for(let i=0;i<files.length;i++){
+    const file=files[i];
+    if(file)tasks.push({index:i,file});
+  }
+  if(!tasks.length)return {uploaded:0,failed:0};
+
+  let cursor=0,uploaded=0,failed=0;
+  const worker=async()=>{
+    while(cursor<tasks.length){
+      const task=tasks[cursor++];
+      const item=order.Items?.[task.index];
+      if(!item?.Item_ID){failed++;continue;}
+      const fd=new FormData();
+      fd.append('image',task.file);
+      try{
+        await apiFetch(`/api/orders/${order.Order_ID}/items/${item.Item_ID}/image`,{method:'POST',body:fd});
+        uploaded++;
+      }catch(e){
+        failed++;
+        toast(`تعذر حفظ صورة المنتج رقم ${task.index+1}: ${e.message}`,'error');
+      }
+    }
+  };
+
+  const workerCount=Math.min(3,tasks.length);
+  await Promise.all(Array.from({length:workerCount},()=>worker()));
+  return {uploaded,failed};
+}
 
 let shortageOrders=[];
 function buildShortageMessage(selected,mode='orders'){
