@@ -319,6 +319,43 @@ class CloudDB:
                     item=_row_to_item(dict(r)); groups.setdefault(str(item["Order_ID"]),[]).append(item)
         return {"orders":self._attach_items(orders,groups),"count":total,"total":total,"page":page,"page_size":page_size,"pages":max(1,(total+page_size-1)//page_size)}
 
+    def dashboard_action_summary(self, today):
+        """Aggregate actionable/follow-up counters in PostgreSQL."""
+        with self._connect() as conn:
+            row=conn.execute("""
+                SELECT
+                    COUNT(*) FILTER (
+                        WHERE (
+                            (o.status IN ('متوفر - يحتاج اتصال','متوفر جزئيًا - يحتاج اتصال','غير متوفر - يحتاج اتصال')
+                             AND COALESCE(o.contact_status,'') IN ('','لم يتم التواصل'))
+                            OR o.contact_status='بانتظار رد العميل'
+                            OR o.status IN ('تم التواصل - بانتظار الاستلام','لم يستلم')
+                        )
+                        AND o.next_followup_date < %s
+                    ) AS overdue,
+                    COUNT(*) FILTER (
+                        WHERE (
+                            (o.status IN ('متوفر - يحتاج اتصال','متوفر جزئيًا - يحتاج اتصال','غير متوفر - يحتاج اتصال')
+                             AND COALESCE(o.contact_status,'') IN ('','لم يتم التواصل'))
+                            OR o.contact_status='بانتظار رد العميل'
+                            OR o.status IN ('تم التواصل - بانتظار الاستلام','لم يستلم')
+                        )
+                        AND o.next_followup_date = %s
+                    ) AS today,
+                    COUNT(*) FILTER (WHERE o.contact_status='بانتظار رد العميل') AS awaiting_reply,
+                    COUNT(*) FILTER (
+                        WHERE o.status='بانتظار التوفر'
+                           OR EXISTS (
+                               SELECT 1 FROM order_items si
+                               WHERE si.order_id=o.order_id
+                                 AND si.availability_status='بانتظار التوفر'
+                                 AND COALESCE(LOWER(si.customer_decision),'') <> 'rejected'
+                           )
+                    ) AS needs_supply
+                FROM orders o
+            """,(today,today)).fetchone()
+        return {k:int(row.get(k) or 0) for k in ("overdue","today","awaiting_reply","needs_supply")}
+
     def dashboard_summary(self, today):
         """Return dashboard counters using PostgreSQL aggregation."""
         with self._connect() as conn:
