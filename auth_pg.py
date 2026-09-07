@@ -297,17 +297,6 @@ def install_auth(app, db):
         response.headers["Cache-Control"] = "no-store"
         return response
 
-    def admin_only(fn):
-        @wraps(fn)
-        def wrapped(*args, **kwargs):
-            user = current_user()
-            if not user:
-                return jsonify({"error": "تسجيل الدخول مطلوب", "authenticated": False}), 401
-            if user.get("role") != "admin":
-                return jsonify({"error": "غير مصرح لك بهذا الإجراء"}), 403
-            return fn(*args, **kwargs)
-        return wrapped
-
     @app.get("/api/auth/csrf")
     def auth_csrf():
         auth = app.extensions.get("ezz_csrf") or {}
@@ -322,12 +311,10 @@ def install_auth(app, db):
         return jsonify({"authenticated": bool(user), "user": ({"user_id": user["user_id"], "username": user["username"], "name": user["name"], "role": user["role"]} if user else None)})
 
     @app.get("/api/admin/users")
-    @admin_only
     def api_list_users():
         return jsonify({"users": list_users()})
 
     @app.post("/api/admin/users")
-    @admin_only
     def api_add_user():
         d = request.get_json(silent=True) or {}
         name = str(d.get("name") or "").strip(); username = str(d.get("username") or "").strip(); password = str(d.get("password") or ""); role = str(d.get("role") or "employee")
@@ -346,7 +333,6 @@ def install_auth(app, db):
         return jsonify({"success": True, "user_id": uid}), 201
 
     @app.post("/api/admin/users/<uid>/toggle")
-    @admin_only
     def api_toggle_user(uid):
         actor = current_user(); active, error = toggle_user(uid, actor["user_id"])
         if error:
@@ -356,7 +342,6 @@ def install_auth(app, db):
         return jsonify({"success": True, "active": bool(active)})
 
     @app.post("/api/admin/users/<uid>/password")
-    @admin_only
     def api_change_password(uid):
         password = str((request.get_json(silent=True) or {}).get("password") or "")
         if len(password) < 8:
@@ -368,7 +353,6 @@ def install_auth(app, db):
         return jsonify({"success": True})
 
     @app.get("/admin")
-    @admin_only
     def admin_dashboard():
         rows = list_users(); active = sum(1 for r in rows if bool(r.get("active")))
         return admin_html("لوحة الإدارة", f"<div class='admin-card'><strong>{active}</strong><span>المستخدمون النشطون</span></div><div class='admin-actions'><a href='/admin/users'>إدارة المستخدمين</a><a href='/admin/audit'>Audit Log</a><a href='/'>العودة للنظام</a></div>")
