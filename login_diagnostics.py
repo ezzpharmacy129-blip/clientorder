@@ -92,6 +92,7 @@ def install_login_diagnostics(app, db):
                 int(bool(session.get("_csrf_token"))),
                 int("Set-Cookie" in response.headers),
             )
+        return response
 
     app._ezz_login_diagnostics_installed = True
     return True
