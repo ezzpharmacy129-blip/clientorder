@@ -456,8 +456,9 @@ def _active_followups_payload(orders, today=None):
 
 @app.get("/api/action-center")
 def api_action_center():
-    orders = db.get_all_orders()
-    payload = _build_action_center_payload(orders)
+    today = today_str()
+    orders = db.action_center_orders(today) if hasattr(db, "action_center_orders") else db.get_all_orders()
+    payload = _build_action_center_payload(orders, today)
     payload["updated_at"] = datetime.now(ZoneInfo("Asia/Riyadh")).strftime("%Y-%m-%d %H:%M:%S")
     return jsonify(payload)
 
