@@ -314,7 +314,6 @@ def api_cancel(order_id): return result_response(db.cancel_order(order_id,str((r
 
 ACTION_CENTER_LABELS = {
     "overdue": "متأخرة",
-    "ready_to_send": "جاهزة للتواصل",
     "needs_supply": "تحتاج توفير",
     "awaiting_reply": "تنتظر رد العميل",
     "today": "متابعة اليوم",
@@ -343,10 +342,6 @@ def _action_center_item(order, today):
 
     if contact == CONTACT_AWAITING:
         return {"action_key":"awaiting_reply","priority":2,"next_action":"انتظار رد العميل","action_hint":"الرسالة أُرسلت وننتظر رد العميل"}
-
-    if status in (STATUS_AVAILABLE, STATUS_PARTIAL, STATUS_UNAVAILABLE) and contact in ("", CONTACT_NOT_CONTACTED):
-        label = "متوفر بالكامل" if status == STATUS_AVAILABLE else ("متوفر جزئيًا" if status == STATUS_PARTIAL else "غير متوفر")
-        return {"action_key":"ready_to_send","priority":2,"next_action":"إرسال رسالة للعميل","action_hint":f"الطلب {label} ولم يُرسَل للعميل بعد"}
 
     pending_items = [i for i in (order.get("Items") or []) if str(i.get("Availability_Status") or "").strip() == "بانتظار التوفر" and str(i.get("Customer_Decision") or "").strip() != "rejected"]
     if status == STATUS_PENDING or pending_items:
@@ -418,7 +413,7 @@ def _build_action_center_payload(orders, today=None):
         ))
 
     flat = []
-    for key in ("overdue", "today", "ready_to_send", "awaiting_reply", "needs_supply"):
+    for key in ("overdue", "today", "awaiting_reply", "needs_supply"):
         flat.extend(grouped[key])
 
     return {
