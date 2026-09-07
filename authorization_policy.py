@@ -33,6 +33,7 @@ PERMISSION_MATRIX = {
 
 ADMIN_PREFIXES = (
     "/api/admin/",
+    "/admin/",
 )
 
 
