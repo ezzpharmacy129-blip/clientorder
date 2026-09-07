@@ -10,6 +10,9 @@ def install_production_security(app, db):
     if db.__class__.__module__ != "cloud_db":
         return False
 
+    if getattr(app, "_ezz_production_security_bootstrapped", False):
+        return True
+
     from auth_pg import install_auth
     from authorization_policy import install_authorization
     from auth_security_extensions import install_security_extensions
@@ -17,5 +20,6 @@ def install_production_security(app, db):
     install_auth(app, db)
     install_authorization(app)
     install_security_extensions(app, db)
+    app._ezz_production_security_bootstrapped = True
     app.extensions["ezz_production_security"] = {"installed": True, "cloud": True}
     return True
