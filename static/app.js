@@ -322,6 +322,7 @@ async function loadMessageTemplates(){
     const d=await apiFetch("/api/message-templates");
     const t=d.templates||{}; messageTemplates=t;
     document.getElementById("tpl-price-confirmation").value=t.Message_Template_Price_Confirmation||"";document.getElementById("tpl-available").value=t.Message_Template_Available||"";
+    document.getElementById("tpl-pending").value=t.Message_Template_Pending||"";
     document.getElementById("tpl-partial").value=t.Message_Template_Partial||"";
     document.getElementById("tpl-unavailable").value=t.Message_Template_Unavailable||"";
     document.getElementById("tpl-shortage").value=t.Message_Template_Shortage||"";
@@ -329,7 +330,7 @@ async function loadMessageTemplates(){
   }catch(e){toast(e.message,"error")}
 }
 async function saveMessageTemplates(){
-  const data={Message_Template_Price_Confirmation:document.getElementById("tpl-price-confirmation").value,Message_Template_Available:document.getElementById("tpl-available").value,Message_Template_Partial:document.getElementById("tpl-partial").value,Message_Template_Unavailable:document.getElementById("tpl-unavailable").value,Message_Template_Shortage:document.getElementById("tpl-shortage").value};
+  const data={Message_Template_Price_Confirmation:document.getElementById("tpl-price-confirmation").value,Message_Template_Available:document.getElementById("tpl-available").value,Message_Template_Pending:document.getElementById("tpl-pending").value,Message_Template_Partial:document.getElementById("tpl-partial").value,Message_Template_Unavailable:document.getElementById("tpl-unavailable").value,Message_Template_Shortage:document.getElementById("tpl-shortage").value};
   try{await apiFetch("/api/message-templates",{method:"PUT",body:JSON.stringify(data)});document.getElementById("message-templates-status").textContent="تم حفظ قوالب الرسائل بنجاح ✅";toast("تم حفظ قوالب الرسائل");}catch(e){toast(e.message,"error")}
 }
 async function resetMessageTemplates(){
