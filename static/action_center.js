@@ -9,13 +9,6 @@
       nextFallback: 'متابعة عاجلة',
       primary: 'واتساب'
     },
-    ready_to_send: {
-      label: 'جاهزة للتواصل',
-      itemClass: 'action-item-ready',
-      icon: '🟢',
-      nextFallback: 'إرسال رسالة للعميل',
-      primary: 'إرسال الرسالة'
-    },
     needs_supply: {
       label: 'تحتاج توفير',
       itemClass: 'action-item-supply',
@@ -74,13 +67,11 @@
     const summary = snapshot?.action_center?.summary || {};
     const values = {
       overdue: summary.overdue || 0,
-      ready_to_send: summary.ready_to_send || 0,
       needs_supply: summary.needs_supply || 0,
       awaiting_reply: summary.awaiting_reply || 0,
       today: summary.today || 0
     };
     const nodeSuffix = {
-      ready_to_send: 'ready',
       needs_supply: 'supply',
       awaiting_reply: 'reply'
     };
