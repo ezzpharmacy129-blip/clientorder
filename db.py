@@ -367,6 +367,23 @@ class ExcelDB:
         page=max(1,int(page or 1)); page_size=max(1,min(100,int(page_size or 20))); start=(page-1)*page_size
         return {"orders":orders[start:start+page_size],"count":total,"total":total,"page":page,"page_size":page_size,"pages":max(1,(total+page_size-1)//page_size)}
 
+    def dashboard_summary(self, today):
+        orders = self.get_all_orders()
+        def pending(o):
+            items=[i for i in (o.get("Items") or [])
+                   if str(i.get("Customer_Decision") or "").strip().lower()!="rejected"]
+            return any(str(i.get("Availability_Status") or "").strip()=="بانتظار التوفر" for i in items) if items else o.get("Status")=="بانتظار التوفر"
+        return {
+            "total":len(orders),
+            "pending":sum(1 for o in orders if pending(o)),
+            "available":sum(1 for o in orders if o.get("Status") in ("متوفر - يحتاج اتصال","متوفر جزئيًا - يحتاج اتصال","غير متوفر - يحتاج اتصال") and o.get("Contact_Status","") in ("","لم يتم التواصل")),
+            "awaiting_reply":sum(1 for o in orders if o.get("Contact_Status")=="بانتظار رد العميل"),
+            "pickup_pending":sum(1 for o in orders if o.get("Status") in ("تم التواصل - بانتظار الاستلام","لم يستلم")),
+            "picked_up":sum(1 for o in orders if o.get("Status")=="تم الاستلام"),
+            "today_followup":sum(1 for o in orders if ((o.get("Status") in ("متوفر - يحتاج اتصال","متوفر جزئيًا - يحتاج اتصال","غير متوفر - يحتاج اتصال") and o.get("Contact_Status","") in ("","لم يتم التواصل")) or o.get("Contact_Status")=="بانتظار رد العميل" or o.get("Status") in ("تم التواصل - بانتظار الاستلام","لم يستلم")) and str(o.get("Next_Followup_Date") or "")==today),
+            "overdue":sum(1 for o in orders if (o.get("Contact_Status")=="بانتظار رد العميل" or o.get("Status") in ("تم التواصل - بانتظار الاستلام","لم يستلم")) and str(o.get("Next_Followup_Date") or "") and str(o.get("Next_Followup_Date"))<today),
+        }
+
     def get_all_orders(self):
         with _lock:
             wb = self._load()

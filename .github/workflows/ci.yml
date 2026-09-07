@@ -51,6 +51,8 @@ jobs:
         run: python -m unittest -v tests/test_p1_7_audit_ux.py
       - name: Run DOMContent P1.5 regression tests
         run: python -m unittest -v tests/test_domcontent_p1_5_regression.py
+      - name: Run P2.1 dashboard aggregation tests
+        run: python -m unittest -v tests/test_p2_1_dashboard_aggregation_final.py
       - name: Run workflow policy tests
         run: python -m unittest -v tests/test_workflow_policy.py
       - name: Verify P0 authorization files
