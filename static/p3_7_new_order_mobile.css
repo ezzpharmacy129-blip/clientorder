@@ -1,0 +1,101 @@
+/* P3.7 — Mobile presentation for the new-order form only. */
+
+@media (max-width: 720px) {
+  #view-new-order .order-form {
+    gap: var(--space-3);
+  }
+
+  #view-new-order .products-section,
+  #view-new-order .availability-row,
+  #view-new-order .wa-card,
+  #view-new-order .template-card,
+  #view-new-order .users-admin-card {
+    padding: var(--space-3);
+  }
+
+  #view-new-order .products-title {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  #view-new-order .products-title .btn {
+    width: 100%;
+    min-height: 42px;
+  }
+
+  #view-new-order .product-row {
+    grid-template-columns: 34px minmax(0, 1fr) 36px;
+    gap: 8px;
+    align-items: start;
+    padding: 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--surface);
+  }
+
+  #view-new-order .product-row .product-number {
+    margin-top: 4px;
+  }
+
+  #view-new-order .product-row > input,
+  #view-new-order .product-row > select,
+  #view-new-order .product-row > textarea {
+    width: 100%;
+    min-width: 0;
+  }
+
+  #view-new-order .product-row .remove-product {
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+  }
+
+  #view-new-order .product-row > :nth-child(3),
+  #view-new-order .product-row > :nth-child(4) {
+    grid-column: 2 / -1;
+  }
+
+  #view-new-order .form-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+    width: 100%;
+    gap: 8px;
+  }
+
+  #view-new-order .form-actions .btn,
+  #view-new-order .order-total-preview {
+    width: 100%;
+    min-height: 42px;
+  }
+
+  #view-new-order input,
+  #view-new-order select,
+  #view-new-order textarea {
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 420px) {
+  #view-new-order .panel,
+  #view-new-order .products-section {
+    padding: var(--space-3);
+  }
+
+  #view-new-order .product-row {
+    grid-template-columns: 30px minmax(0, 1fr) 34px;
+    padding: 8px;
+    gap: 6px;
+  }
+
+  #view-new-order .product-row .product-number {
+    width: 28px;
+    height: 28px;
+  }
+
+  #view-new-order .product-row .remove-product {
+    width: 34px;
+    height: 34px;
+    min-width: 34px;
+  }
+}
