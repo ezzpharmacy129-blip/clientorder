@@ -593,9 +593,12 @@ def whatsapp_customer_message(order):
     eligible = [i for i in items
                 if str(i.get("Customer_Decision") or "").strip() != "rejected"
                 and not (legacy_rejected and i.get("Availability_Status") != "بانتظار التوفر")]
+    status = str(order.get("Status") or "").strip()
+    is_pending = status == STATUS_PENDING
+
     available = [i for i in eligible if i.get("Availability_Status") == "متوفر"]
     unavailable = [i for i in eligible if i.get("Availability_Status") == "غير متوفر"]
-    if not available and not unavailable:
+    if not available and not unavailable and not is_pending:
         available = eligible
 
     products_available = _format_available_items(available)
@@ -611,8 +614,7 @@ def whatsapp_customer_message(order):
         "الإجمالي": "",
         "الشعار": settings.get("Tagline", "رعاية من القلب"),
     }
-    status = str(order.get("Status") or "").strip()
-    if status == STATUS_PENDING and not available and not unavailable:
+    if is_pending and not available and not unavailable:
         template = settings.get("Message_Template_Pending")
     elif price_confirmation and available:
         template = settings.get("Message_Template_Price_Confirmation")
