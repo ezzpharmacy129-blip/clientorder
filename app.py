@@ -480,6 +480,8 @@ def api_dashboard():
     stats["date"] = today
 
     action_center = _build_action_center_payload(orders, today)
+    action_summary = db.dashboard_action_summary(today)
+    action_center["summary"] = {**action_center.get("summary", {}), **action_summary}
     followups = _active_followups_payload(orders, today)
     dashboard_orders = [_dashboard_order_payload(o) for o in orders]
     dashboard_filters = {
