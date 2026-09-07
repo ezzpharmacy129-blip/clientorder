@@ -12,12 +12,8 @@ def on_starting(server):
     from db import db
     if db.__class__.__module__ != "cloud_db":
         raise RuntimeError("Render production requires the CloudDB/PostgreSQL backend")
-    from auth_pg import install_auth
-    install_auth(app, db)
-    from authorization_policy import install_authorization
-    install_authorization(app)
-    from auth_security_extensions import install_security_extensions
-    install_security_extensions(app, db)
+    from production_bootstrap import install_production_security
+    install_production_security(app, db)
     server.log.info("Ezz Pharmacy production authentication and authorization initialized")
 
 
