@@ -60,3 +60,18 @@ function todayISO(){return new Date().toLocaleDateString("en-CA",{timeZone:"Asia
   if(document.head) install();
   else document.addEventListener("DOMContentLoaded",install,{once:true});
 })();
+
+/* P3.4: load the mobile orders presentation layer without changing application logic. */
+(function loadP34OrdersMobileStyles(){
+  if(typeof document==="undefined") return;
+  const install=()=>{
+    if(document.querySelector('link[data-ezz-style="p3-4-orders-mobile"]')) return;
+    const link=document.createElement("link");
+    link.rel="stylesheet";
+    link.href="/static/p3_4_orders_mobile.css?v=20260907-p34";
+    link.dataset.ezzStyle="p3-4-orders-mobile";
+    document.head.appendChild(link);
+  };
+  if(document.head) install();
+  else document.addEventListener("DOMContentLoaded",install,{once:true});
+})();
