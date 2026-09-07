@@ -1,0 +1,159 @@
+/* P3.5 — Mobile presentation for the dashboard operational views. */
+
+@media (max-width: 720px) {
+  #view-dashboard .dashboard-results-panel .panel-header {
+    align-items: stretch;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  #view-dashboard .dashboard-results-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+    width: 100%;
+  }
+
+  #view-dashboard .dashboard-results-actions select,
+  #view-dashboard .dashboard-results-actions input,
+  #view-dashboard .dashboard-results-actions .btn {
+    width: 100%;
+    min-height: 42px;
+  }
+
+  #view-dashboard .dashboard-results-panel .table-wrap {
+    overflow: visible;
+  }
+
+  #view-dashboard .dashboard-orders-table {
+    display: block;
+    width: 100%;
+    border: 0;
+    border-collapse: separate;
+  }
+
+  #view-dashboard .dashboard-orders-table thead {
+    display: none;
+  }
+
+  #view-dashboard .dashboard-orders-table tbody {
+    display: grid;
+    gap: 12px;
+  }
+
+  #view-dashboard .dashboard-orders-table tbody tr {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+    padding: 14px;
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 14px;
+    background: var(--surface-color, #fff);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.06);
+  }
+
+  #view-dashboard .dashboard-orders-table tbody td {
+    display: grid;
+    grid-template-columns: minmax(82px, 32%) 1fr;
+    gap: 8px;
+    align-items: center;
+    min-width: 0;
+    padding: 4px 0;
+    border: 0;
+    text-align: right;
+  }
+
+  #view-dashboard .dashboard-orders-table tbody td::before {
+    font-weight: 700;
+    color: var(--muted-text, #6b7280);
+    content: "";
+  }
+
+  #view-dashboard .dashboard-orders-table tbody td:nth-child(1)::before { content: "رقم الطلب"; }
+  #view-dashboard .dashboard-orders-table tbody td:nth-child(2)::before { content: "العميل"; }
+  #view-dashboard .dashboard-orders-table tbody td:nth-child(3)::before { content: "المنتجات"; }
+  #view-dashboard .dashboard-orders-table tbody td:nth-child(4)::before { content: "تاريخ الطلب"; }
+  #view-dashboard .dashboard-orders-table tbody td:nth-child(5)::before { content: "الحالة"; }
+  #view-dashboard .dashboard-orders-table tbody td:nth-child(6)::before { content: "التواصل"; }
+  #view-dashboard .dashboard-orders-table tbody td:nth-child(7)::before { content: "المتابعة"; }
+  #view-dashboard .dashboard-orders-table tbody td:nth-child(8)::before { content: "الإجراء"; }
+
+  #view-dashboard .dashboard-orders-table tbody td:first-child {
+    font-weight: 800;
+  }
+
+  #view-dashboard .dashboard-orders-table tbody td:nth-child(3) {
+    align-items: start;
+  }
+
+  #view-dashboard .dashboard-orders-table tbody td:nth-child(8) {
+    grid-template-columns: 1fr;
+    padding-top: 10px;
+    border-top: 1px solid var(--border-color, #e5e7eb);
+  }
+
+  #view-dashboard .dashboard-orders-table tbody td:nth-child(8)::before {
+    margin-bottom: 2px;
+  }
+
+  #view-dashboard .dashboard-orders-table tbody td:nth-child(8) .btn,
+  #view-dashboard .dashboard-orders-table tbody td:nth-child(8) button,
+  #view-dashboard .dashboard-orders-table tbody td:nth-child(8) a {
+    width: 100%;
+    min-height: 42px;
+  }
+
+  #view-dashboard .dashboard-orders-table tbody td:nth-child(8) {
+    grid-auto-rows: minmax(42px, auto);
+  }
+
+  #view-dashboard .dashboard-orders-table tbody td:nth-child(8) > * {
+    justify-self: stretch;
+  }
+
+  #view-dashboard .dashboard-orders-table tbody td:nth-child(8) .dashboard-detail-btn,
+  #view-dashboard .dashboard-orders-table tbody td:nth-child(8) .dashboard-wa-btn {
+    display: block;
+    width: 100%;
+  }
+
+  #view-dashboard .followups-list {
+    gap: 10px;
+  }
+
+  #view-dashboard .followup-card {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 14px;
+  }
+
+  #view-dashboard .followup-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    width: 100%;
+  }
+
+  #view-dashboard .followup-actions .btn,
+  #view-dashboard .followup-actions a {
+    width: 100%;
+    min-height: 42px;
+  }
+}
+
+@media (max-width: 420px) {
+  #view-dashboard .dashboard-orders-table tbody tr {
+    padding: 12px;
+    border-radius: 12px;
+  }
+
+  #view-dashboard .dashboard-orders-table tbody td {
+    grid-template-columns: 76px 1fr;
+  }
+
+  #view-dashboard .followup-actions {
+    grid-template-columns: 1fr;
+  }
+}
