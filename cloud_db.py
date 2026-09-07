@@ -400,6 +400,82 @@ class CloudDB:
             'total','pending','available','awaiting_reply','pickup_pending','picked_up','today_followup','overdue'
         )}
 
+    def dashboard_orders_page(self, filter_key="all", q="", contact="", page=1, page_size=20):
+        """Fetch only the dashboard result page requested by the employee."""
+        page=max(1,int(page or 1)); page_size=max(1,min(100,int(page_size or 20)))
+        filter_key=str(filter_key or "all").strip().lower()
+        allowed={"all","pending","available","awaiting_reply","pickup_pending","picked_up"}
+        if filter_key not in allowed:
+            raise ValueError("فلتر لوحة التحكم غير صحيح")
+
+        q=str(q or "").strip().lower()
+        contact=str(contact or "").strip()
+        clauses=[]; params=[]
+
+        if q:
+            term=f"%{q}%"
+            clauses.append("(LOWER(o.customer_name) LIKE %s OR LOWER(o.phone) LIKE %s OR LOWER(o.order_id) LIKE %s OR LOWER(COALESCE(o.product_name,'')) LIKE %s OR EXISTS (SELECT 1 FROM order_items qi WHERE qi.order_id=o.order_id AND LOWER(qi.product_name) LIKE %s))")
+            params.extend([term,term,term,term,term])
+
+        if contact:
+            clauses.append("o.contact_status=%s")
+            params.append(contact)
+
+        if filter_key=="pending":
+            clauses.append("(o.status=%s OR EXISTS (SELECT 1 FROM order_items pi WHERE pi.order_id=o.order_id AND COALESCE(LOWER(pi.customer_decision),'') <> 'rejected' AND pi.availability_status=%s))")
+            params.extend([STATUS_PENDING,'بانتظار التوفر'])
+        elif filter_key=="available":
+            clauses.append("o.status IN (%s,%s,%s) AND COALESCE(o.contact_status,'') IN ('',%s)")
+            params.extend([STATUS_AVAILABLE,STATUS_PARTIAL,STATUS_UNAVAILABLE,CONTACT_NOT_CONTACTED])
+        elif filter_key=="awaiting_reply":
+            clauses.append("o.contact_status=%s")
+            params.append(CONTACT_AWAITING)
+        elif filter_key=="pickup_pending":
+            clauses.append("o.status IN (%s,%s)")
+            params.extend([STATUS_CONTACTED,STATUS_NOT_PICKED])
+        elif filter_key=="picked_up":
+            clauses.append("o.status=%s")
+            params.append(STATUS_PICKED_UP)
+
+        where=(" WHERE "+" AND ".join(clauses)) if clauses else ""
+        with self._connect() as conn:
+            total=int(conn.execute(f"SELECT COUNT(*) AS c FROM orders o{where}",tuple(params)).fetchone()["c"])
+            offset=(page-1)*page_size
+            rows=conn.execute(
+                f"SELECT o.* FROM orders o{where} ORDER BY o.created_at DESC LIMIT %s OFFSET %s",
+                tuple(params)+(page_size,offset)
+            ).fetchall()
+            orders=[_row_to_order(r) for r in rows]
+            order_ids=[str(r["order_id"]) for r in rows]
+            groups={}
+            if order_ids:
+                item_rows=conn.execute(
+                    "SELECT * FROM order_items WHERE order_id=ANY(%s) ORDER BY created_at,item_id",
+                    (order_ids,)
+                ).fetchall()
+                for r in item_rows:
+                    item=_row_to_item(dict(r))
+                    groups.setdefault(str(item["Order_ID"]),[]).append(item)
+
+        data=self._attach_items(orders,groups)
+        payload=[{
+            "Order_ID":o.get("Order_ID",""),"Customer_Name":o.get("Customer_Name",""),
+            "Phone":o.get("Phone",""),"Product_Name":o.get("Product_Name",""),
+            "Quantity":o.get("Quantity",0),"Order_Date":o.get("Order_Date",""),
+            "Status":o.get("Status",""),"Contact_Status":o.get("Contact_Status",""),
+            "Next_Followup_Date":o.get("Next_Followup_Date",""),"Created_At":o.get("Created_At",""),
+            "Items":[{
+                "Item_ID":i.get("Item_ID",""),"Product_Name":i.get("Product_Name",""),
+                "Quantity":i.get("Quantity",0),"Image_Path":i.get("Image_Path",""),
+                "Availability_Status":i.get("Availability_Status",""),
+                "Customer_Decision":i.get("Customer_Decision","")
+            } for i in (o.get("Items") or [])]
+        } for o in data]
+        return {
+            "orders":payload,"count":total,"total":total,"page":page,"page_size":page_size,
+            "pages":max(1,(total+page_size-1)//page_size),"filter":filter_key
+        }
+
     def get_all_orders(self):
         with self._connect() as conn:
             orders = [_row_to_order(r) for r in conn.execute('SELECT * FROM orders ORDER BY created_at DESC').fetchall()]
