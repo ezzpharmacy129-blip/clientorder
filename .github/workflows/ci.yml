@@ -63,6 +63,8 @@ jobs:
         run: python -m unittest -v tests/test_p2_6_js_core.py
       - name: Run P2.5 shortages payload UI tests
         run: python -m unittest -v tests/test_p2_5_shortages_payload_ui.py
+      - name: Run P2.7 CSS cleanup tests
+        run: python -m unittest -v tests/test_p2_7_css_cleanup.py
       - name: Run workflow policy tests
         run: python -m unittest -v tests/test_workflow_policy.py
       - name: Verify P0 authorization files
