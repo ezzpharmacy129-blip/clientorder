@@ -208,3 +208,30 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--focus-ring),0 3px 12px 
 .action-item-actions{display:grid;grid-template-columns:1fr;gap:8px}
 .action-item-actions .btn{width:100%;min-width:0}
 }
+
+
+/* EZZ TYPOGRAPHY SHARPNESS v1 */
+:root{
+  --font-arabic:"Tajawal","IBM Plex Sans Arabic","Segoe UI",Tahoma,Arial,sans-serif;
+}
+html{
+  font-synthesis:none;
+}
+body{
+  font-family:var(--font-arabic);
+  -webkit-font-smoothing:auto;
+  -moz-osx-font-smoothing:auto;
+  text-rendering:optimizeLegibility;
+}
+button,input,select,textarea{
+  font-family:var(--font-arabic);
+  font-synthesis:none;
+  -webkit-font-smoothing:auto;
+  text-rendering:optimizeLegibility;
+}
+h1,h2,h3,h4,h5,h6,strong,b,.stat-value,.nav-btn,.btn,.status-badge{
+  font-synthesis:none;
+}
+.stat-value{
+  font-variant-numeric:tabular-nums;
+}
