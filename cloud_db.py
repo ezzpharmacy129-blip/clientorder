@@ -293,6 +293,32 @@ class CloudDB:
                 order['Quantity'] = 0
         return orders
 
+    def search_orders_page(self, q="", status="", date_from="", date_to="", page=1, page_size=20):
+        """Search and paginate orders in PostgreSQL, loading items only for the page."""
+        page=max(1,int(page or 1)); page_size=max(1,min(100,int(page_size or 20)))
+        q=str(q or "").strip().lower(); status=str(status or "").strip()
+        date_from=str(date_from or "").strip(); date_to=str(date_to or "").strip()
+        clauses=[]; params=[]
+        if q:
+            term=f"%{q}%"
+            clauses.append("(LOWER(o.customer_name) LIKE %s OR LOWER(o.phone) LIKE %s OR LOWER(o.order_id) LIKE %s OR LOWER(COALESCE(o.product_name,'')) LIKE %s OR EXISTS (SELECT 1 FROM order_items qi WHERE qi.order_id=o.order_id AND LOWER(qi.product_name) LIKE %s))")
+            params.extend([term,term,term,term,term])
+        if status: clauses.append("o.status=%s"); params.append(status)
+        if date_from: clauses.append("COALESCE(NULLIF(o.order_date,''),LEFT(o.created_at,10)) >= %s"); params.append(date_from)
+        if date_to: clauses.append("COALESCE(NULLIF(o.order_date,''),LEFT(o.created_at,10)) <= %s"); params.append(date_to)
+        where=(" WHERE "+" AND ".join(clauses)) if clauses else ""
+        with self._connect() as conn:
+            total=int(conn.execute(f"SELECT COUNT(*) AS c FROM orders o{where}",tuple(params)).fetchone()["c"])
+            offset=(page-1)*page_size
+            rows=conn.execute(f"SELECT o.* FROM orders o{where} ORDER BY o.created_at DESC LIMIT %s OFFSET %s",tuple(params)+(page_size,offset)).fetchall()
+            orders=[_row_to_order(r) for r in rows]
+            order_ids=[str(r["order_id"]) for r in rows]; groups={}
+            if order_ids:
+                item_rows=conn.execute("SELECT * FROM order_items WHERE order_id=ANY(%s) ORDER BY created_at,item_id",(order_ids,)).fetchall()
+                for r in item_rows:
+                    item=_row_to_item(dict(r)); groups.setdefault(str(item["Order_ID"]),[]).append(item)
+        return {"orders":self._attach_items(orders,groups),"count":total,"total":total,"page":page,"page_size":page_size,"pages":max(1,(total+page_size-1)//page_size)}
+
     def get_all_orders(self):
         with self._connect() as conn:
             orders = [_row_to_order(r) for r in conn.execute('SELECT * FROM orders ORDER BY created_at DESC').fetchall()]

@@ -352,6 +352,21 @@ class ExcelDB:
                 o["Quantity"] = 0
         return orders
 
+    def search_orders_page(self, q="", status="", date_from="", date_to="", page=1, page_size=20):
+        orders=self.get_all_orders(); q=str(q or "").strip().lower(); status=str(status or "").strip()
+        if q:
+            trans=str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹","01234567890123456789"); qp=q.translate(trans)
+            def match(o):
+                blob=" ".join([str(o.get("Customer_Name","")),str(o.get("Phone","")),str(o.get("Product_Name","")),str(o.get("Order_ID",""))]).lower()
+                return q in blob or (qp and qp in str(o.get("Phone",""))) or any(q in str(i.get("Product_Name","")).lower() for i in o.get("Items",[]))
+            orders=[o for o in orders if match(o)]
+        if status: orders=[o for o in orders if o.get("Status")==status]
+        if date_from: orders=[o for o in orders if str(o.get("Order_Date",""))>=date_from]
+        if date_to: orders=[o for o in orders if str(o.get("Order_Date",""))<=date_to]
+        orders.sort(key=lambda o:str(o.get("Created_At","")),reverse=True); total=len(orders)
+        page=max(1,int(page or 1)); page_size=max(1,min(100,int(page_size or 20))); start=(page-1)*page_size
+        return {"orders":orders[start:start+page_size],"count":total,"total":total,"page":page,"page_size":page_size,"pages":max(1,(total+page_size-1)//page_size)}
+
     def get_all_orders(self):
         with _lock:
             wb = self._load()
