@@ -1,0 +1,126 @@
+/* P3.4 — Mobile presentation for the "جميع الطلبات" table. */
+
+@media (max-width: 720px) {
+  #view-orders .table-wrap {
+    overflow: visible;
+  }
+
+  #view-orders .orders-table {
+    display: block;
+    width: 100%;
+    border: 0;
+    border-collapse: separate;
+  }
+
+  #view-orders .orders-table thead {
+    display: none;
+  }
+
+  #view-orders .orders-table tbody {
+    display: grid;
+    gap: 12px;
+  }
+
+  #view-orders .orders-table tbody tr {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+    padding: 14px;
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 14px;
+    background: var(--surface-color, #fff);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.06);
+  }
+
+  #view-orders .orders-table tbody td {
+    display: grid;
+    grid-template-columns: minmax(92px, 34%) 1fr;
+    gap: 8px;
+    align-items: center;
+    min-width: 0;
+    padding: 4px 0;
+    border: 0;
+    text-align: right;
+  }
+
+  #view-orders .orders-table tbody td::before {
+    font-weight: 700;
+    color: var(--muted-text, #6b7280);
+    content: "";
+  }
+
+  #view-orders .orders-table tbody td:nth-child(1)::before { content: "رقم الطلب"; }
+  #view-orders .orders-table tbody td:nth-child(2)::before { content: "العميل"; }
+  #view-orders .orders-table tbody td:nth-child(3)::before { content: "الجوال"; }
+  #view-orders .orders-table tbody td:nth-child(4)::before { content: "المنتجات"; }
+  #view-orders .orders-table tbody td:nth-child(5)::before { content: "إجمالي الكمية"; }
+  #view-orders .orders-table tbody td:nth-child(6)::before { content: "تاريخ الطلب"; }
+  #view-orders .orders-table tbody td:nth-child(7)::before { content: "التوفر"; }
+  #view-orders .orders-table tbody td:nth-child(8)::before { content: "الحالة"; }
+  #view-orders .orders-table tbody td:nth-child(9)::before { content: "التواصل"; }
+  #view-orders .orders-table tbody td:nth-child(10)::before { content: "آخر متابعة"; }
+  #view-orders .orders-table tbody td:nth-child(11)::before { content: "موعد المتابعة"; }
+  #view-orders .orders-table tbody td:nth-child(12)::before { content: "الإجراء"; }
+
+  #view-orders .orders-table tbody td:first-child {
+    font-weight: 800;
+  }
+
+  #view-orders .orders-table tbody td:nth-child(4) {
+    align-items: start;
+  }
+
+  #view-orders .orders-table tbody td:nth-child(12) {
+    grid-template-columns: 1fr;
+    padding-top: 10px;
+    border-top: 1px solid var(--border-color, #e5e7eb);
+  }
+
+  #view-orders .orders-table tbody td:nth-child(12)::before {
+    margin-bottom: 2px;
+  }
+
+  #view-orders .orders-table tbody td:nth-child(12) .btn,
+  #view-orders .orders-table tbody td:nth-child(12) button,
+  #view-orders .orders-table tbody td:nth-child(12) a {
+    width: 100%;
+    min-height: 42px;
+  }
+
+  #view-orders .orders-table tbody td:nth-child(12) {
+    grid-auto-rows: minmax(42px, auto);
+  }
+
+  #view-orders .orders-table tbody td:nth-child(12) > * {
+    justify-self: stretch;
+  }
+
+  #view-orders .orders-table tbody td:nth-child(12) .action-buttons,
+  #view-orders .orders-table tbody td:nth-child(12) .order-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  #view-orders .orders-table tbody .empty-state {
+    display: block;
+    padding: 24px 12px;
+    text-align: center;
+  }
+}
+
+@media (max-width: 420px) {
+  #view-orders .orders-table tbody tr {
+    padding: 12px;
+    border-radius: 12px;
+  }
+
+  #view-orders .orders-table tbody td {
+    grid-template-columns: 84px 1fr;
+  }
+
+  #view-orders .orders-table tbody td:nth-child(12) .action-buttons,
+  #view-orders .orders-table tbody td:nth-child(12) .order-actions {
+    grid-template-columns: 1fr;
+  }
+}
