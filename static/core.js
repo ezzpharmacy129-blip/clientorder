@@ -46,77 +46,12 @@ function openWhatsAppOnThisDevice(appUrl,webUrl){if(!appUrl)return;let timer=nul
 function phoneLinks(p){const n=normalizePhoneClient(p);if(!n)return"";const wa=waUrl(n,"");return `<span class="contact-links"><a class="btn btn-icon btn-sm" href="tel:${n}">📞</a><a class="btn btn-icon btn-sm wa-desktop-link" href="${wa}">💬</a></span>`}
 function todayISO(){return new Date().toLocaleDateString("en-CA",{timeZone:"Asia/Riyadh"})}
 
-/* P3.3: load the order-details visual layer without changing application logic. */
-(function loadP33OrderDetailsStyles(){
-  if(typeof document==="undefined") return;
-  const install=()=>{
-    if(document.querySelector('link[data-ezz-style="p3-3-order-details"]')) return;
-    const link=document.createElement("link");
-    link.rel="stylesheet";
-    link.href="/static/p3_3_order_details.css?v=20260907-p33";
-    link.dataset.ezzStyle="p3-3-order-details";
-    document.head.appendChild(link);
-  };
-  if(document.head) install();
-  else document.addEventListener("DOMContentLoaded",install,{once:true});
-})();
 
-/* P3.4: load the mobile orders presentation layer without changing application logic. */
-(function loadP34OrdersMobileStyles(){
-  if(typeof document==="undefined") return;
-  const install=()=>{
-    if(document.querySelector('link[data-ezz-style="p3-4-orders-mobile"]')) return;
-    const link=document.createElement("link");
-    link.rel="stylesheet";
-    link.href="/static/p3_4_orders_mobile.css?v=20260907-p34";
-    link.dataset.ezzStyle="p3-4-orders-mobile";
-    document.head.appendChild(link);
-  };
-  if(document.head) install();
-  else document.addEventListener("DOMContentLoaded",install,{once:true});
-})();
 
-/* P3.5: load the dashboard mobile presentation layer without changing application logic. */
-(function loadP35DashboardMobileStyles(){
-  if(typeof document==="undefined") return;
-  const install=()=>{
-    if(document.querySelector('link[data-ezz-style="p3-5-dashboard-mobile"]')) return;
-    const link=document.createElement("link");
-    link.rel="stylesheet";
-    link.href="/static/p3_5_dashboard_mobile.css?v=20260907-p35";
-    link.dataset.ezzStyle="p3-5-dashboard-mobile";
-    document.head.appendChild(link);
-  };
-  if(document.head) install();
-  else document.addEventListener("DOMContentLoaded",install,{once:true});
-})();
 
-/* P3.6: load the mobile header/navigation presentation layer without changing application logic. */
-(function loadP36MobileHeaderStyles(){
-  if(typeof document==="undefined") return;
-  const install=()=>{
-    if(document.querySelector('link[data-ezz-style="p3-6-mobile-header"]')) return;
-    const link=document.createElement("link");
-    link.rel="stylesheet";
-    link.href="/static/p3_6_mobile_header.css?v=20260907-p36";
-    link.dataset.ezzStyle="p3-6-mobile-header";
-    document.head.appendChild(link);
-  };
-  if(document.head) install();
-  else document.addEventListener("DOMContentLoaded",install,{once:true});
-})();
 
-/* P3.7: load the new-order mobile presentation layer without changing application logic. */
-(function loadP37NewOrderMobileStyles(){
-  if(typeof document==="undefined") return;
-  const install=()=>{
-    if(document.querySelector('link[data-ezz-style="p3-7-new-order-mobile"]')) return;
-    const link=document.createElement("link");
-    link.rel="stylesheet";
-    link.href="/static/p3_7_new_order_mobile.css?v=20260907-p37";
-    link.dataset.ezzStyle="p3-7-new-order-mobile";
-    document.head.appendChild(link);
-  };
-  if(document.head) install();
-  else document.addEventListener("DOMContentLoaded",install,{once:true});
-})();
+
+
+
+
+
