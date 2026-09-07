@@ -201,6 +201,23 @@ class CloudDB:
         with self._connect() as conn:
             conn.execute(SCHEMA_SQL)
             conn.execute("ALTER TABLE order_items ADD COLUMN IF NOT EXISTS customer_decision TEXT NOT NULL DEFAULT ''")
+
+            # Accelerate the existing substring search without changing its UI
+            # or matching behavior. If pg_trgm is unavailable, keep the app
+            # running normally and fall back to the existing query plan.
+            try:
+                conn.execute("SAVEPOINT search_indexes")
+                conn.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_customer_name_trgm ON orders USING gin (LOWER(customer_name) gin_trgm_ops)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_phone_trgm ON orders USING gin (LOWER(phone) gin_trgm_ops)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_order_id_trgm ON orders USING gin (LOWER(order_id) gin_trgm_ops)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_product_name_trgm ON orders USING gin (LOWER(COALESCE(product_name,'')) gin_trgm_ops)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_order_items_product_name_trgm ON order_items USING gin (LOWER(product_name) gin_trgm_ops)")
+                conn.execute("RELEASE SAVEPOINT search_indexes")
+            except Exception:
+                conn.execute("ROLLBACK TO SAVEPOINT search_indexes")
+                conn.execute("RELEASE SAVEPOINT search_indexes")
+
             rows = conn.execute('SELECT key FROM settings').fetchall()
             existing = {r['key'] for r in rows}
             for key, value in DEFAULT_SETTINGS.items():
