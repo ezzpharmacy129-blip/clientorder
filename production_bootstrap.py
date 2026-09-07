@@ -16,10 +16,12 @@ def install_production_security(app, db):
     from auth_pg import install_auth
     from authorization_policy import install_authorization
     from auth_security_extensions import install_security_extensions
+    from admin_recovery import install_admin_recovery
 
     install_auth(app, db)
     install_authorization(app)
     install_security_extensions(app, db)
+    install_admin_recovery(app, db)
     app._ezz_production_security_bootstrapped = True
     app.extensions["ezz_production_security"] = {"installed": True, "cloud": True}
     return True
