@@ -340,6 +340,31 @@ class CloudDB:
                 order['Quantity'] = sum(int(i.get('Quantity') or 0) for i in order['Items'])
             return order
 
+    def get_activity_log_page(self, user="", action="", order_id="", q="", page=1, page_size=50):
+        """Paginated, filterable audit log query for the admin UI."""
+        page=max(1,int(page or 1)); page_size=max(1,min(100,int(page_size or 50)))
+        clauses=[]; params=[]
+        user=str(user or "").strip(); action=str(action or "").strip()
+        order_id=str(order_id or "").strip(); q=str(q or "").strip().lower()
+        if user: clauses.append("LOWER(user_name)=LOWER(%s)"); params.append(user)
+        if action: clauses.append("action=%s"); params.append(action)
+        if order_id: clauses.append("order_id=%s"); params.append(order_id)
+        if q:
+            term=f"%{q}%"
+            clauses.append("(LOWER(COALESCE(note,'')) LIKE %s OR LOWER(COALESCE(order_id,'')) LIKE %s OR LOWER(COALESCE(user_name,'')) LIKE %s)")
+            params.extend([term,term,term])
+        where=(" WHERE "+" AND ".join(clauses)) if clauses else ""
+        with self._connect() as conn:
+            total=int(conn.execute(f"SELECT COUNT(*) AS c FROM activity_log{where}",tuple(params)).fetchone()["c"])
+            offset=(page-1)*page_size
+            rows=conn.execute(f"SELECT * FROM activity_log{where} ORDER BY created_at DESC, log_id DESC LIMIT %s OFFSET %s",tuple(params)+(page_size,offset)).fetchall()
+        data=[{
+            "Log_ID":r["log_id"],"Order_ID":r["order_id"],"Action":r["action"],
+            "Old_Status":r["old_status"],"New_Status":r["new_status"],
+            "Note":r["note"],"Created_At":r["created_at"],"User":r["user_name"]
+        } for r in rows]
+        return {"rows":data,"count":total,"total":total,"page":page,"page_size":page_size,"pages":max(1,(total+page_size-1)//page_size)}
+
     def get_activity_log(self, order_id=None):
         with self._connect() as conn:
             if order_id is None:
