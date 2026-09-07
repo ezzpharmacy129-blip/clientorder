@@ -1,0 +1,42 @@
+name: P1 temporary CI patch
+
+on:
+  push:
+    branches: [p1-admin-credentials-persistent]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Add admin credential regression test to CI
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('.github/workflows/ci.yml')
+          text = p.read_text(encoding='utf-8')
+          compile_marker = 'auth_pg.py auth_security_extensions.py'
+          if 'tests/test_admin_credentials_persistence.py' not in text:
+              if compile_marker not in text:
+                  raise SystemExit('CI compileall marker not found')
+              text = text.replace(compile_marker, compile_marker + ' tests/test_admin_credentials_persistence.py', 1)
+          run_marker = '      - name: Run login rate limit tests\n        run: python -m unittest -v tests/test_login_rate_limit.py\n'
+          new_run = run_marker + '      - name: Run admin credential persistence regression tests\n        run: python -m unittest -v tests/test_admin_credentials_persistence.py\n'
+          if 'Run admin credential persistence regression tests' not in text:
+              if run_marker not in text:
+                  raise SystemExit('CI login test marker not found')
+              text = text.replace(run_marker, new_run, 1)
+          p.write_text(text, encoding='utf-8')
+      - name: Commit CI patch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/ci.yml
+          git diff --cached --quiet && exit 0
+          git commit -m 'test(P1): run admin credential persistence regression in CI'
+          git push origin HEAD:p1-admin-credentials-persistent
