@@ -45,3 +45,18 @@ function waUrl(phone,message){const p=normalizePhoneClient(phone);return `whatsa
 function openWhatsAppOnThisDevice(appUrl,webUrl){if(!appUrl)return;let timer=null;const hidden=()=>{if(timer)clearTimeout(timer);document.removeEventListener("visibilitychange",hidden)};document.addEventListener("visibilitychange",hidden);try{window.location.href=appUrl}catch(_e){if(webUrl)window.open(webUrl,"_blank","noopener");return}timer=setTimeout(()=>{document.removeEventListener("visibilitychange",hidden);if(document.visibilityState==="visible"&&webUrl)window.open(webUrl,"_blank","noopener")},1400)}
 function phoneLinks(p){const n=normalizePhoneClient(p);if(!n)return"";const wa=waUrl(n,"");return `<span class="contact-links"><a class="btn btn-icon btn-sm" href="tel:${n}">📞</a><a class="btn btn-icon btn-sm wa-desktop-link" href="${wa}">💬</a></span>`}
 function todayISO(){return new Date().toLocaleDateString("en-CA",{timeZone:"Asia/Riyadh"})}
+
+/* P3.3: load the order-details visual layer without changing application logic. */
+(function loadP33OrderDetailsStyles(){
+  if(typeof document==="undefined") return;
+  const install=()=>{
+    if(document.querySelector('link[data-ezz-style="p3-3-order-details"]')) return;
+    const link=document.createElement("link");
+    link.rel="stylesheet";
+    link.href="/static/p3_3_order_details.css?v=20260907-p33";
+    link.dataset.ezzStyle="p3-3-order-details";
+    document.head.appendChild(link);
+  };
+  if(document.head) install();
+  else document.addEventListener("DOMContentLoaded",install,{once:true});
+})();
