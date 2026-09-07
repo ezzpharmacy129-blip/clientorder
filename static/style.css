@@ -149,7 +149,7 @@ input,select,textarea{min-height:42px;padding:10px var(--space-3);color:var(--te
   --shadow-hover:0 14px 34px rgba(21,63,122,.11);
 }
 body{font-family:var(--font-family);color:var(--text);background:linear-gradient(180deg,#f7fbfc 0%,var(--bg) 42%,#f3f8fa 100%);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
-button,input,select,textarea{font:inherit}
+
 .btn,.nav-btn,.stat-card,.toast,.modal-close,.remove-product{transition:background var(--transition),color var(--transition),border-color var(--transition),box-shadow var(--transition),transform var(--transition),opacity var(--transition)}
 .btn{min-height:var(--control-height);border-radius:var(--control-radius);font-weight:800;letter-spacing:-.01em}
 .btn:hover:not(:disabled){transform:translateY(-1px)}
