@@ -20,3 +20,5 @@ class P26JavaScriptCoreTests(unittest.TestCase):
 
 if __name__=="__main__":
     unittest.main()
+
+# CI verification marker: test current PR head.
