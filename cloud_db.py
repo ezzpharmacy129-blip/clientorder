@@ -319,6 +319,45 @@ class CloudDB:
                     item=_row_to_item(dict(r)); groups.setdefault(str(item["Order_ID"]),[]).append(item)
         return {"orders":self._attach_items(orders,groups),"count":total,"total":total,"page":page,"page_size":page_size,"pages":max(1,(total+page_size-1)//page_size)}
 
+    def dashboard_summary(self, today):
+        """Return dashboard counters using PostgreSQL aggregation."""
+        with self._connect() as conn:
+            row=conn.execute("""
+                SELECT
+                    COUNT(*) AS total,
+                    COUNT(*) FILTER (
+                        WHERE EXISTS (
+                            SELECT 1 FROM order_items pi
+                            WHERE pi.order_id=o.order_id
+                              AND COALESCE(NULLIF(LOWER(pi.customer_decision),''),'') <> 'rejected'
+                              AND pi.availability_status='بانتظار التوفر'
+                        )
+                    ) AS pending,
+                    COUNT(*) FILTER (
+                        WHERE o.status IN ('متوفر - يحتاج اتصال','متوفر جزئيًا - يحتاج اتصال','غير متوفر - يحتاج اتصال')
+                          AND COALESCE(o.contact_status,'') IN ('','لم يتم التواصل')
+                    ) AS available,
+                    COUNT(*) FILTER (WHERE o.contact_status='بانتظار رد العميل') AS awaiting_reply,
+                    COUNT(*) FILTER (WHERE o.status IN ('تم التواصل - بانتظار الاستلام','لم يستلم')) AS pickup_pending,
+                    COUNT(*) FILTER (WHERE o.status='تم الاستلام') AS picked_up,
+                    COUNT(*) FILTER (
+                        WHERE (
+                            (o.status IN ('متوفر - يحتاج اتصال','متوفر جزئيًا - يحتاج اتصال','غير متوفر - يحتاج اتصال') AND COALESCE(o.contact_status,'') IN ('','لم يتم التواصل'))
+                            OR o.contact_status='بانتظار رد العميل'
+                            OR o.status IN ('تم التواصل - بانتظار الاستلام','لم يستلم')
+                        ) AND o.next_followup_date=%s
+                    ) AS today_followup,
+                    COUNT(*) FILTER (
+                        WHERE (
+                            o.contact_status='بانتظار رد العميل'
+                            OR o.status IN ('تم التواصل - بانتظار الاستلام','لم يستلم')
+                        )
+                        AND o.next_followup_date <> ''
+                        AND o.next_followup_date < %s
+                    ) AS overdue
+                FROM orders o
+            """,(today,today)).fetchone()
+        return {k:int(row.get(k) or 0) for k in ('total','pending','available','awaiting_reply','pickup_pending','picked_up','today_followup','overdue')}
     def get_all_orders(self):
         with self._connect() as conn:
             orders = [_row_to_order(r) for r in conn.execute('SELECT * FROM orders ORDER BY created_at DESC').fetchall()]
