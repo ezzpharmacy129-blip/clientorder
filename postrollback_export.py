@@ -103,3 +103,11 @@ def install_postrollback_export(app):
         except Exception as exc:
             app.logger.exception("VIP customer status failed")
             return jsonify({"error":f"تعذر تحديث حالة العرض: {exc}"}),500
+
+    # Dashboard consistency is installed after all dashboard routes exist.
+    # It is intentionally isolated from the export implementation above.
+    try:
+        from dashboard_source import install_dashboard_source_of_truth
+        install_dashboard_source_of_truth(app)
+    except Exception as exc:
+        app.logger.exception("Failed to install dashboard source-of-truth: %s", exc)
