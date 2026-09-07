@@ -9,7 +9,6 @@ permissions:
 
 jobs:
   fix-dashboard-source:
-    if: ${{ !contains(github.event.head_commit.message, 'unify dashboard source of truth') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -34,7 +33,6 @@ jobs:
                   return None
 
               # Single operational definition of a follow-up candidate.
-              # This must stay aligned with dashboard_action_summary().
               followup_candidate = (
                   (status in (STATUS_AVAILABLE, STATUS_PARTIAL, STATUS_UNAVAILABLE)
                    and contact in ("", CONTACT_NOT_CONTACTED))
@@ -140,9 +138,6 @@ jobs:
           test = Path("tests/test_dashboard_source_of_truth.py")
           test.write_text('''import unittest\nfrom pathlib import Path\n\nclass DashboardSourceOfTruthTests(unittest.TestCase):\n    def test_app_uses_action_center_for_overdue_filter(self):\n        s = Path("app.py").read_text(encoding="utf-8")\n        self.assertIn('action_center = _build_action_center_payload(orders, today)', s)\n        self.assertIn('stats["overdue"] = action_summary["overdue"]', s)\n        self.assertIn('get("action_key") == "overdue"', s)\n\n    def test_overdue_definition_includes_available_contact_states(self):\n        s = Path("app.py").read_text(encoding="utf-8")\n        self.assertIn('status in (STATUS_AVAILABLE, STATUS_PARTIAL, STATUS_UNAVAILABLE)', s)\n        self.assertIn('followup_candidate', s)\n\n    def test_sql_overdue_definition_matches_available_contact_states(self):\n        s = Path("cloud_db.py").read_text(encoding="utf-8")\n        self.assertIn("o.status IN ('متوفر - يحتاج اتصال','متوفر جزئيًا - يحتاج اتصال','غير متوفر - يحتاج اتصال')", s)\n\nif __name__ == "__main__":\n    unittest.main()\n''', encoding="utf-8")
 
-          # P2.3 originally asserted that the route consumed a second,
-          # independent action-summary source. That is intentionally removed:
-          # the Action Center payload is now the source of truth.
           p23 = Path("tests/test_p2_3_dashboard_query_aggregation.py")
           p23s = p23.read_text(encoding="utf-8")
           p23s = p23s.replace(
