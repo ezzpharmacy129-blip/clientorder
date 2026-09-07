@@ -105,3 +105,18 @@ function todayISO(){return new Date().toLocaleDateString("en-CA",{timeZone:"Asia
   if(document.head) install();
   else document.addEventListener("DOMContentLoaded",install,{once:true});
 })();
+
+/* P3.7: load the new-order mobile presentation layer without changing application logic. */
+(function loadP37NewOrderMobileStyles(){
+  if(typeof document==="undefined") return;
+  const install=()=>{
+    if(document.querySelector('link[data-ezz-style="p3-7-new-order-mobile"]')) return;
+    const link=document.createElement("link");
+    link.rel="stylesheet";
+    link.href="/static/p3_7_new_order_mobile.css?v=20260907-p37";
+    link.dataset.ezzStyle="p3-7-new-order-mobile";
+    document.head.appendChild(link);
+  };
+  if(document.head) install();
+  else document.addEventListener("DOMContentLoaded",install,{once:true});
+})();
