@@ -650,10 +650,9 @@ def api_open_whatsapp_order(order_id):
         return jsonify({"error":"رقم جوال العميل غير صالح"}),400
     app_url = f"whatsapp://send?phone={phone}&text=" + quote(message)
     web_url = f"https://wa.me/{phone}?text=" + quote(message)
-    try:
-        db.set_contact_status(order_id, CONTACT_AWAITING, "تم تجهيز رسالة WhatsApp للعميل، بانتظار الرد", _current_actor_name())
-    except Exception:
-        pass
+    # Opening WhatsApp is a communication tool only; it must not change
+    # the order workflow. The employee confirms actual contact separately
+    # through the "تم التواصل" action.
     return jsonify({"success":True,"message":message,"url":app_url,"web_url":web_url})
 
 
