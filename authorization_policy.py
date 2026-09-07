@@ -12,8 +12,28 @@ ADMIN_EXACT = {
     ("POST", "/api/import-data"),
 }
 
+# Current production permission contract. Values reflect existing business behavior;
+# this module is the single server-side authorization source for the admin boundary.
+PERMISSION_MATRIX = {
+    "employee": {
+        "create_order": True, "edit_order": True, "availability": True,
+        "contact": True, "whatsapp": True, "pickup": True, "postpone": True,
+        "cancel": True, "delete_order": False, "import": False,
+        "restore": False, "reset": False, "manage_users": False,
+        "view_audit": False,
+    },
+    "admin": {
+        "create_order": True, "edit_order": True, "availability": True,
+        "contact": True, "whatsapp": True, "pickup": True, "postpone": True,
+        "cancel": True, "delete_order": True, "import": True,
+        "restore": True, "reset": True, "manage_users": True,
+        "view_audit": True,
+    },
+}
+
 ADMIN_PREFIXES = (
     "/api/admin/",
+    "/admin/",
 )
 
 
@@ -71,4 +91,5 @@ def install_authorization(app):
 
     app.extensions["ezz_authorization"] = {
         "is_admin_required": is_admin_required,
+        "permission_matrix": PERMISSION_MATRIX,
     }
