@@ -7,6 +7,7 @@ from flask import jsonify, request
 
 
 ADMIN_EXACT = {
+    ("GET", "/admin"),
     ("POST", "/api/data/reset"),
     ("POST", "/api/backups/restore"),
     ("POST", "/api/import-data"),
