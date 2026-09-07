@@ -474,7 +474,12 @@ def _order_has_pending_item(order):
 
 @app.get("/api/dashboard")
 def api_dashboard():
-    orders = db.get_all_orders()\n    today = today_str()\n    stats = db.dashboard_summary(today)\n    stats["date"] = today\n\n    action_center = _build_action_center_payload(orders, today)
+    orders = db.get_all_orders()
+    today = today_str()
+    stats = db.dashboard_summary(today)
+    stats["date"] = today
+
+    action_center = _build_action_center_payload(orders, today)
     followups = _active_followups_payload(orders, today)
     dashboard_orders = [_dashboard_order_payload(o) for o in orders]
     dashboard_filters = {
