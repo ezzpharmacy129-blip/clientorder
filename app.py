@@ -503,8 +503,11 @@ def api_dashboard():
     stats = db.dashboard_summary(today)
     stats["date"] = today
 
-    orders = db.get_all_orders()
-    action_center = _build_action_center_payload(orders, today)
+    if hasattr(db, "action_center_orders"):
+        action_orders = db.action_center_orders(today)
+    else:
+        action_orders = db.get_all_orders()
+    action_center = _build_action_center_payload(action_orders, today)
     action_summary = db.dashboard_action_summary(today)
     action_center["summary"] = {**action_center.get("summary", {}), **action_summary}
 
