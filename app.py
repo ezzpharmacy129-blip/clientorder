@@ -483,24 +483,27 @@ def api_dashboard():
     action_summary = db.dashboard_action_summary(today)
     action_center["summary"] = {**action_center.get("summary", {}), **action_summary}
     followups = _active_followups_payload(orders, today)
-    dashboard_orders = [_dashboard_order_payload(o) for o in orders]
+    # Build each dashboard order payload exactly once. Reuse the same
+    # in-memory objects for every filter without changing the JSON contract.
+    dashboard_entries = [(order, _dashboard_order_payload(order)) for order in orders]
+    dashboard_orders = [payload for _, payload in dashboard_entries]
     dashboard_filters = {
         "all": dashboard_orders,
-        "pending": [_dashboard_order_payload(o) for o in orders if _order_has_pending_item(o)],
-        "available": [_dashboard_order_payload(o) for o in orders if o["Status"] in (STATUS_AVAILABLE, STATUS_PARTIAL, STATUS_UNAVAILABLE) and o.get("Contact_Status") in ("", CONTACT_NOT_CONTACTED)],
-        "awaiting_reply": [_dashboard_order_payload(o) for o in orders if o.get("Contact_Status") == CONTACT_AWAITING],
-        "pickup_pending": [_dashboard_order_payload(o) for o in orders if o["Status"] in (STATUS_CONTACTED, STATUS_NOT_PICKED)],
-        "picked_up": [_dashboard_order_payload(o) for o in orders if o["Status"] == STATUS_PICKED_UP],
-        "today_followup": [_dashboard_order_payload(o) for o in orders if (
-            ((o["Status"] in (STATUS_AVAILABLE, STATUS_PARTIAL, STATUS_UNAVAILABLE) and o.get("Contact_Status") in ("", CONTACT_NOT_CONTACTED))
-             or o.get("Contact_Status") == CONTACT_AWAITING
-             or o["Status"] in (STATUS_CONTACTED, STATUS_NOT_PICKED))
-            and str(o.get("Next_Followup_Date") or "") == today
+        "pending": [payload for order, payload in dashboard_entries if _order_has_pending_item(order)],
+        "available": [payload for order, payload in dashboard_entries if order["Status"] in (STATUS_AVAILABLE, STATUS_PARTIAL, STATUS_UNAVAILABLE) and order.get("Contact_Status") in ("", CONTACT_NOT_CONTACTED)],
+        "awaiting_reply": [payload for order, payload in dashboard_entries if order.get("Contact_Status") == CONTACT_AWAITING],
+        "pickup_pending": [payload for order, payload in dashboard_entries if order["Status"] in (STATUS_CONTACTED, STATUS_NOT_PICKED)],
+        "picked_up": [payload for order, payload in dashboard_entries if order["Status"] == STATUS_PICKED_UP],
+        "today_followup": [payload for order, payload in dashboard_entries if (
+            ((order["Status"] in (STATUS_AVAILABLE, STATUS_PARTIAL, STATUS_UNAVAILABLE) and order.get("Contact_Status") in ("", CONTACT_NOT_CONTACTED))
+             or order.get("Contact_Status") == CONTACT_AWAITING
+             or order["Status"] in (STATUS_CONTACTED, STATUS_NOT_PICKED))
+            and str(order.get("Next_Followup_Date") or "") == today
         )],
-        "overdue": [_dashboard_order_payload(o) for o in orders if (
-            (o.get("Contact_Status") == CONTACT_AWAITING or o["Status"] in (STATUS_CONTACTED, STATUS_NOT_PICKED))
-            and str(o.get("Next_Followup_Date") or "")
-            and str(o.get("Next_Followup_Date")) < today
+        "overdue": [payload for order, payload in dashboard_entries if (
+            (order.get("Contact_Status") == CONTACT_AWAITING or order["Status"] in (STATUS_CONTACTED, STATUS_NOT_PICKED))
+            and str(order.get("Next_Followup_Date") or "")
+            and str(order.get("Next_Followup_Date")) < today
         )],
     }
     return jsonify({
