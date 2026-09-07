@@ -58,7 +58,9 @@ jobs:
       - name: Run P2.3 dashboard query aggregation tests
         run: python -m unittest -v tests/test_p2_3_dashboard_query_aggregation.py
       - name: Run P2.4 dashboard payload tests
-        run: python -m unittest -v tests/test_p2_4_dashboard_payload.py tests/test_p2_5_shortages_payload_ui.py
+        run: python -m unittest -v tests/test_p2_4_dashboard_payload.py
+      - name: Run P2.6 JavaScript core tests
+        run: python -m unittest -v tests/test_p2_6_js_core.py
       - name: Run P2.5 shortages payload UI tests
         run: python -m unittest -v tests/test_p2_5_shortages_payload_ui.py
       - name: Run workflow policy tests
