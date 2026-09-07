@@ -34,6 +34,14 @@
 
   let snapshot = null;
   let selectedCategory = null;
+  let autoSelected = false;
+
+  const AUTO_SELECT_ORDER = ['overdue', 'today', 'awaiting_reply', 'needs_supply'];
+
+  function selectMostImportantCategory() {
+    const summary = snapshot?.action_center?.summary || {};
+    selectedCategory = AUTO_SELECT_ORDER.find((key) => Number(summary[key] || 0) > 0) || null;
+  }
 
   const $ = (id) => document.getElementById(id);
 
@@ -180,6 +188,10 @@
 
   function receiveDashboard(event) {
     snapshot = event?.detail || null;
+    if (!autoSelected) {
+      selectMostImportantCategory();
+      autoSelected = true;
+    }
     render();
   }
 
@@ -192,6 +204,7 @@
     const refresh = $('action-center-refresh');
     if (refresh) {
       refresh.addEventListener('click', function () {
+        autoSelected = false;
         selectedCategory = null;
         if (typeof window.loadDashboard === 'function') window.loadDashboard();
         else render();
