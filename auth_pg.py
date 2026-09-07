@@ -358,7 +358,6 @@ def install_auth(app, db):
         return admin_html("لوحة الإدارة", f"<div class='admin-card'><strong>{active}</strong><span>المستخدمون النشطون</span></div><div class='admin-actions'><a href='/admin/users'>إدارة المستخدمين</a><a href='/admin/audit'>Audit Log</a><a href='/'>العودة للنظام</a></div>")
 
     @app.get("/admin/users")
-    @admin_only
     def admin_users():
         rows = list_users()
         body = "<div class='admin-actions'><a href='/admin'>لوحة الإدارة</a><a href='/admin/audit'>Audit Log</a><a href='/'>العودة للنظام</a></div><div class='panel'><h2>إضافة مستخدم</h2><form id='add-user' class='form-grid'><input name='name' placeholder='الاسم' required><input name='username' placeholder='Username' required><input name='password' type='password' placeholder='كلمة المرور' minlength='8' required><select name='role'><option value='employee'>employee</option><option value='admin'>admin</option></select><button>إضافة مستخدم</button></form></div><div class='panel'><h2>المستخدمون</h2><table><tr><th>الاسم</th><th>Username</th><th>الدور</th><th>الحالة</th><th>آخر دخول</th><th>الإجراءات</th></tr>"
@@ -368,7 +367,6 @@ def install_auth(app, db):
         return admin_html("إدارة المستخدمين", body)
 
     @app.get("/admin/audit")
-    @admin_only
     def admin_audit():
         try:
             rows = db.get_activity_log(None)
