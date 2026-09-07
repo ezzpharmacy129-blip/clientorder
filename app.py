@@ -123,14 +123,14 @@ def health():
 @app.get("/api/message-templates")
 def api_message_templates():
     settings = db.get_settings()
-    keys = ["Message_Template_Available", "Message_Template_Partial", "Message_Template_Unavailable", "Message_Template_Price_Confirmation", "Message_Template_Shortage"]
+    keys = ["Message_Template_Available", "Message_Template_Pending", "Message_Template_Partial", "Message_Template_Unavailable", "Message_Template_Price_Confirmation", "Message_Template_Shortage"]
     return jsonify({"templates": {k: settings.get(k, "") for k in keys}})
 
 
 @app.put("/api/message-templates")
 def api_update_message_templates():
     data = request.get_json(silent=True) or {}
-    allowed = {"Message_Template_Available", "Message_Template_Partial", "Message_Template_Unavailable", "Message_Template_Price_Confirmation", "Message_Template_Shortage"}
+    allowed = {"Message_Template_Available", "Message_Template_Pending", "Message_Template_Partial", "Message_Template_Unavailable", "Message_Template_Price_Confirmation", "Message_Template_Shortage"}
     updates = {k: str(v) for k, v in data.items() if k in allowed}
     if not updates:
         return jsonify({"error": "لم يتم إرسال أي قالب للتحديث"}), 400
