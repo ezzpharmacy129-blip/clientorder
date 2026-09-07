@@ -13,6 +13,7 @@ class P16PermissionMatrixTests(unittest.TestCase):
         self.assertIn('path.startswith(ADMIN_PREFIXES)',s)
         self.assertIn('ADMIN_PREFIXES = (',s)
         self.assertIn('/api/admin/',s)
+        self.assertIn('/admin/',s)
 
     def test_auth_module_no_longer_duplicates_admin_decorator(self):
         s=Path("auth_pg.py").read_text(encoding="utf-8")
