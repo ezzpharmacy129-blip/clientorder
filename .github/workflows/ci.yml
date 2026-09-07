@@ -52,7 +52,9 @@ jobs:
       - name: Run DOMContent P1.5 regression tests
         run: python -m unittest -v tests/test_domcontent_p1_5_regression.py
       - name: Run P2.1 dashboard aggregation tests
-        run: python -m unittest -v tests/test_p2_1_dashboard_aggregation_final.py
+        run: python -m unittest -v tests/test_p2_1_dashboard_aggregation_final.py tests/test_p2_2_duplicate_requests.py
+      - name: Run P2.2 duplicate request tests
+        run: python -m unittest -v tests/test_p2_2_duplicate_requests.py
       - name: Run workflow policy tests
         run: python -m unittest -v tests/test_workflow_policy.py
       - name: Verify P0 authorization files
