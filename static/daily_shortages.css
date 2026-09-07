@@ -315,7 +315,6 @@
   }
 }
 
-
 /* Shortages category filters + pagination */
 .shortages-page .shortages-view-tabs{
   display:flex;
@@ -396,7 +395,6 @@
   }
 }
 
-
 /* Independent shortage send actions */
 .shortages-page .shortages-send-actions{
   display:inline-flex;
@@ -425,4 +423,56 @@
 .shortages-page .daily-shortages-table th,.shortages-page .daily-shortages-table td{font-size:11px;padding:8px 7px}
 .shortages-page .shortages-send-actions{display:grid;grid-template-columns:1fr}
 .shortages-page .shortage-send-btn{width:100%}
+}
+
+/* P3.2 — mobile cards for customer shortages; desktop table remains unchanged. */
+@media (max-width:720px){
+  .shortages-page .shortages-overview-copy{width:100%;flex-wrap:wrap;gap:4px 8px}
+  .shortages-page .daily-shortages-table-wrap{max-height:none;min-height:0;overflow:visible}
+  .shortages-page .daily-shortages-table{min-width:0;width:100%;border-collapse:separate;border-spacing:0 10px}
+  .shortages-page .daily-shortages-table thead{display:none}
+  .shortages-page .daily-shortages-table tbody{display:block}
+  .shortages-page .daily-shortages-table tr{display:block;margin:0;padding:12px;border:1px solid var(--border);border-radius:14px;background:#fff;box-shadow:var(--shadow-sm)}
+  .shortages-page .daily-shortages-table tr:hover td{background:transparent}
+  .shortages-page .daily-shortages-table td{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;width:100%;padding:7px 0;border:0;font-size:12px;text-align:right}
+  .shortages-page .daily-shortages-table td::before{flex:0 0 88px;color:var(--muted);font-size:10px;font-weight:800}
+  .shortages-page .daily-shortages-table td:last-child{padding-top:10px;border-top:1px dashed var(--border);margin-top:4px}
+
+  /* Customer shortage cards: Order / Customer / Phone / Product / Qty / Date / Action */
+  .shortages-page .daily-shortages-panel:has(.shortages-view-tab.active[data-shortages-view="customer"]) .daily-shortages-table td:nth-child(1)::before{content:"رقم الطلب"}
+  .shortages-page .daily-shortages-panel:has(.shortages-view-tab.active[data-shortages-view="customer"]) .daily-shortages-table td:nth-child(2)::before{content:"العميل"}
+  .shortages-page .daily-shortages-panel:has(.shortages-view-tab.active[data-shortages-view="customer"]) .daily-shortages-table td:nth-child(3)::before{content:"الهاتف"}
+  .shortages-page .daily-shortages-panel:has(.shortages-view-tab.active[data-shortages-view="customer"]) .daily-shortages-table td:nth-child(4)::before{content:"الصنف"}
+  .shortages-page .daily-shortages-panel:has(.shortages-view-tab.active[data-shortages-view="customer"]) .daily-shortages-table td:nth-child(5)::before{content:"الكمية"}
+  .shortages-page .daily-shortages-panel:has(.shortages-view-tab.active[data-shortages-view="customer"]) .daily-shortages-table td:nth-child(6)::before{content:"التاريخ"}
+  .shortages-page .daily-shortages-panel:has(.shortages-view-tab.active[data-shortages-view="customer"]) .daily-shortages-table td:nth-child(7)::before{content:"الإجراء"}
+
+  /* Pharmacy shortage cards: Product / Qty / Date / Status / Action */
+  .shortages-page .daily-shortages-panel:has(.shortages-view-tab.active[data-shortages-view="pharmacy"], .shortages-view-tab.active[data-shortages-view="pharmacy_available"]) .daily-shortages-table td:nth-child(1)::before{content:"الصنف"}
+  .shortages-page .daily-shortages-panel:has(.shortages-view-tab.active[data-shortages-view="pharmacy"], .shortages-view-tab.active[data-shortages-view="pharmacy_available"]) .daily-shortages-table td:nth-child(2)::before{content:"الكمية"}
+  .shortages-page .daily-shortages-panel:has(.shortages-view-tab.active[data-shortages-view="pharmacy"], .shortages-view-tab.active[data-shortages-view="pharmacy_available"]) .daily-shortages-table td:nth-child(3)::before{content:"التاريخ"}
+  .shortages-page .daily-shortages-panel:has(.shortages-view-tab.active[data-shortages-view="pharmacy"], .shortages-view-tab.active[data-shortages-view="pharmacy_available"]) .daily-shortages-table td:nth-child(4)::before{content:"الحالة"}
+  .shortages-page .daily-shortages-panel:has(.shortages-view-tab.active[data-shortages-view="pharmacy"], .shortages-view-tab.active[data-shortages-view="pharmacy_available"]) .daily-shortages-table td:nth-child(5)::before{content:"الإجراء"}
+
+  /* Combined cards: Type / Order / Customer / Phone / Product / Qty / Date / Status / Action */
+  .shortages-page .daily-shortages-panel:has(.shortages-view-tab.active[data-shortages-view="all"]) .daily-shortages-table td:nth-child(1)::before{content:"النوع"}
+  .shortages-page .daily-shortages-panel:has(.shortages-view-tab.active[data-shortages-view="all"]) .daily-shortages-table td:nth-child(2)::before{content:"رقم الطلب"}
+  .shortages-page .daily-shortages-panel:has(.shortages-view-tab.active[data-shortages-view="all"]) .daily-shortages-table td:nth-child(3)::before{content:"العميل"}
+  .shortages-page .daily-shortages-panel:has(.shortages-view-tab.active[data-shortages-view="all"]) .daily-shortages-table td:nth-child(4)::before{content:"الهاتف"}
+  .shortages-page .daily-shortages-panel:has(.shortages-view-tab.active[data-shortages-view="all"]) .daily-shortages-table td:nth-child(5)::before{content:"الصنف"}
+  .shortages-page .daily-shortages-panel:has(.shortages-view-tab.active[data-shortages-view="all"]) .daily-shortages-table td:nth-child(6)::before{content:"الكمية"}
+  .shortages-page .daily-shortages-panel:has(.shortages-view-tab.active[data-shortages-view="all"]) .daily-shortages-table td:nth-child(7)::before{content:"التاريخ"}
+  .shortages-page .daily-shortages-panel:has(.shortages-view-tab.active[data-shortages-view="all"]) .daily-shortages-table td:nth-child(8)::before{content:"الحالة"}
+  .shortages-page .daily-shortages-panel:has(.shortages-view-tab.active[data-shortages-view="all"]) .daily-shortages-table td:nth-child(9)::before{content:"الإجراء"}
+
+  .shortages-page .daily-shortages-table td[dir="ltr"]{direction:ltr;text-align:left}
+  .shortages-page .daily-shortages-table td .daily-shortage-actions{flex:1;justify-content:flex-end}
+  .shortages-page .daily-shortages-table td:last-child .daily-shortage-actions{justify-content:stretch}
+}
+
+@media (max-width:420px){
+  .shortages-page .daily-shortages-panel{padding:12px}
+  .shortages-page .daily-shortages-table td{font-size:11px}
+  .shortages-page .daily-shortages-table td::before{flex-basis:78px}
+  .shortages-page .daily-shortages-table td .btn{font-size:11px}
 }
