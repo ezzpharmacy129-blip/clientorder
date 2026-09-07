@@ -298,18 +298,20 @@ async function openClientWhatsApp(id){try{const d=await apiFetch(`/api/whatsapp/
 async function copyClientMessage(id){try{const d=await apiFetch(`/api/whatsapp/order/${id}`);await navigator.clipboard.writeText(d.message);toast("تم نسخ رسالة العميل")}catch(e){toast(e.message,"error")}}
 async function importLegacyData(file){
   if(!file)return;
-  const confirmed=window.confirm(`سيتم استبدال بيانات النظام الحالية ببيانات الملف:\n\n${file.name}\n\nسيتم أولًا إنشاء نسخة احتياطية تلقائية من الحالة الحالية. هل تريد المتابعة؟`);
+  const confirmed=window.confirm(`سيتم استبدال بيانات النظام الحالية ببيانات الملف:\n\n${file.name}\n\nسيتم أولًا إنشاء Safety Backup تلقائي من الحالة الحالية. لا تبدأ العملية إلا إذا كنت مستعدًا لاستبدال البيانات الحالية.\n\nهل تريد المتابعة؟`);
   if(!confirmed)return;
   const fd=new FormData(); fd.append("file",file);
-  const btn=document.getElementById("import-data-btn");
+  const btn=document.getElementById("import-data-btn"), input=document.getElementById("import-data-file");
   btn.disabled=true;
   try{
     const d=await apiFetch("/api/import-data",{method:"POST",body:fd});
-    toast(`تم الاستيراد بنجاح — ${d.order_count||0} طلب`);
-    document.getElementById("import-data-file").value="";
+    input.value="";
+    const backup=d.backup||"نسخة أمان تلقائية";
+    toast(`تم الاستيراد بنجاح — ${d.order_count||0} طلب — Safety Backup: ${backup}`,"success");
     refresh(); loadBackups();
-  }catch(e){toast(e.message,"error")}finally{btn.disabled=false}
+  }catch(e){toast(e.message,"error");input.value="";}finally{btn.disabled=false}
 }
+
 function initNewOrder(){const form=document.getElementById("new-order-form");addProductRow();document.getElementById("add-product-btn").onclick=()=>addProductRow();form.addEventListener("reset",()=>setTimeout(()=>{document.getElementById("product-items").innerHTML="";addProductRow();form.querySelector('[name="order_date"]').value=todayISO();document.getElementById("new-order-success").textContent=""},0));form.addEventListener("submit",async e=>{e.preventDefault();const rows=[...document.querySelectorAll('.product-row')];const products=productsPayload();const imageFiles=rows.map(r=>r.querySelector('.product-image')?.files?.[0]||null);if(products.some(p=>!p.product_name||p.quantity<1)){document.querySelector('[data-for="products"]').textContent="أدخل اسم المنتج والكمية لكل منتج";return}document.querySelector('[data-for="products"]').textContent="";const btn=form.querySelector("button[type=submit]");btn.disabled=true;try{const d=await apiFetch("/api/orders",{method:"POST",body:JSON.stringify({customer_name:form.customer_name.value.trim(),phone:form.phone.value.trim(),products,order_date:form.order_date.value,notes:form.notes.value.trim()})});const uploadResult=await uploadOrderImages(d.order,imageFiles);document.getElementById("new-order-success").textContent=`تم حفظ الطلب بنجاح — رقم الطلب: ${d.order.Order_ID}`;toast(uploadResult.failed?`تم حفظ الطلب، لكن تعذر حفظ ${uploadResult.failed} صورة`:"تم إضافة الطلب والصور بنجاح");form.reset();}catch(e){toast(e.message,"error")}finally{btn.disabled=false}})}
 async function loadMessageTemplates(){
   try{
@@ -366,7 +368,22 @@ async function resetAllData(){
   try{await apiFetch("/api/data/reset",{method:"POST",body:JSON.stringify({confirmation:first})}); dashboardFilterKey=null; toast("تم حذف جميع البيانات وإعادة النظام لحالة نظيفة"); await loadDashboard(); await loadOrders(); loadBackups();}catch(e){toast(e.message,"error")}
 }
 
-document.addEventListener("DOMContentLoaded",()=>{initNav();initModals();initOrders();initNewOrder();document.getElementById("create-backup-btn").onclick=async()=>{try{await apiFetch("/api/backups",{method:"POST",body:"{}"});toast("تم إنشاء النسخة الاحتياطية");loadBackups()}catch(e){toast(e.message,"error")}};document.getElementById("reset-all-data-btn")?.addEventListener("click",resetAllData);
+document.addEventListener("DOMContentLoaded",()=>{initNav();initModals();initOrders();initNewOrder();document.getElementById("create-backup-btn").onclick=async()=>{try{await apiFetch("/api/backups",{method:"POST",body:"{}"});document.getElementById("export-current-data-btn")?.addEventListener("click",async()=>{
+  const btn=document.getElementById("export-current-data-btn"); if(btn)btn.disabled=true;
+  try{
+    const response=await fetch("/api/data/export-xlsx",{credentials:"same-origin",headers:{"X-Requested-With":"XMLHttpRequest"}});
+    if(!response.ok){
+      let data={}; try{data=await response.json()}catch(_){}
+      throw new Error(data.error||"تعذر تصدير البيانات");
+    }
+    const blob=await response.blob();
+    const url=URL.createObjectURL(blob), a=document.createElement("a");
+    a.href=url; a.download="Ezz_Pharmacy_Data.xlsx"; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    toast("تم تصدير بيانات النظام إلى Excel بنجاح","success");
+  }catch(e){toast(e.message,"error")}finally{if(btn)btn.disabled=false}
+});
+document.getElementById("export-postrollback-btn")?.addEventListener("click",()=>{window.location.href="/api/data/export-postrollback"});
+toast("تم إنشاء النسخة الاحتياطية");loadBackups()}catch(e){toast(e.message,"error")}};document.getElementById("reset-all-data-btn")?.addEventListener("click",resetAllData);
  document.getElementById("import-data-btn")?.addEventListener("click",()=>document.getElementById("import-data-file")?.click());
  document.getElementById("import-data-file")?.addEventListener("change",e=>importLegacyData(e.target.files?.[0]));
  
