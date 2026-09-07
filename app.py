@@ -428,6 +428,11 @@ def _build_action_center_payload(orders, today=None):
     }
 
 def _active_followups_payload(orders, today=None):
+    """Build the dashboard follow-up list only.
+
+    Newly available orders are handled by the Action Center ready_to_send
+    category, so they should not be duplicated here.
+    """
     today = today or today_str()
     payload = []
     for order in orders:
@@ -435,9 +440,7 @@ def _active_followups_payload(orders, today=None):
         if status in CLOSED_STATUSES:
             continue
         kind = None
-        if status in (STATUS_AVAILABLE, STATUS_PARTIAL, STATUS_UNAVAILABLE):
-            kind = "needs_call"
-        elif status in (STATUS_CONTACTED, STATUS_NOT_PICKED):
+        if status in (STATUS_CONTACTED, STATUS_NOT_PICKED):
             nxt = str(order.get("Next_Followup_Date") or "")
             if nxt and nxt < today:
                 kind = "overdue"
@@ -454,6 +457,7 @@ def _active_followups_payload(orders, today=None):
         str(x.get("Created_At") or ""),
     ))
     return payload
+
 
 @app.get("/api/action-center")
 def api_action_center():
