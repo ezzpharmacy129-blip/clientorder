@@ -17,46 +17,106 @@ const statCards=[
   ['pickup_pending','بانتظار الاستلام','pickup_pending'],
   ['picked_up','تم الاستلام','picked_up']
 ];
-let dashboardAllOrders=[],dashboardFilterKey=null;
+let dashboardFilterKey=null;
+let dashboardResultsPage=1;
+let dashboardResultsLoadPromise=null;
+
 function dashboardFilterLabel(key){return statCards.find(x=>x[2]===key)?.[1]||'الطلبات'}
-function dashboardFilterOrders(orders,key){
-  const serverFilters=window.dashboardStats?.dashboard_filters;
-  if(serverFilters && Array.isArray(serverFilters[key])) return serverFilters[key];
-  return orders;
-}
+
 function renderDashboardCards(stats){
   const wrap=document.getElementById('stats-grid');
   wrap.innerHTML=statCards.map(([k,l,key])=>{
     const active=dashboardFilterKey===key?' active':'';
-    const criticalMap={overdue:'overdue',awaiting_reply:'waiting'};
-    const statusAttr=criticalMap[key]?` data-status="${criticalMap[key]}"`:'';
-    return `<button type="button" class="stat-card${active}"${statusAttr} data-dashboard-filter="${key}" aria-pressed="${dashboardFilterKey===key}"><div class="stat-value">${stats[k]??0}</div><div class="stat-label">${l}</div><span class="stat-hint">اضغط لعرض الطلبات</span></button>`;
+    return `<button type="button" class="stat-card${active}" data-dashboard-filter="${key}" aria-pressed="${dashboardFilterKey===key}"><div class="stat-value">${stats[k]??0}</div><div class="stat-label">${l}</div><span class="stat-hint">اضغط لعرض الطلبات</span></button>`;
   }).join('');
   wrap.querySelectorAll('[data-dashboard-filter]').forEach(b=>b.onclick=()=>toggleDashboardFilter(b.dataset.dashboardFilter));
 }
+
 async function toggleDashboardFilter(key){
   dashboardFilterKey=dashboardFilterKey===key?null:key;
-  if(!dashboardFilterKey){closeDashboardResults();renderDashboardCards(window.dashboardStats||{});return;}
-  try{renderDashboardCards(window.dashboardStats||{});renderDashboardResults();}catch(e){toast(e.message,'error')}
+  dashboardResultsPage=1;
+  if(!dashboardFilterKey){
+    closeDashboardResults();
+    renderDashboardCards(window.dashboardStats||{});
+    return;
+  }
+  renderDashboardCards(window.dashboardStats||{});
+  await loadDashboardResults();
 }
-function renderDashboardResults(){
+
+async function loadDashboardResults(){
+  if(!dashboardFilterKey)return;
+  if(dashboardResultsLoadPromise)return dashboardResultsLoadPromise;
+
+  dashboardResultsLoadPromise=(async()=>{
+    try{
+      const q=document.getElementById('dashboard-results-search')?.value.trim()||'';
+      const contactFilter=document.getElementById('dashboard-contact-filter')?.value||'';
+      const params=new URLSearchParams({
+        filter:dashboardFilterKey,
+        page:String(dashboardResultsPage),
+        page_size:'20'
+      });
+      if(q)params.set('q',q);
+      if(contactFilter)params.set('contact',contactFilter);
+
+      const data=await apiFetch('/api/dashboard/orders?'+params.toString());
+      renderDashboardResults(data);
+      return data;
+    }catch(e){
+      toast(e.message,'error');
+      throw e;
+    }finally{
+      dashboardResultsLoadPromise=null;
+    }
+  })();
+
+  return dashboardResultsLoadPromise;
+}
+
+function renderDashboardResults(data){
   const panel=document.getElementById('dashboard-results-panel');
-  if(!dashboardFilterKey){closeDashboardResults();return;}
+  if(!panel || !dashboardFilterKey)return;
+
   panel.classList.remove('hidden');
   document.getElementById('dashboard-results-title').textContent=dashboardFilterLabel(dashboardFilterKey);
-  const base=dashboardFilterOrders(dashboardAllOrders,dashboardFilterKey);
-  const q=document.getElementById('dashboard-results-search').value.trim().toLowerCase();
-  const contactFilter=document.getElementById('dashboard-contact-filter')?.value||'';
-  let orders=base;
-  if(contactFilter) orders=orders.filter(o=>(o.Contact_Status||'لم يتم التواصل')===contactFilter);
-  if(q){orders=orders.filter(o=>{const items=(o.Items||[]).map(i=>i.Product_Name).join(' ');return `${o.Order_ID} ${o.Customer_Name} ${o.Phone} ${o.Product_Name||''} ${items}`.toLowerCase().includes(q)})}
-  document.getElementById('dashboard-results-subtitle').textContent=orders.length?`يتم عرض ${orders.length} من أصل ${base.length} طلب — اضغط على التفاصيل لفتح الطلب.`:'لا توجد طلبات ضمن هذا التصنيف حاليًا.';
+
+  const orders=data?.orders||[];
+  const total=Number(data?.total||data?.count||0);
+  const page=Number(data?.page||1);
+  const pages=Math.max(1,Number(data?.pages)||1);
+
+  document.getElementById('dashboard-results-subtitle').textContent=total
+    ? `يتم عرض ${orders.length} من أصل ${total} طلب — اضغط على التفاصيل لفتح الطلب.`
+    : 'لا توجد طلبات ضمن هذا التصنيف حاليًا.';
+
   const body=document.getElementById('dashboard-results-body');
-  if(!orders.length){body.innerHTML='<tr><td colspan="8" class="empty-state">لا توجد طلبات مطابقة ✅</td></tr>';}
-  else{body.innerHTML=orders.map(o=>`<tr><td>${esc(o.Order_ID)}</td><td><strong>${esc(o.Customer_Name)}</strong><br><span class="fi-meta">${esc(o.Phone)}</span></td><td class="products-cell">${productsSummary(o)}</td><td>${fmtDate(o.Order_Date)}</td><td>${badge(o.Status)}</td><td>${contactBadge(o.Contact_Status)}</td><td>${fmtDate(o.Next_Followup_Date)}</td><td><button type="button" class="btn btn-secondary btn-sm dashboard-detail-btn" data-id="${esc(o.Order_ID)}">التفاصيل</button><button type="button" class="btn btn-outline btn-sm dashboard-wa-btn" data-id="${esc(o.Order_ID)}">💬 إرسال</button></td></tr>`).join('');body.querySelectorAll('.dashboard-detail-btn').forEach(b=>b.onclick=()=>details(b.dataset.id));body.querySelectorAll('.dashboard-wa-btn').forEach(b=>b.onclick=()=>openClientWhatsApp(b.dataset.id));}
-  document.getElementById('dashboard-results-count').textContent=`عدد النتائج: ${orders.length}`;
+  if(!orders.length){
+    body.innerHTML='<tr><td colspan="8" class="empty-state">لا توجد طلبات مطابقة ✅</td></tr>';
+  }else{
+    body.innerHTML=orders.map(o=>`<tr><td>${esc(o.Order_ID)}</td><td><strong>${esc(o.Customer_Name)}</strong><br><span class="fi-meta">${esc(o.Phone)}</span></td><td class="products-cell">${productsSummary(o)}</td><td>${fmtDate(o.Order_Date)}</td><td>${badge(o.Status)}</td><td>${contactBadge(o.Contact_Status)}</td><td>${fmtDate(o.Next_Followup_Date)}</td><td><button type="button" class="btn btn-secondary btn-sm dashboard-detail-btn" data-id="${esc(o.Order_ID)}">التفاصيل</button><button type="button" class="btn btn-outline btn-sm dashboard-wa-btn" data-id="${esc(o.Order_ID)}">💬 إرسال</button></td></tr>`).join('');
+    body.querySelectorAll('.dashboard-detail-btn').forEach(b=>b.onclick=()=>details(b.dataset.id));
+    body.querySelectorAll('.dashboard-wa-btn').forEach(b=>b.onclick=()=>openClientWhatsApp(b.dataset.id));
+  }
+
+  document.getElementById('dashboard-results-count').textContent=`عدد النتائج: ${total} — صفحة ${page} من ${pages}`;
+
+  const pagination=document.getElementById('dashboard-results-pagination');
+  if(!pagination)return;
+  if(pages<=1){pagination.innerHTML='';return;}
+  pagination.innerHTML='<button type="button" class="btn btn-secondary btn-sm" data-dashboard-page="prev" '+(page<=1?'disabled':'')+'>السابق</button><span class="pagination-info">صفحة '+page+' من '+pages+'</span><button type="button" class="btn btn-secondary btn-sm" data-dashboard-page="next" '+(page>=pages?'disabled':'')+'>التالي</button>';
+  pagination.querySelector('[data-dashboard-page="prev"]')?.addEventListener('click',()=>{dashboardResultsPage=Math.max(1,page-1);loadDashboardResults()});
+  pagination.querySelector('[data-dashboard-page="next"]')?.addEventListener('click',()=>{dashboardResultsPage=Math.min(pages,page+1);loadDashboardResults()});
 }
-function closeDashboardResults(){const panel=document.getElementById('dashboard-results-panel');panel.classList.add('hidden');document.getElementById('dashboard-results-search').value='';if(document.getElementById('dashboard-contact-filter'))document.getElementById('dashboard-contact-filter').value='';}
+
+function closeDashboardResults(){
+  const panel=document.getElementById('dashboard-results-panel');
+  panel.classList.add('hidden');
+  document.getElementById('dashboard-results-search').value='';
+  if(document.getElementById('dashboard-contact-filter'))document.getElementById('dashboard-contact-filter').value='';
+  dashboardResultsPage=1;
+}
+
 let dashboardLoadPromise=null;
 let dashboardLoadedOnce=false;
 
@@ -66,13 +126,12 @@ async function loadDashboard(){
     try{
       const data=await apiFetch('/api/dashboard');
       window.dashboardStats=data;
-      dashboardAllOrders=data.orders||[];
       renderDashboardCards(data);
       document.getElementById('today-date').textContent=fmtDate(data.date);
       document.getElementById('today-summary').innerHTML=`لديك <strong>${data.available}</strong> طلبات جاهزة للتواصل، <strong>${data.awaiting_reply}</strong> بانتظار رد العميل، <strong>${data.overdue}</strong> متابعات متأخرة`;
 
       document.dispatchEvent(new CustomEvent('ezz:dashboard-data',{detail:data}));
-      if(dashboardFilterKey) renderDashboardResults();
+      if(dashboardFilterKey) await loadDashboardResults();
       dashboardLoadedOnce=true;
     }catch(e){
       toast(e.message,'error');
@@ -83,7 +142,6 @@ async function loadDashboard(){
   })();
   return dashboardLoadPromise;
 }
-
 
 function productsSummary(o){if(Array.isArray(o.Items)&&o.Items.length)return o.Items.map(i=>`${esc(i.Product_Name)} × ${i.Quantity}${i.Image_Path?' 📷':''}`).join("<br>");return esc(o.Product_Name)}
 function imageHtml(item,compact=false){if(!item?.Image_Path)return `<div class="no-image">لا توجد صورة</div>`;const u=`/uploads/${encodeURIComponent(item.Image_Path).replace(/%2F/g,'/')}`;return `<a href="${u}" target="_blank" rel="noopener" class="product-image-link"><img class="product-thumb ${compact?'compact':''}" src="${u}" alt="${esc(item.Product_Name)}"></a>`}
@@ -329,8 +387,15 @@ document.addEventListener("DOMContentLoaded",()=>{
   document.getElementById("import-data-btn")?.addEventListener("click",()=>document.getElementById("import-data-file")?.click());
   document.getElementById("import-data-file")?.addEventListener("change",e=>importLegacyData(e.target.files?.[0]));
 
-  document.getElementById("dashboard-results-search")?.addEventListener("input",()=>renderDashboardResults());
-  document.getElementById("dashboard-contact-filter")?.addEventListener("change",()=>renderDashboardResults());
+  document.getElementById("dashboard-results-search")?.addEventListener("input",()=>{
+    dashboardResultsPage=1;
+    clearTimeout(window._dashboardResultsSearchTimer);
+    window._dashboardResultsSearchTimer=setTimeout(()=>loadDashboardResults(),250);
+  });
+  document.getElementById("dashboard-contact-filter")?.addEventListener("change",()=>{
+    dashboardResultsPage=1;
+    loadDashboardResults();
+  });
   document.getElementById("dashboard-results-close")?.addEventListener("click",()=>{
     dashboardFilterKey=null; closeDashboardResults(); renderDashboardCards(window.dashboardStats||{});
   });
