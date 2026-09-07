@@ -91,24 +91,6 @@ async function loadDashboard(){
 
 function productsSummary(o){if(Array.isArray(o.Items)&&o.Items.length)return o.Items.map(i=>`${esc(i.Product_Name)} × ${i.Quantity}${i.Image_Path?' 📷':''}`).join("<br>");return esc(o.Product_Name)}
 function imageHtml(item,compact=false){if(!item?.Image_Path)return `<div class="no-image">لا توجد صورة</div>`;const u=`/uploads/${encodeURIComponent(item.Image_Path).replace(/%2F/g,'/')}`;return `<a href="${u}" target="_blank" rel="noopener" class="product-image-link"><img class="product-thumb ${compact?'compact':''}" src="${u}" alt="${esc(item.Product_Name)}"></a>`}
-async function loadFollowups(term=""){
-  try{
-    let followups;
-    if(term){
-      const data=await apiFetch("/api/followups/today");
-      followups=data.followups||[];
-      const q=term.toLowerCase();
-      followups=followups.filter(o=>`${o.Customer_Name} ${o.Phone} ${o.Product_Name} ${(o.Items||[]).map(i=>i.Product_Name).join(" ")}`.toLowerCase().includes(q));
-    }else{
-      followups=(window.dashboardStats?.followups)||[];
-    }
-    renderFollowupsList(followups);
-  }catch(e){
-    const c=document.getElementById("followups-list");
-    if(c)c.innerHTML='<div class="empty-state">تعذر تحميل المتابعات</div>';
-  }
-}
-
 function attachActions(c){c.querySelectorAll(".act-wa").forEach(b=>b.onclick=()=>openClientWhatsApp(b.dataset.id));c.querySelectorAll(".act-contact").forEach(b=>b.onclick=()=>contact(b.dataset.id));c.querySelectorAll(".act-pickup").forEach(b=>b.onclick=()=>pickup(b.dataset.id));c.querySelectorAll(".act-postpone").forEach(b=>b.onclick=()=>openPostpone(b.dataset.id));c.querySelectorAll(".act-details").forEach(b=>b.onclick=()=>details(b.dataset.id))}
 function contactBadge(s){const v=s||"لم يتم التواصل";return `<span class="contact-badge ${CONTACT_STATUS_LABELS[v]||"contact-not"}">${esc(v)}</span>`}
 async function contact(id){try{await apiFetch(`/api/orders/${id}/contact`,{method:"POST",body:"{}"});toast("تم تسجيل الاتصال بالعميل");refresh()}catch(e){toast(e.message,"error")}}
