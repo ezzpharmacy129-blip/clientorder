@@ -27,3 +27,18 @@
 .action-center-list{scroll-margin-top:16px}
 
 @media(max-width:520px){.action-center-header{flex-direction:column}.action-center-header .btn{width:100%}}
+
+/* Dashboard Priority — visual hierarchy only; no data or workflow changes. */
+#view-dashboard .stats-grid{position:relative;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--space-3);padding-top:48px}
+#view-dashboard .stats-grid::before{content:"ملخص الإحصائيات";position:absolute;top:0;right:0;color:var(--navy);font-size:var(--text-md);font-weight:800}
+#view-dashboard .stats-grid .stat-card{order:50;min-height:112px}
+#view-dashboard .stats-grid .stat-card[data-dashboard-filter="overdue"]{order:1;border-top-color:var(--danger);background:#fff8f7}
+#view-dashboard .stats-grid .stat-card[data-dashboard-filter="pending"]{order:2;border-top-color:var(--orange);background:#fffaf0}
+#view-dashboard .stats-grid .stat-card[data-dashboard-filter="awaiting_reply"]{order:3;border-top-color:#7953b6;background:#fbf8ff}
+#view-dashboard .stats-grid .stat-card[data-dashboard-filter="available"]{order:4;border-top-color:var(--primary);background:#f2fbfc}
+#view-dashboard .stats-grid .stat-card[data-dashboard-filter="pickup_pending"]{order:5}
+#view-dashboard .stats-grid .stat-card[data-dashboard-filter="today_followup"]{order:6}
+#view-dashboard .stats-grid .stat-card[data-dashboard-filter="picked_up"]{order:7;opacity:.84}
+#view-dashboard .stats-grid .stat-card[data-dashboard-filter="total"]{order:8;opacity:.78}
+@media(max-width:900px){#view-dashboard .stats-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:520px){#view-dashboard .stats-grid{grid-template-columns:1fr;padding-top:44px}#view-dashboard .stats-grid::before{font-size:var(--text-sm)}}
