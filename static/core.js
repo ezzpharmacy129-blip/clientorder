@@ -75,3 +75,18 @@ function todayISO(){return new Date().toLocaleDateString("en-CA",{timeZone:"Asia
   if(document.head) install();
   else document.addEventListener("DOMContentLoaded",install,{once:true});
 })();
+
+/* P3.5: load the dashboard mobile presentation layer without changing application logic. */
+(function loadP35DashboardMobileStyles(){
+  if(typeof document==="undefined") return;
+  const install=()=>{
+    if(document.querySelector('link[data-ezz-style="p3-5-dashboard-mobile"]')) return;
+    const link=document.createElement("link");
+    link.rel="stylesheet";
+    link.href="/static/p3_5_dashboard_mobile.css?v=20260907-p35";
+    link.dataset.ezzStyle="p3-5-dashboard-mobile";
+    document.head.appendChild(link);
+  };
+  if(document.head) install();
+  else document.addEventListener("DOMContentLoaded",install,{once:true});
+})();
