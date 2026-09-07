@@ -368,23 +368,68 @@ async function resetAllData(){
   try{await apiFetch("/api/data/reset",{method:"POST",body:JSON.stringify({confirmation:first})}); dashboardFilterKey=null; toast("تم حذف جميع البيانات وإعادة النظام لحالة نظيفة"); await loadDashboard(); await loadOrders(); loadBackups();}catch(e){toast(e.message,"error")}
 }
 
-document.addEventListener("DOMContentLoaded",()=>{initNav();initModals();initOrders();initNewOrder();document.getElementById("create-backup-btn").onclick=async()=>{try{await apiFetch("/api/backups",{method:"POST",body:"{}"});document.getElementById("export-current-data-btn")?.addEventListener("click",async()=>{
-  const btn=document.getElementById("export-current-data-btn"); if(btn)btn.disabled=true;
-  try{
-    const response=await fetch("/api/data/export-xlsx",{credentials:"same-origin",headers:{"X-Requested-With":"XMLHttpRequest"}});
-    if(!response.ok){
-      let data={}; try{data=await response.json()}catch(_){}
-      throw new Error(data.error||"تعذر تصدير البيانات");
-    }
-    const blob=await response.blob();
-    const url=URL.createObjectURL(blob), a=document.createElement("a");
-    a.href=url; a.download="Ezz_Pharmacy_Data.xlsx"; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
-    toast("تم تصدير بيانات النظام إلى Excel بنجاح","success");
-  }catch(e){toast(e.message,"error")}finally{if(btn)btn.disabled=false}
+document.addEventListener("DOMContentLoaded",()=>{
+  initNav();
+  initModals();
+  initOrders();
+  initNewOrder();
+
+  document.getElementById("create-backup-btn")?.addEventListener("click",async()=>{
+    const btn=document.getElementById("create-backup-btn");
+    setButtonLoading(btn,true,"جاري إنشاء النسخة...");
+    try{
+      await apiFetch("/api/backups",{method:"POST",body:"{}"});
+      toast("تم إنشاء النسخة الاحتياطية");
+      await loadBackups();
+    }catch(e){toast(e.message,"error")}
+    finally{setButtonLoading(btn,false)}
+  });
+
+  document.getElementById("export-current-data-btn")?.addEventListener("click",async()=>{
+    const btn=document.getElementById("export-current-data-btn");
+    setButtonLoading(btn,true,"جاري التصدير...");
+    try{
+      const response=await fetch("/api/data/export-xlsx",{credentials:"same-origin"});
+      if(!response.ok){
+        let data={}; try{data=await response.json()}catch(_){}
+        throw new Error(data.error||"تعذر تصدير البيانات");
+      }
+      const blob=await response.blob();
+      const url=URL.createObjectURL(blob), a=document.createElement("a");
+      a.href=url; a.download="Ezz_Pharmacy_Data.xlsx";
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+      toast("تم تصدير بيانات النظام إلى Excel بنجاح");
+    }catch(e){toast(e.message,"error")}
+    finally{setButtonLoading(btn,false)}
+  });
+
+  document.getElementById("export-postrollback-btn")?.addEventListener("click",()=>{
+    window.location.href="/api/data/export-postrollback";
+  });
+
+  document.getElementById("reset-all-data-btn")?.addEventListener("click",resetAllData);
+  document.getElementById("import-data-btn")?.addEventListener("click",()=>document.getElementById("import-data-file")?.click());
+  document.getElementById("import-data-file")?.addEventListener("change",e=>importLegacyData(e.target.files?.[0]));
+
+  document.getElementById("dashboard-results-search")?.addEventListener("input",()=>renderDashboardResults());
+  document.getElementById("dashboard-contact-filter")?.addEventListener("change",()=>renderDashboardResults());
+  document.getElementById("dashboard-results-close")?.addEventListener("click",()=>{
+    dashboardFilterKey=null; closeDashboardResults(); renderDashboardCards(window.dashboardStats||{});
+  });
+  document.getElementById("dashboard-search")?.addEventListener("input",e=>{
+    clearTimeout(window._s); window._s=setTimeout(()=>loadFollowups(e.target.value.trim()),250);
+  });
+
+  document.getElementById("refresh-shortages-btn")?.addEventListener("click",loadShortages);
+  document.getElementById("shortages-select-all")?.addEventListener("click",()=>selectAllShortages(true));
+  document.getElementById("shortages-clear-all")?.addEventListener("click",()=>selectAllShortages(false));
+  document.getElementById("shortages-mode")?.addEventListener("change",updateShortageMessage);
+  document.getElementById("copy-shortages-btn")?.addEventListener("click",copyShortages);
+  document.getElementById("open-wa-group-btn")?.addEventListener("click",openShortagesWhatsApp);
+  document.getElementById("refresh-wa-customers-btn")?.addEventListener("click",loadWaCustomers);
+  document.getElementById("message-templates-save")?.addEventListener("click",saveMessageTemplates);
+  document.getElementById("message-templates-reset")?.addEventListener("click",resetMessageTemplates);
+
+  loadDashboard();
 });
-document.getElementById("export-postrollback-btn")?.addEventListener("click",()=>{window.location.href="/api/data/export-postrollback"});
-toast("تم إنشاء النسخة الاحتياطية");loadBackups()}catch(e){toast(e.message,"error")}};document.getElementById("reset-all-data-btn")?.addEventListener("click",resetAllData);
- document.getElementById("import-data-btn")?.addEventListener("click",()=>document.getElementById("import-data-file")?.click());
- document.getElementById("import-data-file")?.addEventListener("change",e=>importLegacyData(e.target.files?.[0]));
- 
- document.getElementById("dashboard-results-search")?.addEventListener("input",()=>renderDashboardResults());document.getElementById("dashboard-contact-filter")?.addEventListener("change",()=>renderDashboardResults());document.getElementById("dashboard-results-close")?.addEventListener("click",()=>{dashboardFilterKey=null;closeDashboardResults();renderDashboardCards(window.dashboardStats||{})});document.getElementById("dashboard-search").oninput=e=>{clearTimeout(window._s);window._s=setTimeout(()=>loadFollowups(e.target.value.trim()),250)};document.getElementById("refresh-shortages-btn")?.addEventListener("click",loadShortages);document.getElementById("shortages-select-all")?.addEventListener("click",()=>selectAllShortages(true));document.getElementById("shortages-clear-all")?.addEventListener("click",()=>selectAllShortages(false));document.getElementById("shortages-mode")?.addEventListener("change",updateShortageMessage);document.getElementById("copy-shortages-btn")?.addEventListener("click",copyShortages);document.getElementById("open-wa-group-btn")?.addEventListener("click",openShortagesWhatsApp);document.getElementById("refresh-wa-customers-btn")?.addEventListener("click",loadWaCustomers);document.getElementById("message-templates-save")?.addEventListener("click",saveMessageTemplates);document.getElementById("message-templates-reset")?.addEventListener("click",resetMessageTemplates);loadDashboard();});
