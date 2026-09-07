@@ -1,14 +1,7 @@
 # -*- coding: utf-8 -*-
-"""Single source of truth for dashboard actionable categories.
-
-The dashboard has historically had separate Python and SQL definitions for
-follow-up categories. This module centralizes the operational projection used
-by the API response so counters and lists cannot disagree.
-"""
+"""Single source of truth for dashboard actionable categories."""
 import json
 from datetime import date
-
-from flask import jsonify
 
 from db import (
     db,
@@ -49,28 +42,13 @@ def classify_action(order, today):
             hint = f"متأخر منذ {max(1, (now - due).days)} يوم"
         except ValueError:
             hint = "موعد المتابعة تجاوز اليوم"
-        return {
-            "action_key": "overdue",
-            "priority": 0,
-            "next_action": "متابعة عاجلة",
-            "action_hint": hint,
-        }
+        return {"action_key":"overdue","priority":0,"next_action":"متابعة عاجلة","action_hint":hint}
 
     if followup_candidate and next_followup == today:
-        return {
-            "action_key": "today",
-            "priority": 1,
-            "next_action": "متابعة العميل",
-            "action_hint": "موعد المتابعة اليوم",
-        }
+        return {"action_key":"today","priority":1,"next_action":"متابعة العميل","action_hint":"موعد المتابعة اليوم"}
 
     if contact == CONTACT_AWAITING:
-        return {
-            "action_key": "awaiting_reply",
-            "priority": 2,
-            "next_action": "انتظار رد العميل",
-            "action_hint": "الرسالة أُرسلت وننتظر رد العميل",
-        }
+        return {"action_key":"awaiting_reply","priority":2,"next_action":"انتظار رد العميل","action_hint":"الرسالة أُرسلت وننتظر رد العميل"}
 
     pending_items = [
         item for item in (order.get("Items") or [])
@@ -78,12 +56,7 @@ def classify_action(order, today):
         and str(item.get("Customer_Decision") or "").strip().lower() != "rejected"
     ]
     if status == STATUS_PENDING or pending_items:
-        return {
-            "action_key": "needs_supply",
-            "priority": 3,
-            "next_action": "متابعة التوفير",
-            "action_hint": f"يوجد {len(pending_items) if pending_items else 1} منتج بانتظار التوفر",
-        }
+        return {"action_key":"needs_supply","priority":3,"next_action":"متابعة التوفير","action_hint":f"يوجد {len(pending_items) if pending_items else 1} منتج بانتظار التوفر"}
 
     return None
 
@@ -145,22 +118,13 @@ def _dashboard_payload_from_response(response):
 
 
 def install_dashboard_source_of_truth(app):
-    """Normalize dashboard JSON after the legacy route has built it.
-
-    This is intentionally installed at the API boundary so old dashboard
-    calculation paths cannot make the visible counters disagree with the
-    visible lists. The legacy data/storage APIs remain untouched.
-    """
+    """Normalize dashboard JSON after the legacy route has built it."""
     if app.extensions.get("dashboard_source_of_truth_installed"):
         return
     app.extensions["dashboard_source_of_truth_installed"] = True
 
     @app.after_request
     def _dashboard_source_of_truth(response):
-        if response.status_code != 200 or request_path := getattr(response, "_request_path", None):
-            # Flask responses do not normally carry request path metadata.
-            # The actual path check below uses the request context.
-            pass
         try:
             from flask import request
             path = request.path
@@ -192,8 +156,16 @@ def install_dashboard_source_of_truth(app):
         if isinstance(filters, dict):
             dashboard_orders = filters.get("all") or payload.get("orders") or []
             by_id = {str(row.get("Order_ID")): row for row in dashboard_orders if isinstance(row, dict)}
-            filters["overdue"] = [by_id[str(row["Order_ID"])] for row in action_center["items"] if row["action_key"] == "overdue" and str(row["Order_ID"]) in by_id]
-            filters["today_followup"] = [by_id[str(row["Order_ID"])] for row in action_center["items"] if row["action_key"] == "today" and str(row["Order_ID"]) in by_id]
+            filters["overdue"] = [
+                by_id[str(row["Order_ID"])]
+                for row in action_center["items"]
+                if row["action_key"] == "overdue" and str(row["Order_ID"]) in by_id
+            ]
+            filters["today_followup"] = [
+                by_id[str(row["Order_ID"])]
+                for row in action_center["items"]
+                if row["action_key"] == "today" and str(row["Order_ID"]) in by_id
+            ]
 
         response.set_data(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
         response.headers["Content-Type"] = "application/json"
