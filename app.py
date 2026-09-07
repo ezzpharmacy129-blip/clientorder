@@ -1002,6 +1002,27 @@ def api_import_data():
             except OSError: pass
 
 
+@app.get("/api/data/export-xlsx")
+def api_export_current_xlsx():
+    auth=(app.extensions.get("ezz_auth") or {})
+    current_user=auth.get("current_user")
+    if not callable(current_user) or not current_user():
+        return jsonify({"error":"تسجيل الدخول مطلوب","authenticated":False}),401
+    try:
+        if hasattr(db,"_workbook_bytes"):
+            payload=db._workbook_bytes()
+        elif hasattr(db,"_make_backup") and hasattr(db,"DB_PATH") and os.path.isfile(db.DB_PATH):
+            with open(db.DB_PATH,"rb") as fh:
+                payload=fh.read()
+        else:
+            return jsonify({"error":"تصدير Excel الحالي غير متاح لهذا المخزن"}),503
+        stamp=datetime.now(ZoneInfo("Asia/Riyadh")).strftime("%Y-%m-%d_%H%M%S")
+        return send_file(io.BytesIO(payload),mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",as_attachment=True,download_name=f"Ezz_Pharmacy_Data_{stamp}.xlsx",max_age=0,conditional=False)
+    except Exception as exc:
+        app.logger.exception("Current data Excel export failed")
+        return jsonify({"error":f"تعذر تصدير البيانات إلى Excel: {exc}"}),500
+
+
 @app.get("/api/backups")
 def api_backups(): return jsonify({"backups":db.list_backups()})
 
