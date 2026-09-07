@@ -675,18 +675,30 @@ def render_shortage_message(message_body, pharmacy=None):
 
 @app.get("/api/whatsapp/shortages")
 def api_whatsapp_shortages():
-    orders = db.get_all_orders()
-    orders = [o for o in orders if any(i.get("Availability_Status") == "بانتظار التوفر" for i in (o.get("Items") or [])) or o.get("Status") == STATUS_PENDING]
-    orders.sort(key=lambda o: str(o.get("Created_At", "")), reverse=True)
+    rows=[]
+    for order in db.get_all_orders():
+        shortage_items = _customer_shortage_items(order)
+        if not shortage_items:
+            continue
+        rows.append({
+            "Order_ID": order.get("Order_ID", ""),
+            "Customer_Name": order.get("Customer_Name", ""),
+            "Phone": order.get("Phone", ""),
+            "Order_Date": order.get("Order_Date") or order.get("Created_At") or "",
+            "Shortage_Items": [{
+                "Item_ID": item.get("Item_ID", ""),
+                "Product_Name": item.get("Product_Name") or order.get("Product_Name") or "",
+                "Quantity": item.get("Quantity") or order.get("Quantity") or 1,
+            } for item in shortage_items],
+        })
+    rows.sort(key=lambda o: str(o.get("Order_Date") or ""), reverse=True)
     body_lines=[]
-    for o in orders:
-        body_lines.append(f"• {o.get('Customer_Name','')} — {o.get('Order_ID','')}")
-        for i in (o.get("Items") or []):
-            if i.get("Availability_Status") == "بانتظار التوفر":
-                body_lines.append(f"  - {i.get('Product_Name','')} × {i.get('Quantity') or 1}")
-    body = "\n".join(body_lines)
-    message = render_shortage_message(body)
-    return jsonify({"orders":orders,"count":len(orders),"message":message})
+    for order in rows:
+        body_lines.append(f"• {order['Customer_Name']} — {order['Order_ID']}")
+        for item in order["Shortage_Items"]:
+            body_lines.append(f"  - {item['Product_Name']} × {item['Quantity']}")
+    message = render_shortage_message("\n".join(body_lines))
+    return jsonify({"orders":rows,"count":len(rows),"message":message})
 
 @app.get("/api/whatsapp/shortages/grouped")
 def api_whatsapp_shortages_grouped():
