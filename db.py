@@ -379,6 +379,17 @@ class ExcelDB:
         orders = self.get_all_orders()
         return next((o for o in orders if str(o.get("Order_ID")) == str(order_id)), None)
 
+    def get_activity_log_page(self, user="", action="", order_id="", q="", page=1, page_size=50):
+        rows=self.get_activity_log(None)
+        user=str(user or "").strip().lower(); action=str(action or "").strip()
+        order_id=str(order_id or "").strip(); q=str(q or "").strip().lower()
+        if user: rows=[r for r in rows if str(r.get("User","")).lower()==user]
+        if action: rows=[r for r in rows if str(r.get("Action",""))==action]
+        if order_id: rows=[r for r in rows if str(r.get("Order_ID",""))==order_id]
+        if q: rows=[r for r in rows if q in str(r.get("Note","")).lower() or q in str(r.get("Order_ID","")).lower() or q in str(r.get("User","")).lower()]
+        total=len(rows); page=max(1,int(page or 1)); page_size=max(1,min(100,int(page_size or 50))); start=(page-1)*page_size
+        return {"rows":rows[start:start+page_size],"count":total,"total":total,"page":page,"page_size":page_size,"pages":max(1,(total+page_size-1)//page_size)}
+
     def get_activity_log(self, order_id=None):
         with _lock:
             wb = self._load()
