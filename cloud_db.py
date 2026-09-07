@@ -400,6 +400,49 @@ class CloudDB:
             'total','pending','available','awaiting_reply','pickup_pending','picked_up','today_followup','overdue'
         )}
 
+    def action_center_orders(self, today):
+        """Fetch only orders that can appear in the Action Center."""
+        with self._connect() as conn:
+            rows=conn.execute("""
+                SELECT DISTINCT o.*
+                FROM orders o
+                WHERE o.status NOT IN (%s,%s)
+                  AND (
+                    (
+                      (o.contact_status=%s OR o.status IN (%s,%s))
+                      AND COALESCE(o.next_followup_date,'') < %s
+                    )
+                    OR (
+                      (o.contact_status=%s OR o.status IN (%s,%s))
+                      AND COALESCE(o.next_followup_date,'') = %s
+                    )
+                    OR o.contact_status=%s
+                    OR o.status=%s
+                    OR EXISTS (
+                      SELECT 1 FROM order_items si
+                      WHERE si.order_id=o.order_id
+                        AND si.availability_status=%s
+                        AND COALESCE(LOWER(si.customer_decision),'') <> 'rejected'
+                    )
+                  )
+                ORDER BY o.created_at DESC
+            """,(
+                STATUS_PICKED_UP,STATUS_CANCELLED,
+                CONTACT_AWAITING,STATUS_CONTACTED,STATUS_NOT_PICKED,today,
+                CONTACT_AWAITING,STATUS_CONTACTED,STATUS_NOT_PICKED,today,
+                CONTACT_AWAITING,
+                STATUS_PENDING,'بانتظار التوفر'
+            )).fetchall()
+            orders=[_row_to_order(r) for r in rows]
+            ids=[str(r["order_id"]) for r in rows]
+            groups={}
+            if ids:
+                item_rows=conn.execute("SELECT * FROM order_items WHERE order_id=ANY(%s) ORDER BY created_at,item_id",(ids,)).fetchall()
+                for r in item_rows:
+                    item=_row_to_item(dict(r))
+                    groups.setdefault(str(item["Order_ID"]),[]).append(item)
+        return self._attach_items(orders,groups)
+
     def dashboard_orders_page(self, filter_key="all", q="", contact="", page=1, page_size=20):
         """Fetch only the dashboard result page requested by the employee."""
         page=max(1,int(page or 1)); page_size=max(1,min(100,int(page_size or 20)))
