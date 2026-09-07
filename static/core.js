@@ -90,3 +90,18 @@ function todayISO(){return new Date().toLocaleDateString("en-CA",{timeZone:"Asia
   if(document.head) install();
   else document.addEventListener("DOMContentLoaded",install,{once:true});
 })();
+
+/* P3.6: load the mobile header/navigation presentation layer without changing application logic. */
+(function loadP36MobileHeaderStyles(){
+  if(typeof document==="undefined") return;
+  const install=()=>{
+    if(document.querySelector('link[data-ezz-style="p3-6-mobile-header"]')) return;
+    const link=document.createElement("link");
+    link.rel="stylesheet";
+    link.href="/static/p3_6_mobile_header.css?v=20260907-p36";
+    link.dataset.ezzStyle="p3-6-mobile-header";
+    document.head.appendChild(link);
+  };
+  if(document.head) install();
+  else document.addEventListener("DOMContentLoaded",install,{once:true});
+})();
