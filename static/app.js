@@ -13,13 +13,9 @@ function initNav(){
 }
 const statCards=[
   ['total','إجمالي الطلبات','all'],
-  ['pending','بانتظار التوفير','pending'],
   ['available','جاهز للتواصل','available'],
-  ['awaiting_reply','بانتظار رد العميل','awaiting_reply'],
   ['pickup_pending','بانتظار الاستلام','pickup_pending'],
-  ['picked_up','تم الاستلام','picked_up'],
-  ['today_followup','متابعة اليوم','today_followup'],
-  ['overdue','متأخرة','overdue']
+  ['picked_up','تم الاستلام','picked_up']
 ];
 let dashboardAllOrders=[],dashboardFilterKey=null;
 function dashboardFilterLabel(key){return statCards.find(x=>x[2]===key)?.[1]||'الطلبات'}
