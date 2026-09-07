@@ -476,28 +476,8 @@ def _order_has_pending_item(order):
 def api_dashboard():
     orders = db.get_all_orders()
     today = today_str()
-
-    def count(p):
-        return sum(1 for o in orders if p(o))
-
-    stats = {
-        "total": len(orders),
-        "pending": count(lambda o: _order_has_pending_item(o)),
-        "available": count(lambda o: o["Status"] in (STATUS_AVAILABLE, STATUS_PARTIAL, STATUS_UNAVAILABLE) and o.get("Contact_Status") in ("", CONTACT_NOT_CONTACTED)),
-        "awaiting_reply": count(lambda o: o.get("Contact_Status") == CONTACT_AWAITING),
-        "pickup_pending": count(lambda o: o["Status"] in (STATUS_CONTACTED, STATUS_NOT_PICKED)),
-        "picked_up": count(lambda o: o["Status"] == STATUS_PICKED_UP),
-        "today_followup": count(lambda o: (
-            (o["Status"] in (STATUS_AVAILABLE, STATUS_PARTIAL, STATUS_UNAVAILABLE) and o.get("Contact_Status") in ("", CONTACT_NOT_CONTACTED))
-            or o.get("Contact_Status") == CONTACT_AWAITING
-            or o["Status"] in (STATUS_CONTACTED, STATUS_NOT_PICKED)
-        ) and str(o.get("Next_Followup_Date") or "") == today),
-        "overdue": count(lambda o: (
-            (o.get("Contact_Status") == CONTACT_AWAITING)
-            or o["Status"] in (STATUS_CONTACTED, STATUS_NOT_PICKED)
-        ) and str(o.get("Next_Followup_Date") or "") and str(o.get("Next_Followup_Date")) < today),
-        "date": today,
-    }
+    stats = db.dashboard_summary(today)
+    stats["date"] = today
 
     action_center = _build_action_center_payload(orders, today)
     followups = _active_followups_payload(orders, today)
