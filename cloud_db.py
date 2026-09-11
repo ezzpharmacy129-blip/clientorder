@@ -923,6 +923,8 @@ class CloudDB:
         with self._connect() as conn:
             current=self._fetch_order(conn, order_id)
             if not current: return {'error':'الطلب غير موجود','code':404}
+            if current.get('Status') in {STATUS_PICKED_UP, STATUS_CANCELLED}:
+                return {'error':'لا يمكن تغيير رد العميل على طلب مسلّم أو ملغي','code':409}
             snapshot=self._snapshot(conn, order_id); items=self._fetch_items(conn, order_id)
             if contact_status == CONTACT_ACCEPTED:
                 if not any(i.get('Availability_Status')=='متوفر' and not self._item_is_rejected(current,i) for i in items):
