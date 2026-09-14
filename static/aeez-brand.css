@@ -1,0 +1,64 @@
+/* Aeez Health Pharmacy — presentation only, after existing responsive layers. */
+:root {
+  --primary:#078577; --primary-dark:#05665e; --primary-soft:#e6f5f1;
+  --navy:#164b43; --navy-dark:#103d37; --blue:#087f87; --blue-soft:#eaf6f6;
+  --bg:#f3f6f5; --surface:#fff; --surface-soft:#f7faf9; --surface-muted:#edf3f1;
+  --border:#dce7e3; --border-strong:#bacfc7;
+  --text:#263e38; --text-strong:#183e34; --muted:#60776e;
+  --shadow-sm:0 3px 12px rgba(24,62,52,.045);
+  --shadow-md:0 10px 28px rgba(24,62,52,.075);
+  --shadow-lg:0 18px 42px rgba(24,62,52,.12);
+  --focus-ring:0 0 0 3px rgba(7,133,119,.2);
+}
+body { background:var(--bg); }
+.app-header { background:var(--surface); border-bottom:1px solid var(--border); box-shadow:var(--shadow-sm); }
+.brand-glow { display:none; }
+.brand-mark-wrap { background:var(--surface-soft); border:1px solid var(--border); box-shadow:none; }
+.brand-text h1 { color:var(--text-strong); }
+.brand-text span,.brand-kicker { color:var(--primary-dark); }
+.nav-btn { border-radius:12px; }
+.nav-btn.active { background:var(--primary-soft); color:var(--primary-dark); border-color:var(--border-strong); box-shadow:none; }
+.nav-btn.primary,.btn-primary { background:var(--primary); border-color:var(--primary); color:#fff; box-shadow:0 4px 10px rgba(7,133,119,.12); }
+.nav-btn.primary:hover,.btn-primary:hover { background:var(--primary-dark); }
+.today-banner { background:linear-gradient(115deg,#164b43,#087f76); box-shadow:var(--shadow-md); padding:26px; border-radius:20px; }
+.today-banner:before { background:rgba(255,255,255,.06); }
+.today-brand-copy strong { font-size:clamp(21px,2vw,29px); }
+.today-meta { background:rgba(255,255,255,.09); border:1px solid rgba(255,255,255,.18); padding:12px 16px; border-radius:12px; }
+.panel { border-color:var(--border); box-shadow:var(--shadow-sm); }
+.panel-header h2,.panel-header h3 { color:var(--text-strong); }
+.stat-card { box-shadow:var(--shadow-sm); }
+.stat-card:before { background:var(--primary); }
+.stat-card.active { background:var(--primary-soft); border-color:var(--primary); }
+.stat-value { color:var(--text-strong); font-variant-numeric:tabular-nums; }
+.stat-label { font-weight:700; }
+.btn { border-radius:10px; min-height:38px; }
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),select,textarea { border-color:var(--border-strong); border-radius:10px; background:var(--surface); }
+input:focus,select:focus,textarea:focus { border-color:var(--primary); }
+th { background:var(--surface-soft); color:var(--muted); font-weight:800; }
+td { border-color:var(--border); }
+tbody tr:hover { background:var(--surface-soft); }
+.modal { border:1px solid var(--border); box-shadow:var(--shadow-lg); }
+.modal-header { background:var(--surface-soft); border-bottom:1px solid var(--border); }
+:where(button,a,input,select,textarea,[tabindex]):focus-visible { outline:2px solid var(--primary); outline-offset:3px; }
+@media (min-width:1100px) {
+  .app-header { position:fixed; inset:0 0 0 auto; width:264px; height:100dvh; border-bottom:0; border-left:1px solid var(--border); z-index:var(--z-header); }
+  .header-inner { height:100%; max-width:none; padding:24px 16px; flex-direction:column; flex-wrap:nowrap; align-items:stretch; gap:22px; }
+  .brand { min-width:0; flex-direction:column; text-align:center; gap:12px; padding-bottom:22px; border-bottom:1px solid var(--border); }
+  .brand-mark-wrap { width:84px; height:84px; border-radius:20px; }
+  .brand-mark { width:72px; height:72px; object-fit:contain; }
+  .brand-text h1 { font-size:23px; }
+  .brand-text p { font-size:12px; }
+  .main-nav { margin:0; flex:1; min-height:0; display:flex; flex-direction:column; flex-wrap:nowrap; align-items:stretch; gap:7px; overflow-y:auto; }
+  .nav-btn { width:100%; text-align:right; padding:12px 14px; flex-shrink:0; }
+  .logout-btn { margin-top:auto; }
+  .app-main { width:calc(100% - 264px); max-width:none; margin:0 264px 0 0; padding:28px; }
+}
+@media (max-width:720px) {
+  .today-banner { padding:18px; }
+  .today-meta { width:100%; align-items:flex-start; }
+  .nav-btn.active { border-color:var(--primary); }
+}
+@media (prefers-reduced-motion:reduce) {
+  html { scroll-behavior:auto; }
+  *,*::before,*::after { transition:none !important; animation:none !important; }
+}
