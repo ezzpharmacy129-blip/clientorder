@@ -548,28 +548,53 @@ class ExcelDB:
         row = self._find_row(ws, order_id)
         return row[ORDERS_HEADERS.index("Status")].value if row else None
 
-    def update_order(self, order_id, fields, products=None, user="موظف"):
+    def update_order(self, order_id, fields, products=None, user="موظف", deleted_item_ids=None):
+        fields = dict(fields or {})
+        if "Status" in fields or "Contact_Status" in fields:
+            raise ValueError("استخدم إجراءات الحالة والتواصل المخصصة")
         with _lock:
-            _make_backup()
             wb = self._load(); ws = wb["Orders"]; wi = wb["Order_Items"]; wl = wb["Activity_Log"]; wu = wb["Undo_History"]
             old = self._status(ws, order_id)
-            self._invalidate_undo(wu, order_id)
             if old is None:
                 wb.close(); return None
-            if products is not None:
-                products = [{"product_name": str(p.get("product_name", "")).strip(), "quantity": int(p.get("quantity", 0))} for p in products]
-                products = [p for p in products if p["product_name"] and p["quantity"] > 0]
-                if not products:
-                    wb.close(); raise ValueError("يجب إضافة منتج واحد على الأقل")
-                summary = "، ".join(f"{p['product_name']} × {p['quantity']}" for p in products)
-                fields["Product_Name"] = summary
-                fields["Quantity"] = sum(p["quantity"] for p in products)
-                for row in list(wi.iter_rows(min_row=2)):
-                    if str(row[1].value) == str(order_id):
-                        wi.delete_rows(row[0].row, 1)
-                ts = now_str()
-                for p in products:
-                    wi.append([self._next_item_id(wi), order_id, p["product_name"], p["quantity"], "", "بانتظار التوفر", "", "", "", "", "", "", ts])
+            snapshot = self._row_snapshot(ws, wi, order_id)
+            existing = {str(r[0].value): r for r in wi.iter_rows(min_row=2) if str(r[1].value) == str(order_id)}
+            deleted_ids = {str(x).strip() for x in (deleted_item_ids or []) if str(x).strip()}
+            resolved = []
+            seen = set()
+            try:
+                if deleted_ids.difference(existing):
+                    raise ValueError("لا يمكن حذف منتج غير موجود في الطلب")
+                for p in products or []:
+                    name = str(p.get("product_name") or "").strip()
+                    qty = int(p.get("quantity") or 0)
+                    iid = str(p.get("item_id") or p.get("Item_ID") or "").strip()
+                    if not name or qty <= 0:
+                        raise ValueError("اسم المنتج والكمية الصحيحة مطلوبان")
+                    if iid and (iid not in existing or iid in seen or iid in deleted_ids):
+                        raise ValueError("معرّف المنتج غير صالح أو مكرر أو مطلوب حذفه")
+                    if iid: seen.add(iid)
+                    resolved.append((iid, name, qty))
+                if len(existing) - len(deleted_ids) + sum(not p[0] for p in resolved) <= 0:
+                    raise ValueError("لا يمكن حفظ الطلب بدون أي منتج")
+            except (ValueError, TypeError):
+                wb.close()
+                raise ValueError("بيانات المنتجات غير صالحة؛ يجب إبقاء منتج واحد على الأقل")
+            _make_backup()
+            self._invalidate_undo(wu, order_id)
+            self._add_undo(wu, order_id, "تعديل بيانات الطلب", snapshot, user)
+            for iid, name, qty in resolved:
+                if iid:
+                    existing[iid][2].value = name
+                    existing[iid][3].value = qty
+                else:
+                    wi.append([self._next_item_id(wi), order_id, name, qty, "", "بانتظار التوفر", "", "", "", "", "", "", now_str()])
+            for row_number in sorted((existing[iid][0].row for iid in deleted_ids), reverse=True):
+                wi.delete_rows(row_number, 1)
+            if products is not None or deleted_ids:
+                items = self._row_snapshot(ws, wi, order_id)["items"]
+                fields["Product_Name"] = "، ".join(f"{p['Product_Name']} × {p['Quantity']}" for p in items)
+                fields["Quantity"] = sum(int(p["Quantity"]) for p in items)
             self._update_fields(ws, order_id, fields)
             self._append_log(wl, order_id, "تعديل بيانات الطلب", old, fields.get("Status", old), "تم تعديل بيانات الطلب", user)
             _format_sheet(ws); _format_sheet(wi); _format_sheet(wl); _format_sheet(wu); _atomic_save(wb)
@@ -642,11 +667,16 @@ class ExcelDB:
             row = self._find_row(ws, order_id)
             for i, h in enumerate(ORDERS_HEADERS):
                 row[i].value = order_data.get(h, "")
-            for r in list(wi.iter_rows(min_row=2)):
-                if str(r[1].value or "") == str(order_id):
-                    wi.delete_rows(r[0].row, 1)
-            for item in snapshot.get("items", []):
-                wi.append([item.get(h, "") for h in ITEM_HEADERS])
+            current_items = {str(r[0].value): r for r in wi.iter_rows(min_row=2) if str(r[1].value or "") == str(order_id)}
+            previous_items = {str(item["Item_ID"]): item for item in snapshot.get("items", [])}
+            for iid, item in previous_items.items():
+                if iid in current_items:
+                    for i, h in enumerate(ITEM_HEADERS):
+                        current_items[iid][i].value = item.get(h, "")
+                else:
+                    wi.append([item.get(h, "") for h in ITEM_HEADERS])
+            for row_number in sorted((r[0].row for iid, r in current_items.items() if iid not in previous_items), reverse=True):
+                wi.delete_rows(row_number, 1)
             target[5].value = now_str()
             self._append_log(wl, order_id, f"تراجع عن: {target[2].value}", current["order"].get("Status", ""), order_data.get("Status", ""), "تم التراجع عن آخر تغيير للمستخدم", user)
             _format_sheet(ws); _format_sheet(wi); _format_sheet(wl); _format_sheet(wu)

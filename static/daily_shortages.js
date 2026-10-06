@@ -83,7 +83,7 @@
     if (state.filter === "pharmacy") return state.pharmacyRows.filter(row => row.statusKey === "pending");
     if (state.filter === "pharmacy_available") return state.pharmacyRows.filter(row => row.statusKey === "available");
     if (state.filter === "customer") return state.customerRows;
-    return [...state.customerRows, ...state.pharmacyRows.filter(row => row.statusKey === "pending")].sort((a, b) =>
+    return [...state.customerRows, ...state.pharmacyRows].sort((a, b) =>
       String(b.date || "").localeCompare(String(a.date || ""))
     );
   }
@@ -117,7 +117,7 @@
     const availablePharmacy = state.pharmacyRows.filter(row => row.statusKey === "available").length;
     if (pharmacy) pharmacy.textContent = pendingPharmacy;
     if (customer) customer.textContent = state.customerRows.length;
-    if (all) all.textContent = pendingPharmacy + state.customerRows.length;
+    if (all) all.textContent = state.pharmacyRows.length + state.customerRows.length;
     const provided = document.getElementById("pharmacy-shortages-provided-count");
     if (provided) provided.textContent = availablePharmacy;
   }
@@ -139,11 +139,11 @@
     const availability = row.status === "تم التوفير"
       ? `<button type="button" class="btn btn-secondary btn-sm ps-undo" data-id="${esc(row.shortageId)}">↩ تراجع</button>`
       : `<button type="button" class="btn btn-primary btn-sm ps-available" data-id="${esc(row.shortageId)}">تم توفيره</button>`;
-    return `${availability}<button type="button" class="btn btn-outline btn-sm ps-edit" data-id="${esc(row.shortageId)}">تعديل</button>`;
+    return `${availability}<button type="button" class="btn btn-outline btn-sm ps-edit" data-id="${esc(row.shortageId)}">✏️ تعديل</button>`;
   }
 
   function customerAction(row) {
-    return `<button type="button" class="btn btn-outline btn-sm ps-detail" data-id="${esc(row.orderId)}">التفاصيل</button>`;
+    return `<button type="button" class="btn btn-outline btn-sm ps-detail" data-id="${esc(row.orderId)}">التفاصيل</button><button type="button" class="btn btn-outline btn-sm ps-order-edit" data-id="${esc(row.orderId)}">✏️ تعديل</button>`;
   }
 
   function renderRows() {
@@ -256,7 +256,7 @@
 
     if (title) title.textContent = state.filter === "all" ? "النواقص" : `📦 ${labels[state.filter]}`;
     if (subtitle) subtitle.textContent = state.filter === "all"
-      ? "عرض موحد للنواقص الحالية وطلبات العملاء."
+      ? "عرض جميع نواقص الصيدلية وطلبات العملاء."
       : state.filter === "pharmacy"
         ? "النواقص التي لم يتم توفيرها بعد."
         : state.filter === "pharmacy_available"
@@ -276,6 +276,9 @@
   }
 
   function bindRowActions(body) {
+    body.querySelectorAll(".ps-order-edit").forEach(button => {
+      button.addEventListener("click", () => window.openOrderEdit(button.dataset.id));
+    });
     body.querySelectorAll(".ps-detail").forEach(button => {
       button.addEventListener("click", () => window.details?.(button.dataset.id));
     });
@@ -352,6 +355,8 @@
 
     state.editingId = row?.shortageId || null;
     form.reset();
+    modal.querySelector("h3").textContent = row ? "تعديل نقص الصيدلية" : "إضافة نقص صيدلية";
+    form.querySelector('button[type="submit"]').textContent = row ? "حفظ التعديلات" : "حفظ النقص";
     if (form.product_name) form.product_name.value = row?.product || "";
     if (form.quantity) form.quantity.value = row?.quantity || 1;
     if (form.note) form.note.value = row?.note || "";
@@ -392,10 +397,10 @@
         method: state.editingId ? "PUT" : "POST",
         body: JSON.stringify({ product_name: product, quantity, note })
       });
-      notify(state.editingId ? "تم تعديل نقص الصيدلية" : "تمت إضافة نقص الصيدلية");
+      notify(state.editingId ? "تم تعديل نقص الصيدلية بنجاح" : "تمت إضافة نقص الصيدلية");
+      const wasEditing = !!state.editingId;
       closeForm();
-      state.filter = "pharmacy";
-      state.page = 1;
+      if (!wasEditing) { state.filter = "pharmacy"; state.page = 1; }
       await load();
     } catch (error) {
       notify(error.message, "error");
