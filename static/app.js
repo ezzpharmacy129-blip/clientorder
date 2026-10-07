@@ -1,3 +1,125 @@
+// Input corrections use the existing PUT endpoint; item identity never depends on position.
+let orderEditState = null;
+async function openOrderEdit(id) {
+  if (orderEditState) return;
+  orderEditState = { loading: true };
+  try {
+    const {order} = await apiFetch(`/api/orders/${encodeURIComponent(id)}`);
+    if (!(order.Items || []).length || order.Items.some(item => !item.Item_ID)) {
+      throw new Error('تعذر تحميل معرّفات المنتجات؛ أعد فتح الطلب');
+    }
+    const modal = document.getElementById('order-edit-modal');
+    const detailModal = document.getElementById('order-modal');
+    const form = document.getElementById('order-edit-form');
+    orderEditState = { id: order.Order_ID, deletedItemIds: [], saving: false,
+      returnDetails: !detailModal.classList.contains('hidden'), opener: document.activeElement };
+    if (orderEditState.returnDetails) {
+      detailModal.classList.add('hidden');
+      detailModal.setAttribute('aria-hidden', 'true');
+    }
+    form.reset();
+    for (const [name, key] of Object.entries({customer_name:'Customer_Name', phone:'Phone', order_date:'Order_Date', notes:'Notes'})) {
+      form.elements[name].value = order[key] || '';
+    }
+    document.getElementById('order-edit-title').textContent = `تعديل الطلب #${order.Order_ID}`;
+    document.getElementById('order-edit-items').replaceChildren();
+    order.Items.forEach(addOrderEditItem);
+    modal.classList.remove('hidden');
+    modal.setAttribute('aria-hidden', 'false');
+    form.elements.customer_name.focus();
+  } catch (error) {
+    orderEditState = null;
+    toast(error.message, 'error');
+  }
+}
+
+function addOrderEditItem(item = {}) {
+  const row = document.createElement('div');
+  row.className = 'order-edit-item';
+  if (item.Item_ID) row.dataset.itemId = item.Item_ID;
+  row.innerHTML = `<label>اسم المنتج<input class="edit-product-name" required value="${esc(item.Product_Name || '')}"></label>
+    <label>الكمية<input class="edit-product-quantity" type="number" min="1" step="1" required value="${esc(item.Quantity || 1)}"></label>
+    <div>${imageHtml(item, true)}</div><button type="button" class="btn btn-outline edit-remove-item">إزالة المنتج من الطلب</button>`;
+  row.querySelector('.edit-remove-item').onclick = () => {
+    if (orderEditState.saving) return;
+    if (row.dataset.itemId) orderEditState.deletedItemIds.push(row.dataset.itemId);
+    row.remove();
+  };
+  document.getElementById('order-edit-items').appendChild(row);
+}
+
+function closeOrderEdit(saved = false) {
+  if (!orderEditState || orderEditState.loading || orderEditState.saving) return;
+  const state = orderEditState;
+  orderEditState = null;
+  const modal = document.getElementById('order-edit-modal');
+  modal.classList.add('hidden');
+  modal.setAttribute('aria-hidden', 'true');
+  document.getElementById('order-edit-form').reset();
+  document.getElementById('order-edit-items').replaceChildren();
+  if (state.returnDetails) {
+    const detailModal = document.getElementById('order-modal');
+    detailModal.classList.remove('hidden');
+    detailModal.setAttribute('aria-hidden', 'false');
+    if (saved) details(state.id);
+  }
+  state.opener?.focus();
+}
+
+async function saveOrderEdit(event) {
+  event.preventDefault();
+  const state = orderEditState;
+  if (!state || state.loading || state.saving) return;
+  const form = event.currentTarget;
+  if (!form.reportValidity()) return;
+  const products = [...document.querySelectorAll('#order-edit-items .order-edit-item')].map(row => {
+    const product = {product_name: row.querySelector('.edit-product-name').value.trim(),
+      quantity: Number(row.querySelector('.edit-product-quantity').value)};
+    if (row.dataset.itemId) product.item_id = row.dataset.itemId;
+    return product;
+  });
+  if (!products.length || products.some(p => !p.product_name || !Number.isInteger(p.quantity) || p.quantity < 1)) {
+    toast('يجب إبقاء منتج واحد على الأقل باسم وكمية صحيحة', 'error');
+    return;
+  }
+  const payload = {customer_name: form.elements.customer_name.value.trim(), phone: form.elements.phone.value.trim(),
+    order_date: form.elements.order_date.value, notes: form.elements.notes.value,
+    products, deleted_item_ids: [...state.deletedItemIds]};
+  state.saving = true;
+  const controls = [...document.querySelectorAll('#order-edit-modal button, #order-edit-modal input, #order-edit-modal textarea')];
+  controls.forEach(control => control.disabled = true);
+  let saved = false;
+  try {
+    await apiFetch(`/api/orders/${encodeURIComponent(state.id)}`, {method:'PUT', body:JSON.stringify(payload)});
+    saved = true;
+  } catch (error) { toast(error.message, 'error'); }
+  finally {
+    state.saving = false;
+    controls.forEach(control => control.disabled = false);
+  }
+  if (saved) {
+    closeOrderEdit(true);
+    toast('تم تعديل الطلب بنجاح');
+    await Promise.allSettled([loadOrders(), loadDashboard(), window.dailyShortages?.load()]);
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const modal = document.getElementById('order-edit-modal');
+  document.getElementById('order-edit-form').addEventListener('submit', saveOrderEdit);
+  document.getElementById('order-edit-add').onclick = () => addOrderEditItem();
+  modal.querySelectorAll('[data-edit-close]').forEach(button => button.onclick = () => closeOrderEdit());
+  modal.addEventListener('click', event => { if (event.target === modal) closeOrderEdit(); });
+  modal.addEventListener('keydown', event => {
+    if (event.key === 'Escape') { event.preventDefault(); closeOrderEdit(); }
+    if (event.key !== 'Tab') return;
+    const controls = [...modal.querySelectorAll('button:not(:disabled), input:not(:disabled), textarea:not(:disabled), a[href]')];
+    const first = controls[0], last = controls[controls.length - 1];
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  });
+});
+
 const STATUS_LABELS={
   "بانتظار التوفر":{cls:"status-pending"},"متوفر - يحتاج اتصال":{cls:"status-available"},"متوفر جزئيًا - يحتاج اتصال":{cls:"status-available"},"غير متوفر - يحتاج اتصال":{cls:"status-cancelled"},
   "تم التواصل - بانتظار الاستلام":{cls:"status-contacted"},"تم الاستلام":{cls:"status-picked"},
@@ -191,11 +313,11 @@ function cancelOrder(id){
 function openConfirm(msg,cb){confirmCallback=cb;document.getElementById("confirm-message").textContent=msg;document.getElementById("confirm-modal").classList.remove("hidden")}
 function closeModals(){document.querySelectorAll(".modal-overlay").forEach(x=>x.classList.add("hidden"));currentPostpone=null}
 
-async function details(id){try{const d=await apiFetch(`/api/orders/${id}`);const o=d.order;document.getElementById("modal-title").textContent=`تفاصيل الطلب ${o.Order_ID}`;document.getElementById("modal-body").innerHTML=`<div class="order-head"><div><b>${esc(o.Customer_Name)}</b><div>${esc(o.Phone)}</div></div>${phoneLinks(o.Phone)}<button class="btn btn-outline btn-sm detail-wa" data-id="${esc(o.Order_ID)}">💬 رسالة جاهزة للعميل</button></div><div class="detail-grid"><div class="detail-item full"><div class="di-label">المنتجات والصور</div><div class="items-detail">${(o.Items||[]).map(i=>`<div class="item-detail-row"><div><span>${esc(i.Product_Name)}</span> <strong>× ${i.Quantity}</strong>${i.Image_Path?'<span class="image-attached">📷 مرفقة</span>':''}${i.Price_Confirmation_Required==='نعم'?'<span class="image-attached">💰 تأكيد السعر</span>':''}</div><div>${imageHtml(i,true)}</div></div>`).join("")||esc(o.Product_Name)}</div></div><div class="detail-item"><div class="di-label">الحالة</div><div class="di-value">${badge(o.Status)}</div></div><div class="detail-item"><div class="di-label">تاريخ الطلب</div><div class="di-value">${fmtDate(o.Order_Date)}</div></div><div class="detail-item"><div class="di-label">تاريخ التوفر</div><div class="di-value">${fmtDate(o.Available_Date)}</div></div><div class="detail-item"><div class="di-label">آخر تواصل</div><div class="di-value">${fmtDate(o.Last_Contact_Date)}</div></div><div class="detail-item"><div class="di-label">موعد المتابعة</div><div class="di-value">${fmtDate(o.Next_Followup_Date)}</div></div><div class="detail-item"><div class="di-label">تاريخ الاستلام</div><div class="di-value">${fmtDate(o.Pickup_Date)}</div></div>${o.Notes?`<div class="detail-item full"><div class="di-label">ملاحظات</div><div class="di-value">${esc(o.Notes)}</div></div>`:""}</div>${customerReplyPanel(o)}<div class="detail-actions"><div class="detail-actions">${(((o.Items||[]).some(i=>i.Availability_Status==='بانتظار التوفر'))||['بانتظار التوفر','متوفر - يحتاج اتصال','متوفر جزئيًا - يحتاج اتصال','غير متوفر - يحتاج اتصال'].includes(o.Status))?`<button class="btn btn-primary modal-avail">تحديث توفر المنتجات</button>`:""}${['متوفر - يحتاج اتصال','متوفر جزئيًا - يحتاج اتصال','تم التواصل - بانتظار الاستلام'].includes(o.Status)&&o.Contact_Status!=='العميل موافق'&&o.Contact_Status!=='العميل رفض'?`<button class="btn btn-primary modal-contact">💬 تم التواصل → بانتظار الاستلام</button>`:""}${['تم التواصل - بانتظار الاستلام','لم يستلم'].includes(o.Status)?(o.Contact_Status==='العميل موافق'?'<button class="btn btn-primary modal-pickup">تم الاستلام</button>':'<button class="btn btn-secondary" type="button" disabled title="يجب تأكيد موافقة العميل أولًا">🔒 تم الاستلام — بانتظار موافقة العميل</button>')+'<button class="btn btn-outline modal-postpone">تأجيل المتابعة</button>':""}${o.Status==='تم الاستلام'?'<button class="btn btn-outline modal-not-picked">العميل لم يستلم</button>':''}${!['تم الاستلام','ملغي'].includes(o.Status)?`<button class="btn btn-danger modal-cancel">إلغاء الطلب</button>`:""}${d.undo?.available?`<button class="btn btn-warning modal-undo">↩ التراجع عن: ${esc(d.undo.action)}</button>`:""}</div><div class="activity-log"><h4>سجل المتابعة</h4>${(d.activity_log||[]).map(l=>`<div class="activity-item"><b>${esc(l.Created_At)}</b><span>${esc(l.Action)}${l.Note?` — ${esc(l.Note)}`:""}</span></div>`).join("")||'<div class="empty-state">لا يوجد سجل</div>'}</div>`;const m=document.getElementById("order-modal");m.classList.remove("hidden");bindCustomerReply(o);m.querySelector(".detail-wa")?.addEventListener("click",()=>openClientWhatsApp(id));m.querySelector(".modal-avail")?.addEventListener("click",()=>available(id));m.querySelector(".modal-contact")?.addEventListener("click",()=>contact(id));m.querySelector(".modal-pickup")?.addEventListener("click",()=>pickup(id));m.querySelector(".modal-not-picked")?.addEventListener("click",()=>notPicked(id));m.querySelector(".modal-postpone")?.addEventListener("click",()=>{m.classList.add("hidden");openPostpone(id)});m.querySelector(".modal-cancel")?.addEventListener("click",()=>cancelOrder(id));m.querySelector(".modal-undo")?.addEventListener("click",()=>undoOrder(id,d.undo.action))}catch(e){toast(e.message,"error")}}
+async function details(id){try{const d=await apiFetch(`/api/orders/${id}`);const o=d.order;document.getElementById("modal-title").textContent=`تفاصيل الطلب ${o.Order_ID}`;document.getElementById("modal-body").innerHTML=`<div class="order-head"><div><b>${esc(o.Customer_Name)}</b><div>${esc(o.Phone)}</div></div>${phoneLinks(o.Phone)}<button class="btn btn-outline btn-sm detail-wa" data-id="${esc(o.Order_ID)}">💬 رسالة جاهزة للعميل</button></div><div class="detail-grid"><div class="detail-item full"><div class="di-label">المنتجات والصور</div><div class="items-detail">${(o.Items||[]).map(i=>`<div class="item-detail-row"><div><span>${esc(i.Product_Name)}</span> <strong>× ${i.Quantity}</strong>${i.Image_Path?'<span class="image-attached">📷 مرفقة</span>':''}${i.Price_Confirmation_Required==='نعم'?'<span class="image-attached">💰 تأكيد السعر</span>':''}</div><div>${imageHtml(i,true)}</div></div>`).join("")||esc(o.Product_Name)}</div></div><div class="detail-item"><div class="di-label">الحالة</div><div class="di-value">${badge(o.Status)}</div></div><div class="detail-item"><div class="di-label">تاريخ الطلب</div><div class="di-value">${fmtDate(o.Order_Date)}</div></div><div class="detail-item"><div class="di-label">تاريخ التوفر</div><div class="di-value">${fmtDate(o.Available_Date)}</div></div><div class="detail-item"><div class="di-label">آخر تواصل</div><div class="di-value">${fmtDate(o.Last_Contact_Date)}</div></div><div class="detail-item"><div class="di-label">موعد المتابعة</div><div class="di-value">${fmtDate(o.Next_Followup_Date)}</div></div><div class="detail-item"><div class="di-label">تاريخ الاستلام</div><div class="di-value">${fmtDate(o.Pickup_Date)}</div></div>${o.Notes?`<div class="detail-item full"><div class="di-label">ملاحظات</div><div class="di-value">${esc(o.Notes)}</div></div>`:""}</div>${customerReplyPanel(o)}<div class="detail-actions"><button type="button" class="btn btn-primary modal-edit">✏️ تعديل الطلب</button><div class="detail-actions">${(((o.Items||[]).some(i=>i.Availability_Status==='بانتظار التوفر'))||['بانتظار التوفر','متوفر - يحتاج اتصال','متوفر جزئيًا - يحتاج اتصال','غير متوفر - يحتاج اتصال'].includes(o.Status))?`<button class="btn btn-primary modal-avail">تحديث توفر المنتجات</button>`:""}${['متوفر - يحتاج اتصال','متوفر جزئيًا - يحتاج اتصال','تم التواصل - بانتظار الاستلام'].includes(o.Status)&&o.Contact_Status!=='العميل موافق'&&o.Contact_Status!=='العميل رفض'?`<button class="btn btn-primary modal-contact">💬 تم التواصل → بانتظار الاستلام</button>`:""}${['تم التواصل - بانتظار الاستلام','لم يستلم'].includes(o.Status)?(o.Contact_Status==='العميل موافق'?'<button class="btn btn-primary modal-pickup">تم الاستلام</button>':'<button class="btn btn-secondary" type="button" disabled title="يجب تأكيد موافقة العميل أولًا">🔒 تم الاستلام — بانتظار موافقة العميل</button>')+'<button class="btn btn-outline modal-postpone">تأجيل المتابعة</button>':""}${o.Status==='تم الاستلام'?'<button class="btn btn-outline modal-not-picked">العميل لم يستلم</button>':''}${!['تم الاستلام','ملغي'].includes(o.Status)?`<button class="btn btn-danger modal-cancel">إلغاء الطلب</button>`:""}${d.undo?.available?`<button class="btn btn-warning modal-undo">↩ التراجع عن: ${esc(d.undo.action)}</button>`:""}</div><div class="activity-log"><h4>سجل المتابعة</h4>${(d.activity_log||[]).map(l=>`<div class="activity-item"><b>${esc(l.Created_At)}</b><span>${esc(l.Action)}${l.Note?` — ${esc(l.Note)}`:""}</span></div>`).join("")||'<div class="empty-state">لا يوجد سجل</div>'}</div>`;const m=document.getElementById("order-modal");m.classList.remove("hidden");bindCustomerReply(o);m.querySelector(".modal-edit").onclick=()=>openOrderEdit(id);m.querySelector(".detail-wa")?.addEventListener("click",()=>openClientWhatsApp(id));m.querySelector(".modal-avail")?.addEventListener("click",()=>available(id));m.querySelector(".modal-contact")?.addEventListener("click",()=>contact(id));m.querySelector(".modal-pickup")?.addEventListener("click",()=>pickup(id));m.querySelector(".modal-not-picked")?.addEventListener("click",()=>notPicked(id));m.querySelector(".modal-postpone")?.addEventListener("click",()=>{m.classList.add("hidden");openPostpone(id)});m.querySelector(".modal-cancel")?.addEventListener("click",()=>cancelOrder(id));m.querySelector(".modal-undo")?.addEventListener("click",()=>undoOrder(id,d.undo.action))}catch(e){toast(e.message,"error")}}
 async function undoOrder(id,action){openConfirm(`هل تريد التراجع عن: ${action}؟`,async()=>{try{await apiFetch(`/api/orders/${id}/undo`,{method:"POST",body:"{}"});toast("تم التراجع عن آخر تغيير");document.getElementById("order-modal").classList.add("hidden");refresh()}catch(e){toast(e.message,"error")}})}
 function openPostpone(id){currentPostpone=id;document.getElementById("postpone-custom-date").value="";document.getElementById("postpone-modal").classList.remove("hidden")}
 async function doPostpone(days,date=null){if(!currentPostpone)return;try{await apiFetch(`/api/orders/${currentPostpone}/postpone`,{method:"POST",body:JSON.stringify(date?{custom_date:date}:{days})});toast("تم تأجيل المتابعة");closeModals();refresh()}catch(e){toast(e.message,"error")}}
-function renderOrders(orders){const b=document.getElementById("orders-table-body");if(!orders.length){b.innerHTML='<tr><td colspan="12" class="empty-state">لا توجد طلبات</td></tr>';return}b.innerHTML=orders.map(o=>`<tr><td>${esc(o.Order_ID)}</td><td>${esc(o.Customer_Name)}</td><td>${esc(o.Phone)}</td><td class="products-cell">${productsSummary(o)}</td><td>${o.Quantity}</td><td>${fmtDate(o.Order_Date)}</td><td>${fmtDate(o.Available_Date)}</td><td>${badge(o.Status)}</td><td>${contactBadge(o.Contact_Status)}</td><td>${fmtDate(o.Last_Contact_Date)}</td><td>${fmtDate(o.Next_Followup_Date)}</td><td><button class="btn btn-secondary btn-sm details-btn" data-id="${o.Order_ID}">التفاصيل</button></td></tr>`).join("");b.querySelectorAll(".details-btn").forEach(x=>x.onclick=()=>details(x.dataset.id))}
+function renderOrders(orders){const b=document.getElementById("orders-table-body");if(!orders.length){b.innerHTML='<tr><td colspan="12" class="empty-state">لا توجد طلبات</td></tr>';return}b.innerHTML=orders.map(o=>`<tr><td>${esc(o.Order_ID)}</td><td>${esc(o.Customer_Name)}</td><td>${esc(o.Phone)}</td><td class="products-cell">${productsSummary(o)}</td><td>${o.Quantity}</td><td>${fmtDate(o.Order_Date)}</td><td>${fmtDate(o.Available_Date)}</td><td>${badge(o.Status)}</td><td>${contactBadge(o.Contact_Status)}</td><td>${fmtDate(o.Last_Contact_Date)}</td><td>${fmtDate(o.Next_Followup_Date)}</td><td><div class="order-actions"><button class="btn btn-secondary btn-sm details-btn" data-id="${esc(o.Order_ID)}">التفاصيل</button><button type="button" class="btn btn-outline btn-sm edit-order-btn" data-id="${esc(o.Order_ID)}">✏️ تعديل</button></div></td></tr>`).join("");b.querySelectorAll(".details-btn").forEach(x=>x.onclick=()=>details(x.dataset.id));b.querySelectorAll(".edit-order-btn").forEach(x=>x.onclick=()=>openOrderEdit(x.dataset.id))}
 function populateStatus(){const s=document.getElementById("orders-status-filter");if(s.dataset.done)return;STATUS_ORDER.forEach(x=>s.insertAdjacentHTML("beforeend",`<option value="${esc(x)}">${esc(x)}</option>`));s.dataset.done=1}
 let ordersLoadPromise=null;
 let ordersPage=1;
@@ -351,7 +473,7 @@ function initModals(){
   document.getElementById("postpone-custom-confirm").onclick=()=>{const d=document.getElementById("postpone-custom-date").value;if(!d)return toast("اختر تاريخًا", "error");doPostpone(null,d)};
   document.querySelectorAll(".postpone-quick").forEach(b=>b.onclick=()=>doPostpone(parseInt(b.dataset.days)));
   availabilityModal.onclick=e=>{if(e.target===availabilityModal)closeAvailability(true)};
-  document.querySelectorAll(".modal-overlay").forEach(o=>{if(o===availabilityModal)return;o.onclick=e=>{if(e.target===o)o.classList.add("hidden")}});
+  document.querySelectorAll(".modal-overlay").forEach(o=>{if(o===availabilityModal||o.id==="order-edit-modal"||o.id==="pharmacy-shortage-modal")return;o.onclick=e=>{if(e.target===o)o.classList.add("hidden")}});
 }
 async function loadBackups(){
   const root=document.getElementById("backups-list");

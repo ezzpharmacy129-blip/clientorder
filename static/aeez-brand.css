@@ -11,6 +11,21 @@
   --focus-ring:0 0 0 3px rgba(7,133,119,.2);
 }
 body { background:var(--bg); }
+/* Correction forms retain the existing RTL/mobile layout and brand. */
+.order-actions { display:flex; flex-wrap:wrap; gap:8px; }
+#order-edit-modal .modal { width:min(720px,100%); max-height:calc(100dvh - 24px); }
+#order-edit-modal .modal-body { overflow-y:auto; min-height:0; }
+#order-edit-modal input,#order-edit-modal textarea { width:100%; min-width:0; box-sizing:border-box; }
+.order-edit-item { display:grid; grid-template-columns:minmax(0,1fr) 90px; gap:12px; padding:14px; margin-bottom:12px; border:1px solid var(--border); border-radius:10px; }
+.order-edit-item label { display:flex; flex-direction:column; gap:6px; min-width:0; }
+.order-edit-item .edit-remove-item { white-space:normal; }
+@media (max-width:720px) {
+  #view-orders .orders-table { min-width:0; }
+}
+@media (max-width:420px) {
+  .order-edit-item { grid-template-columns:minmax(0,1fr); }
+  #order-edit-modal .modal-header h3 { overflow-wrap:anywhere; }
+}
 .app-header { background:var(--surface); border-bottom:1px solid var(--border); box-shadow:var(--shadow-sm); }
 .brand-glow { display:none; }
 .brand-mark-wrap { background:var(--surface-soft); border:1px solid var(--border); box-shadow:none; }

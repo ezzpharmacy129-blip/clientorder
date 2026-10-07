@@ -673,7 +673,7 @@ class CloudDB:
                 raise ValueError("تغيير حالة الطلب مباشرة غير مسموح. استخدم إجراء الحالة المناسب حتى يتم التحقق من قواعد سير الطلب.")
             if "Contact_Status" in updates:
                 raise ValueError("تغيير حالة التواصل مباشرة غير مسموح. استخدم إجراء حالة التواصل المناسب.")
-            if products is not None:
+            if products is not None or deleted_item_ids:
                 existing_items = self._fetch_items(conn, order_id)
                 existing_by_id = {str(item['Item_ID']): item for item in existing_items}
                 deleted_ids = {str(x).strip() for x in (deleted_item_ids or []) if str(x).strip()}
@@ -685,7 +685,7 @@ class CloudDB:
                 resolved = []
                 seen_ids = set()
                 new_count = 0
-                for index, p in enumerate(products, 1):
+                for index, p in enumerate(products or [], 1):
                     p = p or {}
                     name = str(p.get('product_name') or '').strip()
                     try:
