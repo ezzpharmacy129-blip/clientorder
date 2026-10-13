@@ -18,6 +18,37 @@
     return shifted.toISOString().slice(0,16);
   };
 
+  function normalizeWhatsAppPhone(value) {
+    let phone = String(value || '')
+      .replace(/[٠-٩]/g, digit => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)))
+      .replace(/\D/g, '');
+    if (phone.startsWith('00')) phone = phone.slice(2);
+    if (phone.startsWith('0') && phone.length === 10) phone = `966${phone.slice(1)}`;
+    else if (phone.startsWith('5') && phone.length === 9) phone = `966${phone}`;
+    return phone;
+  }
+
+  function openWhatsApp(phoneValue, message) {
+    const phone = normalizeWhatsAppPhone(phoneValue);
+    if (!phone || phone.length < 9) {
+      showToast('رقم هاتف العميل غير صالح للإرسال عبر واتساب', true);
+      return;
+    }
+    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer');
+  }
+
+  function sendCustomerWhatsApp(customer) {
+    if (!customer?.reminder_consent) return showToast('العميل لم يوافق على رسائل التذكير', true);
+    openWhatsApp(customer.phone, `السلام عليكم ${customer.name}، معك صيدلية عز الصحة. هذه رسالة متابعة للعلاج المزمن، ويسعدنا خدمتك ومتابعة مواعيد إعادة صرف أدويتك.`);
+  }
+
+  function sendMedicationWhatsApp(medication) {
+    if (!medication?.reminder_consent) return showToast('العميل لم يوافق على رسائل التذكير', true);
+    if (!medication.expected_refill_at) return showToast('سجّل عملية صرف أولًا لحساب موعد إعادة الصرف', true);
+    const medicine = `${medication.name}${medication.strength ? ` ${medication.strength}` : ''}`;
+    openWhatsApp(medication.phone, `السلام عليكم ${medication.customer_name}، نذكّرك من صيدلية عز الصحة بأن موعد إعادة صرف ${medicine} متوقع بتاريخ ${formatDate(medication.expected_refill_at)}. للتأكيد أو الاستفسار يسعدنا تواصلك معنا.`);
+  }
+
   function showToast(message, error=false) {
     const toast = $('#cc-toast');
     if (!toast) return;
@@ -79,7 +110,7 @@
         <td>${statusBadge(customer.followup_status)}</td>
         <td>${customer.reminder_consent ? '✓ موافق' : 'غير موافق'}</td>
         <td>${formatNumber(customer.medication_count)}</td>
-        <td><div class="cc-actions"><button data-action="add-medication" data-id="${escapeHtml(customer.id)}">+ دواء</button><button data-action="edit-customer" data-id="${escapeHtml(customer.id)}">تعديل</button></div></td>
+        <td><div class="cc-actions"><button class="whatsapp" data-action="whatsapp-customer" data-id="${escapeHtml(customer.id)}" ${customer.reminder_consent && customer.phone ? '' : 'disabled title="يتطلب رقم هاتف وموافقة العميل"'}>💬 واتساب</button><button data-action="add-medication" data-id="${escapeHtml(customer.id)}">+ دواء</button><button data-action="edit-customer" data-id="${escapeHtml(customer.id)}">تعديل</button></div></td>
       </tr>`).join('') || '<tr><td colspan="6" class="cc-empty">لا توجد ملفات عملاء.</td></tr>';
   }
 
@@ -100,7 +131,7 @@
         <td>${formatDate(medication.expected_refill_at)}</td>
         <td>${medication.reminder_consent ? formatDate(medication.reminder_at) : '<span class="cc-sub">العميل غير موافق</span>'}</td>
         <td>${statusBadge(medication.status)}</td>
-        <td><div class="cc-actions"><button class="primary" data-action="dispense" data-id="${escapeHtml(medication.id)}">إعادة صرف</button><button data-action="history" data-id="${escapeHtml(medication.id)}">السجل</button><button data-action="edit-medication" data-id="${escapeHtml(medication.id)}">تعديل</button></div></td>
+        <td><div class="cc-actions"><button class="whatsapp" data-action="whatsapp-medication" data-id="${escapeHtml(medication.id)}" ${medication.reminder_consent && medication.phone && medication.expected_refill_at ? '' : 'disabled title="يتطلب موعد صرف وموافقة العميل"'}>💬 تذكير واتساب</button><button class="primary" data-action="dispense" data-id="${escapeHtml(medication.id)}">إعادة صرف</button><button data-action="history" data-id="${escapeHtml(medication.id)}">السجل</button><button data-action="edit-medication" data-id="${escapeHtml(medication.id)}">تعديل</button></div></td>
       </tr>`).join('');
     $('#medications-empty').classList.toggle('hidden', data.medications.length > 0);
   }
@@ -199,9 +230,11 @@
       const id = button.dataset.id;
       if (action === 'edit-customer') openCustomer(customerMap.get(id));
       if (action === 'add-medication') openMedication(id);
+      if (action === 'whatsapp-customer') sendCustomerWhatsApp(customerMap.get(id));
       if (action === 'edit-medication') openMedication('', medicationMap.get(id));
       if (action === 'dispense') openDispense(medicationMap.get(id));
       if (action === 'history') openHistory(medicationMap.get(id));
+      if (action === 'whatsapp-medication') sendMedicationWhatsApp(medicationMap.get(id));
     });
     $('#dispense-form').elements.days_supply.addEventListener('input', updateCalculation);
     $('#dispense-form').elements.dispensed_at.addEventListener('input', updateCalculation);

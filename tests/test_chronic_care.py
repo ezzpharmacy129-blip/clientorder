@@ -45,6 +45,14 @@ class ChronicCareUnitTests(unittest.TestCase):
         self.assertEqual(chronic_care.CUSTOMER_STATUSES, expected)
         self.assertEqual(chronic_care.MEDICATION_STATUSES, expected)
 
+    def test_whatsapp_reminders_require_consent_and_use_prefilled_message(self):
+        source = (APP_DIR / "static" / "chronic_care.js").read_text(encoding="utf-8")
+        self.assertIn("https://wa.me/", source)
+        self.assertIn("whatsapp-customer", source)
+        self.assertIn("whatsapp-medication", source)
+        self.assertIn("reminder_consent", source)
+        self.assertIn("expected_refill_at", source)
+
 
 @unittest.skipUnless(os.environ.get("CHRONIC_TEST_DATABASE_URL"), "integration database is not configured")
 class ChronicCareIntegrationTests(unittest.TestCase):
