@@ -1064,6 +1064,13 @@ try:
 except Exception as exc:
     app.logger.exception("Failed to register Excel export route: %s", exc)
 
+# Independent chronic-treatment follow-up module.
+try:
+    from chronic_care import install_chronic_care
+    install_chronic_care(app)
+except Exception as exc:
+    app.logger.exception("Failed to register chronic care routes: %s", exc)
+
 
 @app.after_request
 def add_security_headers(response):
@@ -1089,3 +1096,4 @@ if __name__ == "__main__":
         except Exception:pass
     threading.Timer(1.2,open_browser).start()
     app.run(debug=False,host="0.0.0.0",port=5000)
+

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="csrf-token" content="{{ csrf_token() }}">
+  <title>توقعات إعادة الصرف - صيدلية عز الصحة</title>
+  <link rel="icon" type="image/png" href="{{ url_for('static', filename='logo-mark.png') }}">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap">
+  <link rel="stylesheet" href="{{ url_for('static', filename='chronic_care.css') }}?v=1">
+</head>
+<body data-chronic-page="forecasts">
+  <header class="cc-header">
+    <a class="cc-brand" href="/"><img src="{{ url_for('static', filename='logo-mark.png') }}" alt=""><span><b>صيدلية عز الصحة</b><small>متابعة العلاج المزمن</small></span></a>
+    <nav><a href="/chronic-care">لوحة المتابعة</a><a class="active" href="/chronic-care/forecasts">توقعات إعادة الصرف</a><a href="/">النظام الرئيسي</a><a href="/logout">تسجيل الخروج</a></nav>
+  </header>
+  <main class="cc-main">
+    <section class="cc-hero"><div><span>تخطيط 30 يومًا</span><h1>توقعات إعادة الصرف</h1><p>عدد العملاء والعمليات والكميات المتوقعة، مجمعة حسب الدواء.</p></div><a class="cc-btn cc-light" href="/chronic-care">العودة للمتابعة</a></section>
+    <section class="cc-stats cc-forecast-stats">
+      <div><b id="forecast-7">—</b><span>عمليات خلال 7 أيام</span></div><div><b id="forecast-14">—</b><span>عمليات خلال 14 يومًا</span></div><div><b id="forecast-30">—</b><span>عمليات خلال 30 يومًا</span></div><div><b id="forecast-customers">—</b><span>عملاء مختلفون خلال 30 يومًا</span></div>
+    </section>
+    <section class="cc-panel">
+      <div class="cc-panel-head"><div><h2>التوقعات حسب الدواء</h2><p>اضغط على اسم الدواء لإظهار العملاء المتوقع إعادة الصرف لهم.</p></div><input id="forecast-search" type="search" placeholder="ابحث باسم الدواء"></div>
+      <div class="cc-table-wrap"><table class="forecast-table"><thead><tr><th>الدواء</th><th>0–7 أيام</th><th>8–14 يومًا</th><th>15–30 يومًا</th><th>إجمالي 30 يومًا</th><th>عدد العملاء</th><th>عمليات إعادة الصرف</th><th>الكمية المتوقعة</th></tr></thead><tbody id="forecast-body"></tbody></table></div>
+      <div class="cc-empty hidden" id="forecast-empty">لا توجد عمليات متوقعة خلال 30 يومًا.</div>
+    </section>
+  </main>
+  <div class="cc-toast" id="cc-toast" role="status"></div>
+  <script src="{{ url_for('static', filename='csrf-client.js') }}?v=20260906-csrf-v1"></script>
+  <script src="{{ url_for('static', filename='chronic_care.js') }}?v=1"></script>
+</body>
+</html>
+
+

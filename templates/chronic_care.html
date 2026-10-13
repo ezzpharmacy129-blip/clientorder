@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="csrf-token" content="{{ csrf_token() }}">
+  <title>متابعة العلاج المزمن - صيدلية عز الصحة</title>
+  <link rel="icon" type="image/png" href="{{ url_for('static', filename='logo-mark.png') }}">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap">
+  <link rel="stylesheet" href="{{ url_for('static', filename='chronic_care.css') }}?v=1">
+</head>
+<body data-chronic-page="dashboard">
+  <header class="cc-header">
+    <a class="cc-brand" href="/"><img src="{{ url_for('static', filename='logo-mark.png') }}" alt=""><span><b>صيدلية عز الصحة</b><small>متابعة العلاج المزمن</small></span></a>
+    <nav>
+      <a class="active" href="/chronic-care">لوحة المتابعة</a>
+      <a href="/chronic-care/forecasts">توقعات إعادة الصرف</a>
+      <a href="/">النظام الرئيسي</a>
+      <a href="/logout">تسجيل الخروج</a>
+    </nav>
+  </header>
+
+  <main class="cc-main">
+    <section class="cc-hero">
+      <div><span>رعاية مستمرة</span><h1>متابعة العلاج المزمن</h1><p>ملف واحد لكل عميل، وسجل صرف كامل لكل دواء.</p></div>
+      <div class="cc-hero-actions"><button class="cc-btn cc-primary" id="add-customer-btn">+ إضافة عميل</button><a class="cc-btn cc-light" href="/chronic-care/forecasts">عرض التوقعات</a></div>
+    </section>
+
+    <section class="cc-stats" id="cc-stats" aria-label="ملخص المتابعة">
+      <button data-window="" data-status="active"><b id="stat-active-customers">—</b><span>العملاء النشطون</span></button>
+      <button data-window="" data-status="active"><b id="stat-active-medications">—</b><span>الأدوية النشطة</span></button>
+      <button data-window="today"><b id="stat-due-today">—</b><span>متوقع اليوم</span></button>
+      <button data-window="7"><b id="stat-due-7">—</b><span>خلال 7 أيام</span></button>
+      <button data-window="14"><b id="stat-due-14">—</b><span>خلال 14 يومًا</span></button>
+      <button data-window="30"><b id="stat-due-30">—</b><span>خلال 30 يومًا</span></button>
+      <button class="danger" data-window="overdue"><b id="stat-overdue">—</b><span>متأخر</span></button>
+    </section>
+
+    <section class="cc-panel">
+      <div class="cc-panel-head"><div><h2>الأدوية والمتابعة</h2><p>ابحث بالعميل أو الهاتف أو الدواء، ثم اختر المدة أو الحالة.</p></div></div>
+      <div class="cc-filters">
+        <input id="cc-search" type="search" placeholder="اسم العميل، رقم الهاتف، أو اسم الدواء">
+        <select id="cc-window-filter">
+          <option value="">كل المواعيد</option><option value="today">اليوم</option><option value="7">خلال 7 أيام</option><option value="14">خلال 14 يومًا</option><option value="30">خلال 30 يومًا</option><option value="overdue">متأخر</option>
+        </select>
+        <select id="cc-status-filter">
+          <option value="">كل الحالات</option><option value="active">نشط</option><option value="postponed">مؤجل</option><option value="stopped">متوقف</option><option value="needs_review">يحتاج مراجعة</option>
+        </select>
+        <button class="cc-btn" id="cc-refresh">تحديث</button>
+      </div>
+      <div class="cc-table-wrap">
+        <table><thead><tr><th>العميل</th><th>الدواء</th><th>آخر صرف</th><th>الموعد المتوقع</th><th>التذكير</th><th>الحالة</th><th>الإجراء</th></tr></thead><tbody id="medications-body"></tbody></table>
+      </div>
+      <div class="cc-empty hidden" id="medications-empty">لا توجد نتائج مطابقة.</div>
+    </section>
+
+    <section class="cc-panel">
+      <div class="cc-panel-head"><div><h2>ملفات العملاء</h2><p>لا يمكن إنشاء أكثر من ملف للرقم نفسه.</p></div></div>
+      <div class="cc-table-wrap">
+        <table><thead><tr><th>الاسم</th><th>الهاتف</th><th>المتابعة</th><th>التذكير</th><th>الأدوية</th><th>الإجراء</th></tr></thead><tbody id="customers-body"></tbody></table>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="customer-dialog" class="cc-dialog">
+    <form id="customer-form" method="dialog"><header><h3 id="customer-dialog-title">إضافة عميل</h3><button type="button" data-close>×</button></header>
+      <input type="hidden" name="id">
+      <label>اسم العميل<input name="name" required maxlength="160"></label>
+      <label>رقم الهاتف<input name="phone" required inputmode="tel" dir="ltr" maxlength="30"></label>
+      <label>حالة المتابعة<select name="followup_status"><option value="active">نشط</option><option value="postponed">مؤجل</option><option value="stopped">متوقف</option><option value="needs_review">يحتاج مراجعة</option></select></label>
+      <label class="cc-check"><input name="reminder_consent" type="checkbox"> العميل موافق على التذكير</label>
+      <footer><button class="cc-btn cc-primary" type="submit">حفظ</button><button class="cc-btn" type="button" data-close>إلغاء</button></footer>
+    </form>
+  </dialog>
+
+  <dialog id="medication-dialog" class="cc-dialog">
+    <form id="medication-form" method="dialog"><header><h3 id="medication-dialog-title">إضافة دواء</h3><button type="button" data-close>×</button></header>
+      <input type="hidden" name="id"><input type="hidden" name="customer_id">
+      <label>اسم الدواء<input name="name" required maxlength="200"></label>
+      <label>التركيز<input name="strength" maxlength="100" placeholder="مثال: 10 mg"></label>
+      <label>الحالة<select name="status"><option value="active">نشط</option><option value="postponed">مؤجل</option><option value="stopped">متوقف</option><option value="needs_review">يحتاج مراجعة</option></select></label>
+      <footer><button class="cc-btn cc-primary" type="submit">حفظ</button><button class="cc-btn" type="button" data-close>إلغاء</button></footer>
+    </form>
+  </dialog>
+
+  <dialog id="dispense-dialog" class="cc-dialog">
+    <form id="dispense-form" method="dialog"><header><div><h3>إعادة صرف</h3><small id="dispense-medication-name"></small></div><button type="button" data-close>×</button></header>
+      <input type="hidden" name="medication_id">
+      <div class="cc-form-grid"><label>الكمية المصروفة<input name="quantity" type="number" min="0.001" step="0.001" required></label><label>عدد الأيام<input name="days_supply" type="number" min="1" step="1" required></label></div>
+      <label>تاريخ ووقت الصرف<input name="dispensed_at" type="datetime-local" required></label>
+      <div class="cc-calculation"><span>موعد إعادة الصرف: <b id="calculated-refill">—</b></span><span>موعد التذكير: <b id="calculated-reminder">—</b></span></div>
+      <footer><button class="cc-btn cc-primary" type="submit">تسجيل العملية</button><button class="cc-btn" type="button" data-close>إلغاء</button></footer>
+    </form>
+  </dialog>
+
+  <dialog id="history-dialog" class="cc-dialog cc-wide">
+    <div><header><div><h3>سجل عمليات الصرف</h3><small id="history-medication-name"></small></div><button type="button" data-close>×</button></header>
+      <div class="cc-table-wrap"><table><thead><tr><th>تاريخ الصرف</th><th>الكمية</th><th>الأيام</th><th>إعادة الصرف المتوقعة</th><th>التذكير</th><th>سجلها</th></tr></thead><tbody id="history-body"></tbody></table></div>
+    </div>
+  </dialog>
+
+  <div class="cc-toast" id="cc-toast" role="status"></div>
+  <script src="{{ url_for('static', filename='csrf-client.js') }}?v=20260906-csrf-v1"></script>
+  <script src="{{ url_for('static', filename='chronic_care.js') }}?v=1"></script>
+</body>
+</html>
+
+
