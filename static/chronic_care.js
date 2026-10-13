@@ -5,6 +5,10 @@
   const statusLabels = {active:'نشط', postponed:'مؤجل', stopped:'متوقف', needs_review:'يحتاج مراجعة'};
   const customerMap = new Map();
   const medicationMap = new Map();
+  let messageTemplates = {
+    general: 'السلام عليكم {اسم_العميل}، معك صيدلية عز الصحة. هذه رسالة متابعة للعلاج المزمن، ويسعدنا خدمتك ومتابعة مواعيد إعادة صرف أدويتك.',
+    refill: 'السلام عليكم {اسم_العميل}، نذكّرك من صيدلية عز الصحة بأن موعد إعادة صرف {اسم_الدواء} {التركيز} متوقع بتاريخ {موعد_إعادة_الصرف}. للتأكيد أو الاستفسار يسعدنا تواصلك معنا.',
+  };
   let forecastRows = [];
   let toastTimer;
 
@@ -39,14 +43,38 @@
 
   function sendCustomerWhatsApp(customer) {
     if (!customer?.reminder_consent) return showToast('العميل لم يوافق على رسائل التذكير', true);
-    openWhatsApp(customer.phone, `السلام عليكم ${customer.name}، معك صيدلية عز الصحة. هذه رسالة متابعة للعلاج المزمن، ويسعدنا خدمتك ومتابعة مواعيد إعادة صرف أدويتك.`);
+    openWhatsApp(customer.phone, renderMessageTemplate(messageTemplates.general, {'اسم_العميل':customer.name}));
   }
 
   function sendMedicationWhatsApp(medication) {
     if (!medication?.reminder_consent) return showToast('العميل لم يوافق على رسائل التذكير', true);
     if (!medication.expected_refill_at) return showToast('سجّل عملية صرف أولًا لحساب موعد إعادة الصرف', true);
-    const medicine = `${medication.name}${medication.strength ? ` ${medication.strength}` : ''}`;
-    openWhatsApp(medication.phone, `السلام عليكم ${medication.customer_name}، نذكّرك من صيدلية عز الصحة بأن موعد إعادة صرف ${medicine} متوقع بتاريخ ${formatDate(medication.expected_refill_at)}. للتأكيد أو الاستفسار يسعدنا تواصلك معنا.`);
+    openWhatsApp(medication.phone, renderMessageTemplate(messageTemplates.refill, {
+      'اسم_العميل': medication.customer_name,
+      'اسم_الدواء': medication.name,
+      'التركيز': medication.strength || '',
+      'موعد_إعادة_الصرف': formatDate(medication.expected_refill_at),
+    }));
+  }
+
+  function renderMessageTemplate(template, values) {
+    let result = String(template || '');
+    Object.entries(values).forEach(([key, value]) => {
+      result = result.split(`{${key}}`).join(String(value ?? ''));
+    });
+    return result.replace(/ +([،,.])/g, '$1').trim();
+  }
+
+  async function loadMessageTemplates() {
+    const data = await api('/api/chronic-care/message-templates');
+    messageTemplates = {...messageTemplates, ...(data.templates || {})};
+  }
+
+  function openMessageTemplates() {
+    const form = $('#message-templates-form');
+    form.elements.general.value = messageTemplates.general;
+    form.elements.refill.value = messageTemplates.refill;
+    $('#message-templates-dialog').showModal();
   }
 
   function showToast(message, error=false) {
@@ -137,7 +165,7 @@
   }
 
   async function refreshAll() {
-    try { await Promise.all([loadDashboardSummary(), loadCustomers(), loadMedications()]); }
+    try { await Promise.all([loadDashboardSummary(), loadCustomers(), loadMedications(), loadMessageTemplates()]); }
     catch (error) { showToast(error.message, true); }
   }
 
@@ -212,6 +240,7 @@
   function setupDashboard() {
     setupDialogClosers();
     $('#add-customer-btn').addEventListener('click', () => openCustomer());
+    $('#message-templates-btn').addEventListener('click', openMessageTemplates);
     $('#cc-refresh').addEventListener('click', refreshAll);
     $('#cc-window-filter').addEventListener('change', loadMedications);
     $('#cc-status-filter').addEventListener('change', loadMedications);
@@ -271,6 +300,19 @@
         const id = form.elements.medication_id.value;
         await api(`/api/chronic-care/medications/${encodeURIComponent(id)}/dispenses`, {method:'POST', body:JSON.stringify({quantity:form.elements.quantity.value, days_supply:form.elements.days_supply.value, dispensed_at:form.elements.dispensed_at.value})});
         closeDialog($('#dispense-dialog')); showToast('تم تسجيل إعادة الصرف وحساب الموعد القادم'); await refreshAll();
+      }).catch(error => showToast(error.message, true));
+    });
+    $('#message-templates-form').addEventListener('submit', event => {
+      event.preventDefault();
+      submitLocked(event.currentTarget, async () => {
+        const form = event.currentTarget;
+        const data = await api('/api/chronic-care/message-templates', {
+          method:'PUT',
+          body:JSON.stringify({general:form.elements.general.value, refill:form.elements.refill.value}),
+        });
+        messageTemplates = {...messageTemplates, ...data.templates};
+        closeDialog($('#message-templates-dialog'));
+        showToast('تم حفظ قوالب الرسائل');
       }).catch(error => showToast(error.message, true));
     });
     refreshAll();

@@ -20,6 +20,10 @@ TZ = ZoneInfo("Asia/Riyadh")
 CUSTOMER_STATUSES = {"active", "postponed", "stopped", "needs_review"}
 MEDICATION_STATUSES = {"active", "postponed", "stopped", "needs_review"}
 WINDOWS = {"today", "7", "14", "30", "overdue"}
+DEFAULT_MESSAGE_TEMPLATES = {
+    "general": "السلام عليكم {اسم_العميل}، معك صيدلية عز الصحة. هذه رسالة متابعة للعلاج المزمن، ويسعدنا خدمتك ومتابعة مواعيد إعادة صرف أدويتك.",
+    "refill": "السلام عليكم {اسم_العميل}، نذكّرك من صيدلية عز الصحة بأن موعد إعادة صرف {اسم_الدواء} {التركيز} متوقع بتاريخ {موعد_إعادة_الصرف}. للتأكيد أو الاستفسار يسعدنا تواصلك معنا.",
+}
 _schema_lock = threading.Lock()
 _schema_ready = False
 
@@ -61,6 +65,17 @@ CREATE TABLE IF NOT EXISTS chronic_dispenses (
     created_at TIMESTAMPTZ NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS chronic_message_templates (
+    template_key TEXT PRIMARY KEY CHECK (template_key IN ('general','refill')),
+    template_text TEXT NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL
+);
+
+INSERT INTO chronic_message_templates(template_key, template_text, updated_at) VALUES
+    ('general', 'السلام عليكم {اسم_العميل}، معك صيدلية عز الصحة. هذه رسالة متابعة للعلاج المزمن، ويسعدنا خدمتك ومتابعة مواعيد إعادة صرف أدويتك.', CURRENT_TIMESTAMP),
+    ('refill', 'السلام عليكم {اسم_العميل}، نذكّرك من صيدلية عز الصحة بأن موعد إعادة صرف {اسم_الدواء} {التركيز} متوقع بتاريخ {موعد_إعادة_الصرف}. للتأكيد أو الاستفسار يسعدنا تواصلك معنا.', CURRENT_TIMESTAMP)
+ON CONFLICT (template_key) DO NOTHING;
+
 CREATE INDEX IF NOT EXISTS idx_chronic_customers_name ON chronic_customers (lower(name));
 CREATE INDEX IF NOT EXISTS idx_chronic_customers_status ON chronic_customers (followup_status);
 CREATE INDEX IF NOT EXISTS idx_chronic_medications_customer ON chronic_medications (customer_id);
@@ -74,14 +89,15 @@ CREATE INDEX IF NOT EXISTS idx_chronic_dispenses_expected_refill
 ALTER TABLE chronic_customers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE chronic_medications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE chronic_dispenses ENABLE ROW LEVEL SECURITY;
+ALTER TABLE chronic_message_templates ENABLE ROW LEVEL SECURITY;
 
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
-        REVOKE ALL ON TABLE chronic_customers, chronic_medications, chronic_dispenses FROM anon;
+        REVOKE ALL ON TABLE chronic_customers, chronic_medications, chronic_dispenses, chronic_message_templates FROM anon;
     END IF;
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
-        REVOKE ALL ON TABLE chronic_customers, chronic_medications, chronic_dispenses FROM authenticated;
+        REVOKE ALL ON TABLE chronic_customers, chronic_medications, chronic_dispenses, chronic_message_templates FROM authenticated;
     END IF;
 END $$;
 """
@@ -552,6 +568,40 @@ def forecast_report():
     return result
 
 
+def get_message_templates():
+    result = dict(DEFAULT_MESSAGE_TEMPLATES)
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT template_key, template_text FROM chronic_message_templates"
+        ).fetchall()
+    for row in rows:
+        result[row["template_key"]] = row["template_text"]
+    return result
+
+
+def update_message_templates(payload):
+    values = {}
+    for key in ("general", "refill"):
+        text = str(payload.get(key) or "").strip()
+        if not text:
+            raise ValueError("لا يمكن حفظ قالب فارغ")
+        if len(text) > 2000:
+            raise ValueError("الحد الأقصى لكل قالب هو 2000 حرف")
+        values[key] = text
+    with _connect() as conn:
+        for key, text in values.items():
+            conn.execute(
+                """
+                INSERT INTO chronic_message_templates(template_key, template_text, updated_at)
+                VALUES (%s,%s,%s)
+                ON CONFLICT (template_key) DO UPDATE
+                SET template_text=EXCLUDED.template_text, updated_at=EXCLUDED.updated_at
+                """,
+                (key, text, _now()),
+            )
+    return values
+
+
 def install_chronic_care(app):
     if app.extensions.get("ezz_chronic_care"):
         return
@@ -698,6 +748,27 @@ def install_chronic_care(app):
             return denied
         ensure_schema()
         return jsonify({"medications": forecast_report()})
+
+    @app.get("/api/chronic-care/message-templates")
+    def chronic_message_templates_api():
+        denied = _api_guard(app)
+        if denied:
+            return denied
+        ensure_schema()
+        return jsonify({"templates": get_message_templates()})
+
+    @app.put("/api/chronic-care/message-templates")
+    def chronic_update_message_templates_api():
+        denied = _api_guard(app)
+        if denied:
+            return denied
+        ensure_schema()
+        try:
+            templates = update_message_templates(request.get_json(silent=True) or {})
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        _audit(app, "Chronic Message Templates Updated", "تم تحديث قوالب رسائل متابعة العلاج المزمن")
+        return jsonify({"templates": templates})
 
 
 

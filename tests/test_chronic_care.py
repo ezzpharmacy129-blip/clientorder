@@ -36,6 +36,7 @@ class ChronicCareUnitTests(unittest.TestCase):
         self.assertIn("CREATE TABLE IF NOT EXISTS CHRONIC_CUSTOMERS", sql)
         self.assertIn("CREATE TABLE IF NOT EXISTS CHRONIC_MEDICATIONS", sql)
         self.assertIn("CREATE TABLE IF NOT EXISTS CHRONIC_DISPENSES", sql)
+        self.assertIn("CREATE TABLE IF NOT EXISTS CHRONIC_MESSAGE_TEMPLATES", sql)
         self.assertNotIn("DROP TABLE", sql)
         self.assertNotIn("ON DELETE CASCADE", sql)
         self.assertIn("ENABLE ROW LEVEL SECURITY", sql)
@@ -52,6 +53,9 @@ class ChronicCareUnitTests(unittest.TestCase):
         self.assertIn("whatsapp-medication", source)
         self.assertIn("reminder_consent", source)
         self.assertIn("expected_refill_at", source)
+        self.assertIn("message-templates-btn", source)
+        self.assertIn("/api/chronic-care/message-templates", source)
+        self.assertIn("{اسم_العميل}", source)
 
 
 @unittest.skipUnless(os.environ.get("CHRONIC_TEST_DATABASE_URL"), "integration database is not configured")

@@ -7,7 +7,7 @@
   <title>متابعة العلاج المزمن - صيدلية عز الصحة</title>
   <link rel="icon" type="image/png" href="{{ url_for('static', filename='logo-mark.png') }}">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap">
-  <link rel="stylesheet" href="{{ url_for('static', filename='chronic_care.css') }}?v=1">
+  <link rel="stylesheet" href="{{ url_for('static', filename='chronic_care.css') }}?v=2">
 </head>
 <body data-chronic-page="dashboard">
   <header class="cc-header">
@@ -23,7 +23,7 @@
   <main class="cc-main">
     <section class="cc-hero">
       <div><span>رعاية مستمرة</span><h1>متابعة العلاج المزمن</h1><p>ملف واحد لكل عميل، وسجل صرف كامل لكل دواء.</p></div>
-      <div class="cc-hero-actions"><button class="cc-btn cc-primary" id="add-customer-btn">+ إضافة عميل</button><a class="cc-btn cc-light" href="/chronic-care/forecasts">عرض التوقعات</a></div>
+      <div class="cc-hero-actions"><button class="cc-btn cc-primary" id="add-customer-btn">+ إضافة عميل</button><button class="cc-btn cc-light" id="message-templates-btn">✏️ قوالب الرسائل</button><a class="cc-btn cc-light" href="/chronic-care/forecasts">عرض التوقعات</a></div>
     </section>
 
     <section class="cc-stats" id="cc-stats" aria-label="ملخص المتابعة">
@@ -99,9 +99,17 @@
     </div>
   </dialog>
 
+  <dialog id="message-templates-dialog" class="cc-dialog cc-wide">
+    <form id="message-templates-form" method="dialog"><header><div><h3>قوالب رسائل واتساب</h3><small>يمكنك استخدام المتغيرات المكتوبة أسفل كل قالب.</small></div><button type="button" data-close>×</button></header>
+      <label>رسالة المتابعة العامة<textarea name="general" rows="5" maxlength="2000" required></textarea><small>{اسم_العميل}</small></label>
+      <label>رسالة تذكير إعادة الصرف<textarea name="refill" rows="6" maxlength="2000" required></textarea><small>{اسم_العميل} — {اسم_الدواء} — {التركيز} — {موعد_إعادة_الصرف}</small></label>
+      <footer><button class="cc-btn cc-primary" type="submit">حفظ القوالب</button><button class="cc-btn" type="button" data-close>إلغاء</button></footer>
+    </form>
+  </dialog>
+
   <div class="cc-toast" id="cc-toast" role="status"></div>
   <script src="{{ url_for('static', filename='csrf-client.js') }}?v=20260906-csrf-v1"></script>
-  <script src="{{ url_for('static', filename='chronic_care.js') }}?v=1"></script>
+  <script src="{{ url_for('static', filename='chronic_care.js') }}?v=2"></script>
 </body>
 </html>
 
