@@ -557,6 +557,14 @@ def install_chronic_care(app):
         return
     app.extensions["ezz_chronic_care"] = True
 
+    # Apply the additive, idempotent schema during a real configured startup.
+    # Route-level calls below remain as a retry path after transient DB failures.
+    if os.environ.get("DATABASE_URL"):
+        try:
+            ensure_schema()
+        except Exception as exc:
+            app.logger.exception("Failed to prepare chronic care schema: %s", exc)
+
     @app.get("/chronic-care")
     def chronic_care_page():
         if not _current_user(app):
