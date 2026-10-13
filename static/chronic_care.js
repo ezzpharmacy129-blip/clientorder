@@ -66,12 +66,17 @@
   }
 
   async function loadMessageTemplates() {
-    const data = await api('/api/chronic-care/message-templates');
-    messageTemplates = {...messageTemplates, ...(data.templates || {})};
+    try {
+      const data = await api('/api/chronic-care/message-templates');
+      messageTemplates = {...messageTemplates, ...(data.templates || {})};
+    } catch (_) {
+      // Keep defaults while an older app process is finishing its restart.
+    }
   }
 
   function openMessageTemplates() {
     const form = $('#message-templates-form');
+    if (!form) return showToast('أعد تحميل الصفحة بعد اكتمال تحديث النظام', true);
     form.elements.general.value = messageTemplates.general;
     form.elements.refill.value = messageTemplates.refill;
     $('#message-templates-dialog').showModal();
@@ -240,7 +245,7 @@
   function setupDashboard() {
     setupDialogClosers();
     $('#add-customer-btn').addEventListener('click', () => openCustomer());
-    $('#message-templates-btn').addEventListener('click', openMessageTemplates);
+    $('#message-templates-btn')?.addEventListener('click', openMessageTemplates);
     $('#cc-refresh').addEventListener('click', refreshAll);
     $('#cc-window-filter').addEventListener('change', loadMedications);
     $('#cc-status-filter').addEventListener('change', loadMedications);
@@ -302,7 +307,7 @@
         closeDialog($('#dispense-dialog')); showToast('تم تسجيل إعادة الصرف وحساب الموعد القادم'); await refreshAll();
       }).catch(error => showToast(error.message, true));
     });
-    $('#message-templates-form').addEventListener('submit', event => {
+    $('#message-templates-form')?.addEventListener('submit', event => {
       event.preventDefault();
       submitLocked(event.currentTarget, async () => {
         const form = event.currentTarget;
