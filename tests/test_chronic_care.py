@@ -37,6 +37,7 @@ class ChronicCareUnitTests(unittest.TestCase):
         self.assertIn("CREATE TABLE IF NOT EXISTS CHRONIC_MEDICATIONS", sql)
         self.assertIn("CREATE TABLE IF NOT EXISTS CHRONIC_DISPENSES", sql)
         self.assertIn("CREATE TABLE IF NOT EXISTS CHRONIC_MESSAGE_TEMPLATES", sql)
+        self.assertIn("ADD COLUMN IF NOT EXISTS ARCHIVED_AT", sql)
         self.assertNotIn("DROP TABLE", sql)
         self.assertNotIn("ON DELETE CASCADE", sql)
         self.assertIn("ENABLE ROW LEVEL SECURITY", sql)
@@ -68,6 +69,15 @@ class ChronicCareUnitTests(unittest.TestCase):
         self.assertIn("/api/chronic-care/treatment-plans", script)
         self.assertIn("localDateTimeValue(new Date())", script)
         self.assertIn("apply-days-to-all", script)
+
+    def test_customer_is_rendered_once_with_safe_medication_removal(self):
+        page = (APP_DIR / "templates" / "chronic_care.html").read_text(encoding="utf-8")
+        script = (APP_DIR / "static" / "chronic_care.js").read_text(encoding="utf-8")
+        self.assertIn('class="cc-customer-medications"', page)
+        self.assertIn('class="cc-customer-card"', script)
+        self.assertIn("remove-medication", script)
+        self.assertIn("method:'DELETE'", script)
+        self.assertNotIn('id="customers-body"', page)
 
 
 @unittest.skipUnless(os.environ.get("CHRONIC_TEST_DATABASE_URL"), "integration database is not configured")

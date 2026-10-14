@@ -52,6 +52,9 @@ CREATE TABLE IF NOT EXISTS chronic_medications (
     updated_at TIMESTAMPTZ NOT NULL
 );
 
+ALTER TABLE chronic_medications
+    ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
+
 CREATE TABLE IF NOT EXISTS chronic_dispenses (
     id TEXT PRIMARY KEY,
     medication_id TEXT NOT NULL REFERENCES chronic_medications(id) ON DELETE RESTRICT,
@@ -112,7 +115,7 @@ WITH latest AS (
     ORDER BY medication_id, dispensed_at DESC, created_at DESC
 )
 SELECT
-    m.id, m.customer_id, m.name, m.strength, m.status,
+    m.id, m.customer_id, m.name, m.strength, m.status, m.archived_at,
     m.created_at, m.updated_at,
     c.name AS customer_name, c.phone, c.followup_status,
     c.reminder_consent,
@@ -278,7 +281,7 @@ def _window_clause(window, params):
 
 def list_medications(search="", status="", window=""):
     params = []
-    query = LATEST_MEDICATIONS_SQL + " WHERE 1=1"
+    query = LATEST_MEDICATIONS_SQL + " WHERE m.archived_at IS NULL"
     search = str(search or "").strip()
     if search:
         normalized = _normalize_phone(search)
@@ -313,7 +316,7 @@ def list_customers(search=""):
             params.append(f"%{normalized}%")
         where += ")"
     query = f"""
-        SELECT c.*, COUNT(m.id)::INTEGER AS medication_count
+        SELECT c.*, COUNT(m.id) FILTER (WHERE m.archived_at IS NULL)::INTEGER AS medication_count
         FROM chronic_customers c
         LEFT JOIN chronic_medications m ON m.customer_id=c.id
         {where}
@@ -407,6 +410,14 @@ def create_medication(customer_id, payload):
     with _connect() as conn:
         if not conn.execute("SELECT 1 FROM chronic_customers WHERE id=%s", (customer_id,)).fetchone():
             return None
+        duplicate = conn.execute("""
+            SELECT id FROM chronic_medications
+            WHERE customer_id=%s AND archived_at IS NULL
+              AND lower(btrim(name))=lower(btrim(%s))
+              AND lower(btrim(strength))=lower(btrim(%s))
+        """, (customer_id, name, strength)).fetchone()
+        if duplicate:
+            raise ValueError("هذا الدواء والتركيز موجودان بالفعل داخل ملف العميل")
         row = conn.execute("""
             INSERT INTO chronic_medications(id,customer_id,name,strength,status,created_at,updated_at)
             VALUES (%(id)s,%(customer_id)s,%(name)s,%(strength)s,%(status)s,%(created_at)s,%(updated_at)s)
@@ -427,6 +438,15 @@ def update_medication(medication_id, payload):
     if status not in MEDICATION_STATUSES:
         raise ValueError("حالة الدواء غير صحيحة")
     with _connect() as conn:
+        duplicate = conn.execute("""
+            SELECT 1 FROM chronic_medications current
+            JOIN chronic_medications other ON other.customer_id=current.customer_id
+            WHERE current.id=%s AND other.id<>current.id AND other.archived_at IS NULL
+              AND lower(btrim(other.name))=lower(btrim(%s))
+              AND lower(btrim(other.strength))=lower(btrim(%s))
+        """, (medication_id, name, strength)).fetchone()
+        if duplicate:
+            raise ValueError("هذا الدواء والتركيز موجودان بالفعل داخل ملف العميل")
         row = conn.execute("""
             UPDATE chronic_medications SET name=%s,strength=%s,status=%s,updated_at=%s
             WHERE id=%s RETURNING *
@@ -437,6 +457,30 @@ def update_medication(medication_id, payload):
     result["created_at"] = _iso(result["created_at"])
     result["updated_at"] = _iso(result["updated_at"])
     return result
+
+
+def remove_medication(medication_id):
+    """Delete an unused medication, or archive it when dispense history must be preserved."""
+    now = _now()
+    with _connect() as conn:
+        medication = conn.execute("""
+            SELECT m.*, EXISTS(
+                SELECT 1 FROM chronic_dispenses d WHERE d.medication_id=m.id
+            ) AS has_history
+            FROM chronic_medications m WHERE m.id=%s
+            FOR UPDATE
+        """, (medication_id,)).fetchone()
+        if not medication:
+            return None
+        if medication["has_history"]:
+            conn.execute("""
+                UPDATE chronic_medications
+                SET status='stopped', archived_at=%s, updated_at=%s
+                WHERE id=%s
+            """, (now, now, medication_id))
+            return {"action": "archived", "name": medication["name"]}
+        conn.execute("DELETE FROM chronic_medications WHERE id=%s", (medication_id,))
+        return {"action": "deleted", "name": medication["name"]}
 
 
 def create_dispense(medication_id, payload, actor):
@@ -486,15 +530,21 @@ def create_treatment_plan(payload, actor):
 
     dispensed_at = _parse_datetime(payload.get("dispensed_at"), "تاريخ ووقت الصرف")
     prepared = []
+    prepared_keys = set()
     for index, medication in enumerate(medications, start=1):
         if not isinstance(medication, dict):
             raise ValueError(f"بيانات الدواء رقم {index} غير صحيحة")
         name = str(medication.get("name") or "").strip()
         if not name:
             raise ValueError(f"اسم الدواء رقم {index} مطلوب")
+        strength = str(medication.get("strength") or "").strip()
+        medication_key = (name.casefold(), strength.casefold())
+        if medication_key in prepared_keys:
+            raise ValueError(f"الدواء رقم {index} مكرر في نفس العملية")
+        prepared_keys.add(medication_key)
         prepared.append({
             "name": name,
-            "strength": str(medication.get("strength") or "").strip(),
+            "strength": strength,
             "quantity": _decimal(medication.get("quantity"), f"كمية الدواء رقم {index}"),
             "days_supply": _positive_int(medication.get("days_supply"), f"مدة الدواء رقم {index}"),
         })
@@ -538,15 +588,31 @@ def create_treatment_plan(payload, actor):
 
             created = []
             for medication in prepared:
-                medication_id = _id("CM")
-                conn.execute("""
-                    INSERT INTO chronic_medications
-                        (id,customer_id,name,strength,status,created_at,updated_at)
-                    VALUES (%s,%s,%s,%s,'active',%s,%s)
-                """, (
-                    medication_id, customer_id, medication["name"],
-                    medication["strength"], now, now,
-                ))
+                existing = conn.execute("""
+                    SELECT id, archived_at FROM chronic_medications
+                    WHERE customer_id=%s
+                      AND lower(btrim(name))=lower(btrim(%s))
+                      AND lower(btrim(strength))=lower(btrim(%s))
+                    ORDER BY archived_at NULLS FIRST, created_at
+                    LIMIT 1
+                """, (customer_id, medication["name"], medication["strength"])).fetchone()
+                if existing:
+                    medication_id = existing["id"]
+                    conn.execute("""
+                        UPDATE chronic_medications
+                        SET status='active', archived_at=NULL, updated_at=%s
+                        WHERE id=%s
+                    """, (now, medication_id))
+                else:
+                    medication_id = _id("CM")
+                    conn.execute("""
+                        INSERT INTO chronic_medications
+                            (id,customer_id,name,strength,status,created_at,updated_at)
+                        VALUES (%s,%s,%s,%s,'active',%s,%s)
+                    """, (
+                        medication_id, customer_id, medication["name"],
+                        medication["strength"], now, now,
+                    ))
                 expected, reminder = calculate_schedule(dispensed_at, medication["days_supply"])
                 dispense_id = _id("CD")
                 conn.execute("""
@@ -840,6 +906,19 @@ def install_chronic_care(app):
             return jsonify({"error": "الدواء غير موجود"}), 404
         _audit(app, "Chronic Medication Updated", f"تم تحديث الدواء {medication['name']}")
         return jsonify({"medication": medication})
+
+    @app.delete("/api/chronic-care/medications/<medication_id>")
+    def chronic_remove_medication_api(medication_id):
+        denied = _api_guard(app)
+        if denied:
+            return denied
+        ensure_schema()
+        result = remove_medication(medication_id)
+        if not result:
+            return jsonify({"error": "الدواء غير موجود"}), 404
+        verb = "أرشفة" if result["action"] == "archived" else "حذف"
+        _audit(app, f"Chronic Medication {result['action'].title()}", f"تم {verb} الدواء {result['name']}")
+        return jsonify(result)
 
     @app.post("/api/chronic-care/medications/<medication_id>/dispenses")
     def chronic_create_dispense_api(medication_id):

@@ -138,15 +138,6 @@
     const data = await api(`/api/chronic-care/customers?search=${encodeURIComponent(search)}`);
     customerMap.clear();
     data.customers.forEach(item => customerMap.set(item.id, item));
-    $('#customers-body').innerHTML = data.customers.map(customer => `
-      <tr>
-        <td class="cc-name">${escapeHtml(customer.name)}</td>
-        <td dir="ltr">${escapeHtml(customer.phone)}</td>
-        <td>${statusBadge(customer.followup_status)}</td>
-        <td>${customer.reminder_consent ? '✓ موافق' : 'غير موافق'}</td>
-        <td>${formatNumber(customer.medication_count)}</td>
-        <td><div class="cc-actions"><button class="whatsapp" data-action="whatsapp-customer" data-id="${escapeHtml(customer.id)}" ${customer.reminder_consent && customer.phone ? '' : 'disabled title="يتطلب رقم هاتف وموافقة العميل"'}>💬 واتساب</button><button data-action="add-medication" data-id="${escapeHtml(customer.id)}">+ دواء</button><button data-action="edit-customer" data-id="${escapeHtml(customer.id)}">تعديل</button></div></td>
-      </tr>`).join('') || '<tr><td colspan="6" class="cc-empty">لا توجد ملفات عملاء.</td></tr>';
   }
 
   async function loadMedications() {
@@ -158,21 +149,47 @@
     const data = await api(`/api/chronic-care/medications?${params}`);
     medicationMap.clear();
     data.medications.forEach(item => medicationMap.set(item.id, item));
-    $('#medications-body').innerHTML = data.medications.map(medication => `
-      <tr>
-        <td><span class="cc-name">${escapeHtml(medication.customer_name)}</span><span class="cc-sub" dir="ltr">${escapeHtml(medication.phone)}</span></td>
-        <td><span class="cc-name">${escapeHtml(medication.name)}</span><span class="cc-sub">${escapeHtml(medication.strength || 'بدون تركيز مسجل')}</span></td>
-        <td>${formatDate(medication.dispensed_at)}${medication.quantity != null ? `<span class="cc-sub">الكمية: ${formatNumber(medication.quantity)} • ${medication.days_supply} يوم</span>` : ''}</td>
-        <td>${formatDate(medication.expected_refill_at)}</td>
-        <td>${medication.reminder_consent ? formatDate(medication.reminder_at) : '<span class="cc-sub">العميل غير موافق</span>'}</td>
-        <td>${statusBadge(medication.status)}</td>
-        <td><div class="cc-actions"><button class="whatsapp" data-action="whatsapp-medication" data-id="${escapeHtml(medication.id)}" ${medication.reminder_consent && medication.phone && medication.expected_refill_at ? '' : 'disabled title="يتطلب موعد صرف وموافقة العميل"'}>💬 تذكير واتساب</button><button class="primary" data-action="dispense" data-id="${escapeHtml(medication.id)}">إعادة صرف</button><button data-action="history" data-id="${escapeHtml(medication.id)}">السجل</button><button data-action="edit-medication" data-id="${escapeHtml(medication.id)}">تعديل</button></div></td>
-      </tr>`).join('');
+    const groups = new Map();
+    if (!$('#cc-window-filter').value && !$('#cc-status-filter').value) {
+      customerMap.forEach(customer => groups.set(customer.id, []));
+    }
+    data.medications.forEach(medication => {
+      if (!groups.has(medication.customer_id)) groups.set(medication.customer_id, []);
+      groups.get(medication.customer_id).push(medication);
+    });
+    $('#medications-body').innerHTML = [...groups.entries()].map(([customerId, medications]) => {
+      const first = medications[0];
+      const customer = customerMap.get(customerId) || {
+        id: customerId,
+        name: first.customer_name,
+        phone: first.phone,
+        reminder_consent: first.reminder_consent,
+      };
+      return `<article class="cc-customer-card">
+        <header class="cc-customer-card-head">
+          <div><strong>${escapeHtml(customer.name)}</strong><span dir="ltr">${escapeHtml(customer.phone)}</span><small>${medications.length} ${medications.length === 1 ? 'دواء' : 'أدوية'}</small></div>
+          <div class="cc-actions"><button class="whatsapp" data-action="whatsapp-customer" data-id="${escapeHtml(customerId)}" ${customer.reminder_consent && customer.phone ? '' : 'disabled title="يتطلب رقم هاتف وموافقة العميل"'}>💬 واتساب</button><button data-action="add-medication" data-id="${escapeHtml(customerId)}">+ إضافة/صرف دواء</button><button data-action="edit-customer" data-id="${escapeHtml(customerId)}">تعديل العميل</button></div>
+        </header>
+        <div class="cc-table-wrap"><table><thead><tr><th>الدواء</th><th>آخر صرف</th><th>الموعد المتوقع</th><th>التذكير</th><th>الحالة</th><th>الإجراء</th></tr></thead><tbody>
+          ${medications.map(medication => `<tr>
+            <td><span class="cc-name">${escapeHtml(medication.name)}</span><span class="cc-sub">${escapeHtml(medication.strength || 'بدون تركيز مسجل')}</span></td>
+            <td>${formatDate(medication.dispensed_at)}${medication.quantity != null ? `<span class="cc-sub">الكمية: ${formatNumber(medication.quantity)} • ${medication.days_supply} يوم</span>` : ''}</td>
+            <td>${formatDate(medication.expected_refill_at)}</td>
+            <td>${medication.reminder_consent ? formatDate(medication.reminder_at) : '<span class="cc-sub">العميل غير موافق</span>'}</td>
+            <td>${statusBadge(medication.status)}</td>
+            <td><div class="cc-actions"><button class="whatsapp" data-action="whatsapp-medication" data-id="${escapeHtml(medication.id)}" ${medication.reminder_consent && medication.phone && medication.expected_refill_at ? '' : 'disabled title="يتطلب موعد صرف وموافقة العميل"'}>💬 تذكير</button><button class="primary" data-action="dispense" data-id="${escapeHtml(medication.id)}">إعادة صرف</button><button data-action="history" data-id="${escapeHtml(medication.id)}">السجل</button><button data-action="edit-medication" data-id="${escapeHtml(medication.id)}">تعديل</button><button class="danger" data-action="remove-medication" data-id="${escapeHtml(medication.id)}">${medication.latest_dispense_id ? 'أرشفة' : 'حذف'}</button></div></td>
+          </tr>`).join('') || '<tr><td colspan="6" class="cc-empty">لا توجد أدوية نشطة في هذا الملف.</td></tr>'}
+        </tbody></table></div>
+      </article>`;
+    }).join('');
     $('#medications-empty').classList.toggle('hidden', data.medications.length > 0);
   }
 
   async function refreshAll() {
-    try { await Promise.all([loadDashboardSummary(), loadCustomers(), loadMedications(), loadMessageTemplates()]); }
+    try {
+      await loadCustomers();
+      await Promise.all([loadDashboardSummary(), loadMedications(), loadMessageTemplates()]);
+    }
     catch (error) { showToast(error.message, true); }
   }
 
@@ -299,6 +316,21 @@
     } catch (error) { showToast(error.message, true); closeDialog($('#history-dialog')); }
   }
 
+  async function removeMedication(medication) {
+    if (!medication) return;
+    const hasHistory = Boolean(medication.latest_dispense_id);
+    const verb = hasHistory ? 'أرشفة' : 'حذف';
+    const detail = hasHistory
+      ? 'سيختفي الدواء من المتابعة مع الاحتفاظ بجميع عمليات الصرف السابقة.'
+      : 'سيُحذف هذا الدواء لأنه لا يحتوي على عمليات صرف.';
+    if (!window.confirm(`${verb} ${medication.name}؟\n${detail}`)) return;
+    try {
+      const result = await api(`/api/chronic-care/medications/${encodeURIComponent(medication.id)}`, {method:'DELETE'});
+      showToast(result.action === 'archived' ? 'تمت أرشفة الدواء مع الاحتفاظ بالسجل' : 'تم حذف الدواء');
+      await refreshAll();
+    } catch (error) { showToast(error.message, true); }
+  }
+
   async function submitLocked(form, task) {
     const button = form.querySelector('[type="submit"]');
     if (button.disabled) return;
@@ -313,7 +345,10 @@
     $('#cc-refresh').addEventListener('click', refreshAll);
     $('#cc-window-filter').addEventListener('change', loadMedications);
     $('#cc-status-filter').addEventListener('change', loadMedications);
-    $('#cc-search').addEventListener('input', debounce(() => Promise.all([loadCustomers(), loadMedications()]).catch(error => showToast(error.message, true))));
+    $('#cc-search').addEventListener('input', debounce(async () => {
+      try { await loadCustomers(); await loadMedications(); }
+      catch (error) { showToast(error.message, true); }
+    }));
     $('#cc-stats').addEventListener('click', event => {
       const card = event.target.closest('button[data-window]');
       if (!card) return;
@@ -333,6 +368,7 @@
       if (action === 'dispense') openDispense(medicationMap.get(id));
       if (action === 'history') openHistory(medicationMap.get(id));
       if (action === 'whatsapp-medication') sendMedicationWhatsApp(medicationMap.get(id));
+      if (action === 'remove-medication') removeMedication(medicationMap.get(id));
     });
     $('#dispense-form').elements.days_supply.addEventListener('input', updateCalculation);
     $('#dispense-form').elements.dispensed_at.addEventListener('input', updateCalculation);

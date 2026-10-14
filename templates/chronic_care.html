@@ -7,7 +7,7 @@
   <title>متابعة العلاج المزمن - صيدلية عز الصحة</title>
   <link rel="icon" type="image/png" href="{{ url_for('static', filename='logo-mark.png') }}">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap">
-  <link rel="stylesheet" href="{{ url_for('static', filename='chronic_care.css') }}?v=3">
+  <link rel="stylesheet" href="{{ url_for('static', filename='chronic_care.css') }}?v=4">
 </head>
 <body data-chronic-page="dashboard">
   <header class="cc-header">
@@ -48,17 +48,8 @@
         </select>
         <button class="cc-btn" id="cc-refresh">تحديث</button>
       </div>
-      <div class="cc-table-wrap">
-        <table><thead><tr><th>العميل</th><th>الدواء</th><th>آخر صرف</th><th>الموعد المتوقع</th><th>التذكير</th><th>الحالة</th><th>الإجراء</th></tr></thead><tbody id="medications-body"></tbody></table>
-      </div>
+      <div id="medications-body" class="cc-customer-medications"></div>
       <div class="cc-empty hidden" id="medications-empty">لا توجد نتائج مطابقة.</div>
-    </section>
-
-    <section class="cc-panel">
-      <div class="cc-panel-head"><div><h2>ملفات العملاء</h2><p>لا يمكن إنشاء أكثر من ملف للرقم نفسه.</p></div></div>
-      <div class="cc-table-wrap">
-        <table><thead><tr><th>الاسم</th><th>الهاتف</th><th>المتابعة</th><th>التذكير</th><th>الأدوية</th><th>الإجراء</th></tr></thead><tbody id="customers-body"></tbody></table>
-      </div>
     </section>
   </main>
 
@@ -144,7 +135,7 @@
 
   <div class="cc-toast" id="cc-toast" role="status"></div>
   <script src="{{ url_for('static', filename='csrf-client.js') }}?v=20260906-csrf-v1"></script>
-  <script src="{{ url_for('static', filename='chronic_care.js') }}?v=3"></script>
+  <script src="{{ url_for('static', filename='chronic_care.js') }}?v=4"></script>
 </body>
 </html>
 
