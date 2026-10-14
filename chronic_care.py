@@ -474,6 +474,107 @@ def create_dispense(medication_id, payload, actor):
     return result
 
 
+def create_treatment_plan(payload, actor):
+    """Create one customer (or reuse one) with several medications and initial dispenses atomically."""
+    if not isinstance(payload, dict):
+        raise ValueError("بيانات العملية غير صحيحة")
+    medications = payload.get("medications")
+    if not isinstance(medications, list) or not medications:
+        raise ValueError("أضف دواء واحدًا على الأقل")
+    if len(medications) > 25:
+        raise ValueError("يمكن إضافة 25 دواء كحد أقصى في العملية الواحدة")
+
+    dispensed_at = _parse_datetime(payload.get("dispensed_at"), "تاريخ ووقت الصرف")
+    prepared = []
+    for index, medication in enumerate(medications, start=1):
+        if not isinstance(medication, dict):
+            raise ValueError(f"بيانات الدواء رقم {index} غير صحيحة")
+        name = str(medication.get("name") or "").strip()
+        if not name:
+            raise ValueError(f"اسم الدواء رقم {index} مطلوب")
+        prepared.append({
+            "name": name,
+            "strength": str(medication.get("strength") or "").strip(),
+            "quantity": _decimal(medication.get("quantity"), f"كمية الدواء رقم {index}"),
+            "days_supply": _positive_int(medication.get("days_supply"), f"مدة الدواء رقم {index}"),
+        })
+
+    customer_id = str(payload.get("customer_id") or "").strip()
+    now = _now()
+    actor_id = str((actor or {}).get("id") or "")
+    actor_name = str((actor or {}).get("name") or (actor or {}).get("username") or "موظف")
+    try:
+        with _connect() as conn:
+            if customer_id:
+                customer = conn.execute(
+                    "SELECT * FROM chronic_customers WHERE id=%s", (customer_id,)
+                ).fetchone()
+                if not customer:
+                    return None
+            else:
+                customer_payload = payload.get("customer") or {}
+                if not isinstance(customer_payload, dict):
+                    raise ValueError("بيانات العميل غير صحيحة")
+                name = str(customer_payload.get("name") or "").strip()
+                phone = str(customer_payload.get("phone") or "").strip()
+                normalized = _normalize_phone(phone)
+                status = str(customer_payload.get("followup_status") or "active")
+                if not name:
+                    raise ValueError("اسم العميل مطلوب")
+                if len(normalized) < 9:
+                    raise ValueError("رقم الهاتف غير صحيح")
+                if status not in CUSTOMER_STATUSES:
+                    raise ValueError("حالة المتابعة غير صحيحة")
+                customer_id = _id("CC")
+                customer = conn.execute("""
+                    INSERT INTO chronic_customers
+                        (id,name,phone,phone_normalized,followup_status,reminder_consent,created_at,updated_at)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                    RETURNING *
+                """, (
+                    customer_id, name, phone, normalized, status,
+                    bool(customer_payload.get("reminder_consent")), now, now,
+                )).fetchone()
+
+            created = []
+            for medication in prepared:
+                medication_id = _id("CM")
+                conn.execute("""
+                    INSERT INTO chronic_medications
+                        (id,customer_id,name,strength,status,created_at,updated_at)
+                    VALUES (%s,%s,%s,%s,'active',%s,%s)
+                """, (
+                    medication_id, customer_id, medication["name"],
+                    medication["strength"], now, now,
+                ))
+                expected, reminder = calculate_schedule(dispensed_at, medication["days_supply"])
+                dispense_id = _id("CD")
+                conn.execute("""
+                    INSERT INTO chronic_dispenses
+                        (id,medication_id,quantity,days_supply,dispensed_at,expected_refill_at,
+                         reminder_at,created_by_user_id,created_by_name,created_at)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                """, (
+                    dispense_id, medication_id, medication["quantity"], medication["days_supply"],
+                    dispensed_at, expected, reminder, actor_id, actor_name, now,
+                ))
+                created.append({
+                    "id": medication_id,
+                    "name": medication["name"],
+                    "strength": medication["strength"],
+                    "dispense_id": dispense_id,
+                    "expected_refill_at": _iso(expected),
+                    "reminder_at": _iso(reminder),
+                })
+    except psycopg.errors.UniqueViolation as exc:
+        raise ValueError("يوجد ملف متابعة مسجل بهذا الرقم") from exc
+
+    serialized_customer = dict(customer)
+    serialized_customer["created_at"] = _iso(serialized_customer["created_at"])
+    serialized_customer["updated_at"] = _iso(serialized_customer["updated_at"])
+    return {"customer": serialized_customer, "medications": created}
+
+
 def dispense_history(medication_id):
     with _connect() as conn:
         rows = conn.execute("""
@@ -657,6 +758,28 @@ def install_chronic_care(app):
             return jsonify({"error": str(exc)}), 400
         _audit(app, "Chronic Customer Created", f"تم إنشاء ملف متابعة للعميل {customer['name']}")
         return jsonify({"customer": customer}), 201
+
+    @app.post("/api/chronic-care/treatment-plans")
+    def chronic_create_treatment_plan_api():
+        denied = _api_guard(app)
+        if denied:
+            return denied
+        ensure_schema()
+        try:
+            result = create_treatment_plan(
+                request.get_json(silent=True) or {}, _current_user(app)
+            )
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        if not result:
+            return jsonify({"error": "ملف العميل غير موجود"}), 404
+        count = len(result["medications"])
+        _audit(
+            app,
+            "Chronic Treatment Plan Created",
+            f"تم تسجيل {count} دواء للعميل {result['customer']['name']}",
+        )
+        return jsonify(result), 201
 
     @app.put("/api/chronic-care/customers/<customer_id>")
     def chronic_update_customer_api(customer_id):

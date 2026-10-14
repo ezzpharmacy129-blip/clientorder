@@ -11,8 +11,10 @@
   };
   let forecastRows = [];
   let toastTimer;
+  let planMedicationIndex = 0;
 
   const $ = (selector, root=document) => root.querySelector(selector);
+  const $$ = (selector, root=document) => [...root.querySelectorAll(selector)];
   const escapeHtml = (value) => String(value ?? '').replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));
   const statusBadge = status => `<span class="cc-badge ${escapeHtml(status)}">${escapeHtml(statusLabels[status] || status)}</span>`;
   const formatNumber = value => new Intl.NumberFormat('ar-SA', {maximumFractionDigits:3}).format(Number(value || 0));
@@ -186,6 +188,68 @@
     $('#customer-dialog').showModal();
   }
 
+  function updatePlanRowSchedule(row) {
+    const form = $('#treatment-plan-form');
+    const dateValue = form.elements.dispensed_at.value;
+    const days = Number(row.querySelector('[data-plan-field="days_supply"]').value);
+    const preview = row.querySelector('[data-plan-schedule]');
+    if (!dateValue || !Number.isInteger(days) || days <= 0) {
+      preview.textContent = 'موعد إعادة الصرف: —';
+      return;
+    }
+    const refill = new Date(new Date(dateValue).getTime() + days * 86400000);
+    preview.textContent = `إعادة الصرف: ${formatDate(refill.toISOString())}`;
+  }
+
+  function addPlanMedicationRow(values={}) {
+    const container = $('#plan-medications');
+    const row = document.createElement('div');
+    const defaultDays = Number($('#treatment-plan-form').elements.default_days.value) || 30;
+    row.className = 'cc-plan-medication';
+    row.dataset.planRow = String(++planMedicationIndex);
+    row.innerHTML = `
+      <div class="cc-plan-medication-number">دواء ${container.children.length + 1}</div>
+      <label>اسم الدواء<input data-plan-field="name" required maxlength="200" value="${escapeHtml(values.name || '')}" placeholder="مثال: Actos"></label>
+      <label>التركيز<input data-plan-field="strength" maxlength="100" value="${escapeHtml(values.strength || '')}" placeholder="15 mg"></label>
+      <label>الكمية<input data-plan-field="quantity" type="number" min="0.001" step="0.001" required value="${escapeHtml(values.quantity || 1)}"></label>
+      <label>عدد الأيام<input data-plan-field="days_supply" type="number" min="1" step="1" required value="${escapeHtml(values.days_supply || defaultDays)}"></label>
+      <div class="cc-plan-row-foot"><small data-plan-schedule></small><button type="button" data-remove-plan-medication>حذف الدواء</button></div>`;
+    container.appendChild(row);
+    updatePlanRowSchedule(row);
+    row.querySelector('[data-plan-field="name"]').focus();
+  }
+
+  function renumberPlanMedications() {
+    $$('.cc-plan-medication', $('#plan-medications')).forEach((row, index) => {
+      row.querySelector('.cc-plan-medication-number').textContent = `دواء ${index + 1}`;
+    });
+  }
+
+  function openTreatmentPlan(customer=null) {
+    const form = $('#treatment-plan-form');
+    form.reset();
+    planMedicationIndex = 0;
+    form.elements.customer_id.value = customer?.id || '';
+    form.elements.dispensed_at.value = localDateTimeValue(new Date());
+    form.elements.default_days.value = '30';
+    $$('.cc-day-presets button').forEach(button => button.classList.toggle('active', button.dataset.days === '30'));
+    $('#plan-medications').innerHTML = '';
+    const isExisting = Boolean(customer);
+    $('#plan-new-customer').classList.toggle('hidden', isExisting);
+    $('#plan-existing-customer').classList.toggle('hidden', !isExisting);
+    form.elements.customer_name.required = !isExisting;
+    form.elements.phone.required = !isExisting;
+    if (isExisting) {
+      $('#treatment-plan-title').textContent = 'إضافة أدوية للعميل';
+      $('#plan-existing-customer').innerHTML = `<b>${escapeHtml(customer.name)}</b><span dir="ltr">${escapeHtml(customer.phone)}</span><small>سيُحفظ الصرف الجديد داخل ملف العميل الحالي.</small>`;
+    } else {
+      $('#treatment-plan-title').textContent = 'إضافة عميل وأدويته';
+      form.elements.followup_status.value = 'active';
+    }
+    addPlanMedicationRow();
+    $('#treatment-plan-dialog').showModal();
+  }
+
   function openMedication(customerId, medication=null) {
     const form = $('#medication-form');
     form.reset();
@@ -244,7 +308,7 @@
 
   function setupDashboard() {
     setupDialogClosers();
-    $('#add-customer-btn').addEventListener('click', () => openCustomer());
+    $('#add-customer-btn').addEventListener('click', () => openTreatmentPlan());
     $('#message-templates-btn')?.addEventListener('click', openMessageTemplates);
     $('#cc-refresh').addEventListener('click', refreshAll);
     $('#cc-window-filter').addEventListener('change', loadMedications);
@@ -263,7 +327,7 @@
       const action = button.dataset.action;
       const id = button.dataset.id;
       if (action === 'edit-customer') openCustomer(customerMap.get(id));
-      if (action === 'add-medication') openMedication(id);
+      if (action === 'add-medication') openTreatmentPlan(customerMap.get(id));
       if (action === 'whatsapp-customer') sendCustomerWhatsApp(customerMap.get(id));
       if (action === 'edit-medication') openMedication('', medicationMap.get(id));
       if (action === 'dispense') openDispense(medicationMap.get(id));
@@ -272,6 +336,64 @@
     });
     $('#dispense-form').elements.days_supply.addEventListener('input', updateCalculation);
     $('#dispense-form').elements.dispensed_at.addEventListener('input', updateCalculation);
+
+    $('#add-plan-medication').addEventListener('click', () => addPlanMedicationRow());
+    $('#plan-medications').addEventListener('click', event => {
+      const remove = event.target.closest('[data-remove-plan-medication]');
+      if (!remove) return;
+      const rows = $$('.cc-plan-medication', $('#plan-medications'));
+      if (rows.length === 1) return showToast('يجب وجود دواء واحد على الأقل', true);
+      remove.closest('.cc-plan-medication').remove();
+      renumberPlanMedications();
+    });
+    $('#plan-medications').addEventListener('input', event => {
+      if (event.target.matches('[data-plan-field="days_supply"]')) updatePlanRowSchedule(event.target.closest('.cc-plan-medication'));
+    });
+    $('#treatment-plan-form').elements.dispensed_at.addEventListener('input', () => {
+      $$('.cc-plan-medication', $('#plan-medications')).forEach(updatePlanRowSchedule);
+    });
+    $$('.cc-day-presets').forEach(group => group.addEventListener('click', event => {
+      const button = event.target.closest('[data-days]');
+      if (!button) return;
+      $('#treatment-plan-form').elements.default_days.value = button.dataset.days;
+      $$('.cc-day-presets button').forEach(item => item.classList.toggle('active', item === button));
+    }));
+    $('#apply-days-to-all').addEventListener('click', () => {
+      const days = $('#treatment-plan-form').elements.default_days.value;
+      $$('.cc-plan-medication', $('#plan-medications')).forEach(row => {
+        row.querySelector('[data-plan-field="days_supply"]').value = days;
+        updatePlanRowSchedule(row);
+      });
+      showToast(`تم تطبيق ${days} يومًا على جميع الأدوية`);
+    });
+
+    $('#treatment-plan-form').addEventListener('submit', event => {
+      event.preventDefault();
+      submitLocked(event.currentTarget, async () => {
+        const form = event.currentTarget;
+        const medications = $$('.cc-plan-medication', $('#plan-medications')).map(row => ({
+          name: row.querySelector('[data-plan-field="name"]').value,
+          strength: row.querySelector('[data-plan-field="strength"]').value,
+          quantity: row.querySelector('[data-plan-field="quantity"]').value,
+          days_supply: row.querySelector('[data-plan-field="days_supply"]').value,
+        }));
+        const payload = {
+          customer_id: form.elements.customer_id.value,
+          customer: {
+            name: form.elements.customer_name.value,
+            phone: form.elements.phone.value,
+            followup_status: form.elements.followup_status.value,
+            reminder_consent: form.elements.reminder_consent.checked,
+          },
+          dispensed_at: form.elements.dispensed_at.value,
+          medications,
+        };
+        const data = await api('/api/chronic-care/treatment-plans', {method:'POST', body:JSON.stringify(payload)});
+        closeDialog($('#treatment-plan-dialog'));
+        showToast(`تم حفظ ${data.medications.length} دواء وحساب مواعيدها تلقائيًا`);
+        await refreshAll();
+      }).catch(error => showToast(error.message, true));
+    });
 
     $('#customer-form').addEventListener('submit', event => {
       event.preventDefault();

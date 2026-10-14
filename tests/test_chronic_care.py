@@ -57,6 +57,18 @@ class ChronicCareUnitTests(unittest.TestCase):
         self.assertIn("/api/chronic-care/message-templates", source)
         self.assertIn("{اسم_العميل}", source)
 
+    def test_quick_plan_ui_supports_multiple_medications_and_automatic_schedule(self):
+        page = (APP_DIR / "templates" / "chronic_care.html").read_text(encoding="utf-8")
+        script = (APP_DIR / "static" / "chronic_care.js").read_text(encoding="utf-8")
+        self.assertIn('id="treatment-plan-form"', page)
+        self.assertIn('id="add-plan-medication"', page)
+        self.assertIn('data-days="30"', page)
+        self.assertIn('data-days="60"', page)
+        self.assertIn('data-days="90"', page)
+        self.assertIn("/api/chronic-care/treatment-plans", script)
+        self.assertIn("localDateTimeValue(new Date())", script)
+        self.assertIn("apply-days-to-all", script)
+
 
 @unittest.skipUnless(os.environ.get("CHRONIC_TEST_DATABASE_URL"), "integration database is not configured")
 class ChronicCareIntegrationTests(unittest.TestCase):
@@ -99,11 +111,32 @@ class ChronicCareIntegrationTests(unittest.TestCase):
         self.assertEqual(len(chronic_care.list_medications(search="دواء اختبار")), 1)
         self.assertEqual(len(chronic_care.list_medications(search="غير موجود")), 0)
         self.assertEqual(len(chronic_care.list_customers(search="عميل اختبار")), 1)
-        self.assertEqual(chronic_care.dashboard_summary()["active_customers"], 1)
+        self.assertGreaterEqual(chronic_care.dashboard_summary()["active_customers"], 1)
         report = chronic_care.forecast_report()
-        self.assertEqual(report[0]["customer_count"], 1)
-        self.assertEqual(report[0]["refill_operations"], 1)
-        self.assertEqual(report[0]["expected_quantity"], 30)
+        report_row = next(row for row in report if row["name"] == "دواء اختبار")
+        self.assertEqual(report_row["customer_count"], 1)
+        self.assertEqual(report_row["refill_operations"], 1)
+        self.assertEqual(report_row["expected_quantity"], 30)
+
+    def test_create_customer_with_multiple_medications_in_one_operation(self):
+        result = chronic_care.create_treatment_plan({
+            "customer": {
+                "name": "عميل الخطة السريعة",
+                "phone": "0500000088",
+                "followup_status": "active",
+                "reminder_consent": True,
+            },
+            "dispensed_at": "2026-10-15T10:00:00+03:00",
+            "medications": [
+                {"name": "دواء سريع أول", "strength": "10 mg", "quantity": 1, "days_supply": 30},
+                {"name": "دواء سريع ثان", "strength": "20 mg", "quantity": 2, "days_supply": 60},
+            ],
+        }, {"id": "TEST", "name": "مختبر"})
+        self.assertEqual(len(result["medications"]), 2)
+        first_history = chronic_care.dispense_history(result["medications"][0]["id"])
+        second_history = chronic_care.dispense_history(result["medications"][1]["id"])
+        self.assertEqual(first_history[0]["expected_refill_at"], "2026-11-14T10:00+03:00")
+        self.assertEqual(second_history[0]["expected_refill_at"], "2026-12-14T10:00+03:00")
 
     def test_pages_and_read_apis_render_for_authenticated_user(self):
         app = Flask(
